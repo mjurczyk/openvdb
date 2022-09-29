@@ -30,6 +30,19 @@ export class BufferIterator {
     this.source = source;
   }
 
+  static withBufferIterator(target, bufferIterator) {
+    target.bufferIterator = bufferIterator;
+
+    return target;
+  }
+
+  static assert(target) {
+    if (!target.bufferIterator) {
+      console.error('BufferIterator', 'assertInjection', 'buffer iterator does not exist on target', { target });
+      throw 0;
+    }
+  }
+
   reset() {
     this.offset = 0;
   }
