@@ -1,7 +1,7 @@
 import './debug';
 import './dependencies';
 
-import { DEBUG, print, assert, debugLog } from './debug';
+import { DEBUG, print, assert, unsupported } from './debug';
 import {
   charSize,
   uint32Size,
@@ -9,8 +9,11 @@ import {
   doubleSize,
 } from './math/memory';
 
-const parseVDB = (url, { maxDepth } = {}) => {
-  const MAX_DEPTH = maxDepth || Infinity;
+import {
+  Vector3
+} from './math/vector';
+
+const parseVDB = (url) => new Promise((resolve) => {
 
   fetch(url).then(async (vdb) => {
     const source = new Uint8Array(await vdb.arrayBuffer());
@@ -21,14 +24,9 @@ const parseVDB = (url, { maxDepth } = {}) => {
     const readBytes = (count) => {
       buffer = 0;
 
-      // if (DEBUG) console.groupCollapsed();
-
       source.slice(offset, offset + count).forEach((byte, index) => {
         buffer = buffer | (byte << (8 * index));
-        // debugLog(byte, byte.toString(16));
       });
-
-      // if (DEBUG) console.groupEnd();
 
       offset += count;
 
@@ -64,19 +62,19 @@ const parseVDB = (url, { maxDepth } = {}) => {
       } else if (castTo === 'bool') {
         name = Boolean(readBytes(nameSize));
       } else if (castTo === 'vec3i') {
-        name = new Three.Vector3(
+        name = new Vector3(
           readFloat('int32'),
           readFloat('int32'),
           readFloat('int32'),
         );
       } else if (castTo === 'vec3s') {
-        name = new Three.Vector3(
+        name = new Vector3(
           readFloat('float'),
           readFloat('float'),
           readFloat('float'),
         );
       } else if (castTo === 'vec3d') {
-        name = new Three.Vector3(
+        name = new Vector3(
           readFloat('double'),
           readFloat('double'),
           readFloat('double'),
@@ -149,7 +147,7 @@ const parseVDB = (url, { maxDepth } = {}) => {
     };
 
     const readVector3 = (precision = 'double') => {
-      const vector = new Three.Vector3();
+      const vector = new Vector3();
 
       vector.x = readFloat(precision);
       vector.y = readFloat(precision);
@@ -234,6 +232,7 @@ const parseVDB = (url, { maxDepth } = {}) => {
     if (!hasGridOffsets) {
       // TODO Handle case without grid offsets
       // File.cc:364
+      unsupported('VDB without grid offsets');
     } else {
       const gridCount = readBytes(uint32Size);
 
@@ -294,12 +293,12 @@ const parseVDB = (url, { maxDepth } = {}) => {
         const getGridTransform = () => {
           gridDescriptor.transform = {
             mapType: readNameString(),
-            translation: new Three.Vector3(),
-            scale: new Three.Vector3(),
-            voxelSize: new Three.Vector3(),
-            scaleInverse: new Three.Vector3(),
-            scaleInverseSq: new Three.Vector3(),
-            scaleInverseDouble: new Three.Vector3(),
+            translation: new Vector3(),
+            scale: new Vector3(),
+            voxelSize: new Vector3(),
+            scaleInverse: new Vector3(),
+            scaleInverseSq: new Vector3(),
+            scaleInverseDouble: new Vector3(),
           };
 
           if (versionMajor < 219) {
@@ -345,13 +344,13 @@ const parseVDB = (url, { maxDepth } = {}) => {
             };
           } else if (['UnitaryMap'].includes(gridDescriptor.transform.mapType)) {
             // TODO https://github.com/AcademySoftwareFoundation/openvdb/blob/master/openvdb/openvdb/math/Maps.h#L1809
-            console.info('GridDescriptor', 'UnitaryMap', 'not implemented');
+            unsupported('GridDescriptor::UnitaryMap');
           } else if (['NonlinearFrustumMap'].includes(gridDescriptor.transform.mapType)) {
             // TODO https://github.com/AcademySoftwareFoundation/openvdb/blob/master/openvdb/openvdb/math/Maps.h#L2418
-            console.info('GridDescriptor', 'NonlinearFrustumMap', 'not implemented');
+            unsupported('GridDescriptor::NonlinearFrustumMap');
           } else {
             // NOTE Support for any magical map types from https://github.com/AcademySoftwareFoundation/openvdb/blob/master/openvdb/openvdb/math/Maps.h#L538 to be added
-            console.info('GridDescriptor', 'unsupported map type', gridDescriptor.transform.mapType, 'assuming AffineMap');
+            unsupported('GridDescriptor::Matrix4x4');
             // 4x4 transformation matrix
           }
         };
@@ -372,13 +371,11 @@ const parseVDB = (url, { maxDepth } = {}) => {
 
         if (gridDescriptor.topology.bufferCount !== 1) {
           // NOTE https://github.com/AcademySoftwareFoundation/openvdb/blob/master/openvdb/openvdb/tree/Tree.h#L1120
-          console.info('GridDescriptor', 'multi-buffer trees are not supported');
+          unsupported('Multi-buffer trees');
         }
 
         const valueType = getGridValueType();
         const { saveAsHalfFloat } = gridDescriptor;
-
-        // mRoot->writeTopology
 
         gridDescriptor.root = {};
 
@@ -391,7 +388,7 @@ const parseVDB = (url, { maxDepth } = {}) => {
         gridDescriptor.root.numTiles = readBytes(uint32Size);
         gridDescriptor.root.numChildren = readBytes(uint32Size);
         gridDescriptor.root.table = [];
-        gridDescriptor.root.origin = new Three.Vector3();
+        gridDescriptor.root.origin = new Vector3();
 
         const makeTile = (value, active) => ({
           value,
@@ -407,7 +404,6 @@ const parseVDB = (url, { maxDepth } = {}) => {
           isTileOn: () => tile && tile.active,
         });
 
-        // NOTE We assume 5_4_3 for now for simplicity
         const makeChild = (level = 0, props) => ({
           ...props,
           log2dim: ([
@@ -515,17 +511,15 @@ const parseVDB = (url, { maxDepth } = {}) => {
               gridDescriptor.leavesCount++;
             }
 
-            // if (child.level !== 0) console.info('ctrl1', { offset });
             if (level < 2) {
               child.childMask = readMask();
-              // console.info('childMask', child.childMask, child.childMask.countOn(), child.childMask.countOff());
             }
 
             child.valueMask = readMask();
             gridDescriptor.voxelsCount += child.valueMask.onCache;
 
             child.forEachValue = (callback) => {
-              const vec = new Three.Vector3();
+              const vec = new Vector3();
 
               const getValueCoords = (n) => {
                 let x = n >> 2 * child.log2dim;
@@ -539,8 +533,6 @@ const parseVDB = (url, { maxDepth } = {}) => {
                 vec.y = vec.y << child.numVoxels;
                 vec.z = vec.z << child.numVoxels;
 
-                // vec.add(child.origin);
-
                 return vec;
               };
 
@@ -552,10 +544,6 @@ const parseVDB = (url, { maxDepth } = {}) => {
               });
             };
 
-            // console.info('valueMask', child.valueMask, child.valueMask.countOn(), child.valueMask.countOff());
-
-            // if (child.level !== 0) console.info('ctrl2', { offset });
-
             if (level >= 2) {
               child.leaf = true;
               return;
@@ -565,13 +553,11 @@ const parseVDB = (url, { maxDepth } = {}) => {
             child.values = [];
 
             if (versionMajor < 214) {
-              // NOTE Add internal-node compression support
+              unsupported('Internal-node compression');
             } else {
               const oldVersion = versionMajor < 222;
               const numValues = oldVersion ? child.childMask.countOff() : child.numValues;
-              // const values = [];
 
-              // readCompressedValues
               const useHalf = gridDescriptor.saveAsHalfFloat;
               const useCompression = gridDescriptor.gridCompression.activeMask;
 
@@ -586,7 +572,7 @@ const parseVDB = (url, { maxDepth } = {}) => {
               const inactiveVal0 = metadata === 6 ? background : !background;
 
               if ([ 2, 4, 5 ].includes(metadata)) {
-                console.info('child', 'readTopology', 'Compression::readCompressedValues', 'first conditional', 'not implemented');
+                unsupported('Compression::readCompressedValues first conditional');
                 // Read one of at most two distinct inactive values.
                 //     if (seek) {
                 //         is.seekg(/*bytes=*/sizeof(ValueT), std::ios_base::cur);
@@ -611,24 +597,12 @@ const parseVDB = (url, { maxDepth } = {}) => {
 
               if (useCompression && metadata !== 6 && versionMajor >= 222) {
                 tempCount = child.valueMask.countOn();
-
-                if (tempCount !== numValues) {
-                  // NOTE Seems only like some memory allocation, and in JS in terms of memory allocation - we have no memory allocation
-                  // if (!seek && tempCount != destCount) {
-                  //     // If this node has inactive voxels, allocate a temporary buffer
-                  //     // into which to read just the active values.
-                  //     scopedTempBuf.reset(new ValueT[tempCount]);
-                  //     tempBuf = scopedTempBuf.get();
-                  // }
-                }
               }
 
-              const readZipData = async (count) => {
+              const readZipData = async () => {
                 const zippedBytesCount = readBytes(8);
 
                 if (zippedBytesCount <= 0) {
-                  // console.info('readZipData', 'found uncompressed data instead', {zippedBytesCount});
-
                   Array(-zippedBytesCount).fill(0).forEach(() => {
                     child.values.push(readFloat(useHalf ? 'half' : valueType));
                   });
@@ -639,17 +613,15 @@ const parseVDB = (url, { maxDepth } = {}) => {
                   
                   try {
                     child.values.push(window.pako.inflate(zippedBytes));
-                    // console.info('readZipData', 'uncompress', 'success', unnzippedBytes);
                   } catch (error) {
-                    // console.info('readZipData', 'uncompress', 'error', {error, zippedBytes});
+                    console.warn('readZipData', 'uncompress', 'error', {error, zippedBytes});
                   }
                 }
               };
 
               const readData = () => {
-                // NOTE Ignore compression for now
                 if (gridDescriptor.gridCompression.blosc) {
-                  console.info('readData', 'compression', 'blosc', 'not implemented');
+                  unsupported('Compression::BLOSC');
                 } else if (gridDescriptor.gridCompression.zip) {
                   readZipData(tempCount);
                 } else {
@@ -662,6 +634,7 @@ const parseVDB = (url, { maxDepth } = {}) => {
               readData();
 
               if (useCompression && tempCount !== numValues) {
+                unsupported('Inactive values');
                 // Restore inactive values, using the background value and, if available,
                 //     // the inside/outside mask.  (For fog volumes, the destination buffer is assumed
                 //     // to be initialized to background value zero, so inactive values can be ignored.)
@@ -681,49 +654,41 @@ const parseVDB = (url, { maxDepth } = {}) => {
                 return;
               }
 
-              // if (child.level !== 0) console.info('ctrl3', { offset });
+              child.childMask.forEachOn((indices) => {
+                let n = indices.offset;
+                const vec = new Vector3();
 
-              if (level < MAX_DEPTH) {
-                child.childMask.forEachOn((indices) => {
-                  let n = indices.offset;
-                  const vec = new Three.Vector3();
+                let x = n >> 2 * child.log2dim;
+                n &= ((1 << 2 * child.log2dim) - 1);
+                let y = n >> child.log2dim;
+                let z = n & ((1 << child.log2dim) - 1);
 
-                  let x = n >> 2 * child.log2dim;
-                  n &= ((1 << 2 * child.log2dim) - 1);
-                  let y = n >> child.log2dim;
-                  let z = n & ((1 << child.log2dim) - 1);
+                vec.set(x, y, z);
 
-                  vec.set(x, y, z);
-
-                  const subChild = makeChild(level + 1, {
-                    origin: vec,
-                    indices,
-                    background: gridDescriptor.root.background
-                  });
-                  subChild.id = indices.offset;
-                  subChild.readTopology(subChild);
-                  subChild.parent = child;
-
-                  vec.x = vec.x << subChild.total;
-                  vec.y = vec.y << subChild.total;
-                  vec.z = vec.z << subChild.total;
-
-                  // console.info(indices.offset, subChild.nodeType, vec);
-                  
-                  child.table.push(subChild);
-
-                  // if (child.level !== 0) console.info('ctrl4', { offset, i });
+                const subChild = makeChild(level + 1, {
+                  origin: vec,
+                  indices,
+                  background: gridDescriptor.root.background
                 });
-              }
+                subChild.id = indices.offset;
+                subChild.readTopology(subChild);
+                subChild.parent = child;
+
+                vec.x = vec.x << subChild.total;
+                vec.y = vec.y << subChild.total;
+                vec.z = vec.z << subChild.total;
+                
+                child.table.push(subChild);
+              });
             }
           }
         });
 
         if (gridDescriptor.numTiles === 0 && gridDescriptor.numChildren === 0) {
-          console.warn('GridDescriptor', 'root', 'is empty');
+          unsupported('Empty root node');
         } else {
           Array(gridDescriptor.root.numTiles).fill(0).forEach(() => {
-            const vec = new Three.Vector3(
+            const vec = new Vector3(
               readFloat('int32'),
               readFloat('int32'),
               readFloat('int32'),
@@ -733,10 +698,12 @@ const parseVDB = (url, { maxDepth } = {}) => {
 
             // NOTE toString() as keys optimal 11/10
             gridDescriptor.root.push(makeNode(null, makeTile(value, active)));
+
+            unsupported('Tile nodes');
           });
 
           Array(gridDescriptor.root.numChildren).fill(0).forEach((_, index) => {
-            const vec = new Three.Vector3(
+            const vec = new Vector3(
               readFloat('int32'),
               readFloat('int32'),
               readFloat('int32'),
@@ -751,8 +718,6 @@ const parseVDB = (url, { maxDepth } = {}) => {
             child.parent = gridDescriptor.root;
 
             gridDescriptor.root.table.push(child);
-
-            // console.info('post-origin', { offset });
           });
         }
 
@@ -762,187 +727,11 @@ const parseVDB = (url, { maxDepth } = {}) => {
 
     print({grids});
 
-    renderThree(grids);
+    resolve(grids);
 
     print('');
     print('-------------------------------------------------');
   });
-};
-
-const Three = THREE;
-
-print('Three: ', { rev: Three.REVISION });
-print('----------------------------------');
-
-const renderThree = (vdb) => {
-  let camera, scene, renderer, controls, mesh;
-
-  const createWorld = () => {
-    const bbox = new Three.Box3();
-
-    const preview = new Three.Object3D();
-    scene.add(preview);
-
-    const getBoundingBox = (min, offset) => {
-      return [
-        min.clone(),
-        new Three.Vector3(min.x + offset, min.y + offset, min.z + offset)
-      ];
-    };
-
-    Object.entries(vdb).forEach(([ gridKey, grid ]) => {
-      const materialGrid = new Three.MeshBasicMaterial({ wireframe: true, color: 0x330033 });
-      const geometry = new Three.BoxGeometry(1.0, 1.0);
-      const mesh = new Three.InstancedMesh(geometry, materialGrid, grid.leavesCount);
-      preview.add(mesh);
-
-      const mock = new Three.Object3D();
-      let instanceId = 0;
-      const voxelBox = [];
-
-      window.addEventListener('keydown', (event) => {
-        if (event.key === 'a') {
-          voxelBox.forEach(voxel => voxel.visible = true);
-          mesh.visible = false;
-        }
-
-        if (event.key === 'b') {
-          voxelBox.forEach(voxel => voxel.visible = false);
-          mesh.visible = true;
-        }
-      });
-
-      const traverseVDB = (level, node) => {
-
-        let sumParentOffset = new Three.Vector3();
-
-        const addParentOffset = (parent) => {
-          if (parent && parent.origin) {
-            sumParentOffset.add(parent.origin);
-          }
-
-          if (parent.parent) {
-            addParentOffset(parent.parent);
-          }
-        };
-        addParentOffset(node);
-
-        if (node.level === 0) {
-          const lod = new Three.LOD();
-
-          const materialVoxel = new Three.MeshPhongMaterial({ color: Math.random() * 0x888888 + 0x888888 });
-          const voxels = new Three.InstancedMesh(geometry, materialVoxel, node.numVoxels * 3);
-          let voxelId = 0;
-
-          // lod.addLevel(voxels, 0.0);
-          // lod.addLevel(new Three.Object3D(), 30.0);
-          voxels.visible = false;
-          voxelBox.push(voxels);
-          preview.add(voxels);
-
-          let nodeBbox = node.origin ? getBoundingBox(sumParentOffset, node.dim) : [
-            grid.metadata.file_bbox_min.value.subScalar(4096 - 1),
-            grid.metadata.file_bbox_max.value.addScalar(4096 - 1),
-          ];
-
-          nodeBbox = nodeBbox.map(grid.applyTransform);
-          bbox.set(...nodeBbox);
-
-          bbox.getCenter(mock.position);
-          bbox.getSize(mock.scale);
-
-          mock.updateMatrix();
-          mesh.setMatrixAt(instanceId++, mock.matrix);
-
-          const nodePosition = mock.position.clone();
-          const voxelSize = mock.scale.x / 8;
-
-          voxels.position.copy(nodePosition);
-
-          node.forEachValue(({ coords }) => {
-            mock.scale.setScalar(voxelSize);
-            // mock.position.copy(nodePosition);
-            mock.position.set(0.0, 0.0, 0.0);
-
-            mock.position.x += coords.x * voxelSize - voxelSize * 3.5;
-            mock.position.y += coords.y * voxelSize - voxelSize * 3.5;
-            mock.position.z += coords.z * voxelSize - voxelSize * 3.5;
-
-            mock.updateMatrix();
-            voxels.setMatrixAt(voxelId++, mock.matrix);
-
-            voxelId++;
-          });
-        }
-
-
-        // const baseCube = new Three.Mesh(
-        //   new Three.BoxGeometry(1.0, 1.0, 1.0),
-        //   new Three.MeshBasicMaterial({ wireframe: node.level !== 0, color: ([
-        //     0xff0000, // root (blue)
-        //     0x00ff00, // internal (green)
-        //     0x0000ff, // internal (red)
-        //     0xff00ff, // leaf (purple)
-        //   // ])[node.id % 4] || Math.random() * 0x888888 + 0x888888 })
-        //   ])[node.level] || Math.random() * 0x888888 + 0x888888 })
-        // );
-        // bbox.getCenter(baseCube.position);
-        // bbox.getSize(baseCube.scale);
-        // preview.add(baseCube);
-
-        if (node.table) {
-          node.table.forEach(child => {
-            traverseVDB(level + 1, child);
-          });
-        }
-        
-        // if (node.valueMask) {
-        //   node.valueMask.forEachOn(() => {
-
-        //   });
-        // }
-      };
-
-      grid.root.table.forEach(node => traverseVDB(0, node));
-    });
-
-    bbox.makeEmpty();
-    bbox.expandByObject(preview);
-  };
-
-  const init = () => {
-    camera = new Three.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000.0);
-    camera.position.set(-5, 5, 7);
-
-    scene = new Three.Scene();
-    scene.background = new Three.Color(0xffeeff);
-
-    const spot = new Three.SpotLight(0xffffcc, 1.0);
-    spot.position.set(150.0, 50.0, 150.0);
-    scene.add(spot);
-
-    scene.add(new Three.HemisphereLight(0xffff88, 0x000033, 0.5));
-
-    renderer = new Three.WebGLRenderer({ antialias: true });
-    renderer.setSize(window.innerWidth, window.innerHeight);
-
-    document.body.appendChild(renderer.domElement);
-    
-    controls = new Three.OrbitControls(camera, renderer.domElement);
-
-    createWorld();
-  };
-
-  const animate = () => {
-    requestAnimationFrame(animate);
-    
-    controls.update();
-  
-    renderer.render(scene, camera); 
-  };
-
-  init();
-  animate();
-};
+});
 
 window.parseVDB = parseVDB;

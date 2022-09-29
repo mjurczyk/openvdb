@@ -69,7 +69,7 @@
     <div class="note">
       Press A to show voxels ; Press B to hide voxels
     </div>
-    <script src="../build/openvdb.js"></script>
+    <script src="../build/three-openvdb.js"></script>
     <script>
       // NOTE https://github.com/donmccurdy/simple-dropzone
       var exports = {};
@@ -88,15 +88,20 @@
       const view = (file) => {
         const fileUrl = URL.createObjectURL(file);
 
-        parseVDB(fileUrl);
+        parseVDB(fileUrl).then((vdb) => {
+          renderThree(vdb);
+        });
       };
 
-      dropzone.on('drop', ({ files, archive }) => {
-        let file = [...files];
+      dropzone.on('dropstart', () => {
+        document.querySelector('.dropzone').innerHTML = `<div>Loading file...</div>`;     
+      });
 
-        document.querySelector('.dropzone').innerHTML = `<div>Loading...</div>`;        
+      dropzone.on('drop', ({ files, archive }) => {
+        let file = [...files];   
 
         setTimeout(() => {
+          document.querySelector('.dropzone').innerHTML = `<div>Reading VDB...</div>`;     
           view(file[0][1]);
         }, 1000);
       });

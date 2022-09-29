@@ -16,3 +16,7 @@ export const debugLog = (...args) => {
     console.info(...args);
   }
 };
+
+export const unsupported = (description) => {
+  console.warn('Unsupported feature', description);
+};

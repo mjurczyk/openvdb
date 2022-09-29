@@ -13,7 +13,8 @@
     "fluid"
   ],
   "scripts": {
-    "build": "rollup ./src/openvdb/index.js --file ./build/openvdb.js"
+    "build": "rollup ./src/openvdb/index.js --file ./build/openvdb.js",
+    "build:three": "rollup ./src/three-openvdb/index.js --file ./build/three-openvdb.js"
   },
   "contributors": [
     {
