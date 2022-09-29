@@ -36,6 +36,10 @@ export class BufferIterator {
     return target;
   }
 
+  static getBufferIterator(target) {
+    return target.bufferIterator;
+  }
+
   static assert(target) {
     if (!target.bufferIterator) {
       console.error('BufferIterator', 'assertInjection', 'buffer iterator does not exist on target', { target });

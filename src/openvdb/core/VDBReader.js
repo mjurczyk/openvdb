@@ -120,7 +120,7 @@ export class VDBReader {
       Array(gridCount).fill(0).forEach(() => {
         const gridDescriptor = new GridDescriptor(this.bufferIterator);
 
-        BufferIterator.withBufferIterator(gridDescriptor, this.bufferIterator);
+        BufferIterator.withBufferIterator(gridDescriptor, BufferIterator.getBufferIterator(this));
         Version.tagVersion(gridDescriptor, Version.getVersion(this));
         Compression.tagCompression(gridDescriptor, Compression.getCompression(this));
 

@@ -21,6 +21,7 @@ import {
 import {
   Vector3
 } from '../math/vector';
+import { GridTransform } from "./GridTransform";
 
 export class GridDescriptor {
   static halfFloatGridPrefix = '_HalfFloat';
@@ -108,76 +109,16 @@ export class GridDescriptor {
   }
 
   readGridTransform() {
-    // NOTE Separate
-
     if (Version.less(this, 216)) {
       // NOTE Implement this conditional
       unsupported('GridDescriptor::getGridTransform pre-216 transform skipped.');
       return;
     }
 
-    this.transform = {
-      mapType: this.bufferIterator.readNameString(),
-      translation: new Vector3(),
-      scale: new Vector3(),
-      voxelSize: new Vector3(),
-      scaleInverse: new Vector3(),
-      scaleInverseSq: new Vector3(),
-      scaleInverseDouble: new Vector3(),
-    };
+    this.transform = new GridTransform();
+    BufferIterator.withBufferIterator(this.transform, BufferIterator.getBufferIterator(this));
 
-    if (Version.less(this, 219)) {
-      unsupported('GridDescriptor::getGridTransform old-style transforms currently not supported. Fallback to identity transform.');
-      return;
-    }
-
-    if (['UniformScaleTranslateMap', 'ScaleTranslateMap'].includes(this.transform.mapType)) {
-      this.transform = {
-        ...this.transform,
-        translation: this.bufferIterator.readVector3(),
-        scale: this.bufferIterator.readVector3(),
-        voxelSize: this.bufferIterator.readVector3(),
-        scaleInverse: this.bufferIterator.readVector3(),
-        scaleInverseSq: this.bufferIterator.readVector3(),
-        scaleInverseDouble: this.bufferIterator.readVector3(),
-      };
-
-      this.applyTransform = (vector) => {
-        return vector.multiply(this.transform.scale).add(this.transform.translation);
-      };
-    } else if (['UniformScaleMap', 'ScaleMap'].includes(this.transform.mapType)) {
-      this.transform = {
-        ...this.transform,
-        scale: this.bufferIterator.readVector3(),
-        voxelSize: this.bufferIterator.readVector3(),
-        scaleInverse: this.bufferIterator.readVector3(),
-        scaleInverseSq: this.bufferIterator.readVector3(),
-        scaleInverseDouble: this.bufferIterator.readVector3(),
-      };
-
-      this.applyTransform = (vector) => {
-        return vector.multiply(this.transform.scale);
-      };
-    } else if (['TranslationMap'].includes(this.transform.mapType)) {
-      this.transform = {
-        ...this.transform,
-        translation: this.bufferIterator.readVector3()
-      };
-
-      this.applyTransform = (vector) => {
-        return vector.add(this.transform.translation);
-      };
-    } else if (['UnitaryMap'].includes(this.transform.mapType)) {
-      // TODO https://github.com/AcademySoftwareFoundation/openvdb/blob/master/openvdb/openvdb/math/Maps.h#L1809
-      unsupported('GridDescriptor::UnitaryMap');
-    } else if (['NonlinearFrustumMap'].includes(this.transform.mapType)) {
-      // TODO https://github.com/AcademySoftwareFoundation/openvdb/blob/master/openvdb/openvdb/math/Maps.h#L2418
-      unsupported('GridDescriptor::NonlinearFrustumMap');
-    } else {
-      // NOTE Support for any magical map types from https://github.com/AcademySoftwareFoundation/openvdb/blob/master/openvdb/openvdb/math/Maps.h#L538 to be added
-      unsupported('GridDescriptor::Matrix4x4');
-      // 4x4 transformation matrix
-    }
+    this.transform.readTransform();
   }
 
   readTopology() {

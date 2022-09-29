@@ -73,7 +73,7 @@ const renderThree = (vdb) => {
             grid.metadata.file_bbox_max.value.addScalar(4096 - 1),
           ];
 
-          nodeBbox = nodeBbox.map(grid.applyTransform);
+          nodeBbox = nodeBbox.map(grid.transform.applyTransformMap);
           bbox.set(...nodeBbox);
 
           bbox.getCenter(mock.position);
