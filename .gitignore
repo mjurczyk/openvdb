@@ -1,3 +1,7 @@
+# General
 node_modules
 build
 .DS_Store
+
+# Test files
+test/compiled.index.js

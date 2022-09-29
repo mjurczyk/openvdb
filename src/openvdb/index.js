@@ -1,142 +1,13 @@
-const Three = THREE;
-const DEBUG = 0;
+import './debug';
+import './dependencies';
 
-const charSize = 1;
-const uint32Size = 4;
-const uint64Size = 8;
-const uint128Size = 8;
-const doubleSize = uint64Size;
-
-const print = (...textMap) => {
-  DEBUG && (document.body.innerHTML += `<div>${
-    textMap.map(text => (str => str.substr(1, str.length - 2))(JSON.stringify(text))).join(' ')
-  }</div>`);
-};
-
-const assert = (text, assumed, found) => {
-  console.info(assumed === found ? 'OK\t' : 'NOT\t', '\t', text, 'Assumed', { assumed }, 'equal to', { found });
-};
-
-const debugLog = (...args) => {
-  if (DEBUG) {
-    console.info(...args);
-  }
-}
-
-print('Three: ', { rev: Three.REVISION });
-print('----------------------------------');
-
-const vdbUrl = {
-  sphere: 'https://cdn.wtlstudio.com/sample.wtlstudio.com/6aca4001-de8e-491b-89e9-15a605f533b4.vdb',
-  smoke: 'https://cdn.wtlstudio.com/sample.wtlstudio.com/9b5178a7-a8ca-4b22-9e41-0927d9a78014.vdb',
-  cube: 'https://cdn.wtlstudio.com/sample.wtlstudio.com/d262e0d3-3895-4fab-8b9a-f9a00113655c.vdb',
-  bunny: 'http://localhost:3000/assets/models/bunny_cloud.vdb',
-  emu: 'http://localhost:3000/assets/models/emu.vdb',
-  explosion: 'http://localhost:3000/assets/models/explosion.vdb',
-  dragon: 'http://localhost:3000/assets/models/dragon.vdb',
-};
-
-const parseTest = () => {
-  fetch('https://cdn.wtlstudio.com/sample.wtlstudio.com/76fce0b9-3723-47cb-a948-4197e7302f9d.bin-test').then(async (test) => {
-    const source = new Uint8Array(await test.arrayBuffer());
-
-    let buffer = 0;
-    let offset = 0;
-
-    const readBytes = (count) => {
-      buffer = 0;
-
-      if (DEBUG) console.groupCollapsed();
-
-      source.slice(offset, offset + count).forEach((byte, index) => {
-        buffer = buffer | (byte << (8 * index));
-        debugLog(byte, byte.toString(16));
-      });
-
-      if (DEBUG) console.groupEnd();
-
-      offset += count;
-
-      return buffer;
-    };
-
-    const readFloat = (precision = 'double') => {
-      buffer = 0;
-
-      const precisionLUT = { // REF https://www.appinf.com/download/FPIssues.pdf
-        'double': {
-          exp: 11,
-          bias: 1023,
-          size: doubleSize
-        },
-        'float': {
-          exp: 8,
-          bias: 127,
-          size: uint32Size
-        },
-        'int': {
-          size: uint32Size
-        }
-      }[precision];
-      
-      if (DEBUG) console.groupCollapsed(`readFloat<${precision}>`);
-
-      let binary = [];
-      Array(precisionLUT.size).fill(0).forEach(() => {
-        binary.unshift(readBytes(1));
-      });
-      binary = binary.map(i => `00000000${i.toString(2)}`.substr(-8)).join('');
-
-      if (precision === 'int') {
-        if (DEBUG) console.groupEnd();
-        // REF https://stackoverflow.com/questions/37022434/how-do-i-parse-a-twos-complement-string-to-a-number
-        return ~~parseInt(binary, 2);
-      }
-
-      const sign = binary.slice(0, 1) === '1' ? -1 : 1;
-      const exponent = parseInt(binary.slice(1, precisionLUT.exp + 1), 2) - precisionLUT.bias;
-      const mantissa = '1' + binary.slice(precisionLUT.exp + 1, precision.size);
-
-      let v1 = exponent < 0 ? 0.0 : mantissa.substr(0, exponent + 1);
-      let v2 = '0.' + (Array(exponent < 0 ? -exponent - 1 : 0).fill('0').join('')) + mantissa.substr(exponent < 0 ? 0.0 : exponent + 1);
-
-      v1 = parseInt(v1, 2);
-      v2 = parseInt(v2.replace('.', ''), 2) / Math.pow(2, (v2.split('.')[1] || '').length); // REF https://stackoverflow.com/questions/37109968/how-to-convert-binary-fraction-to-decimal
-
-      if (DEBUG) console.groupEnd();
-
-      // console.info(sign * (v1 + v2));
-
-      return sign * (v1 + v2);
-    };
-
-    const readVector3 = () => {
-      const vector = new Three.Vector3();
-
-      vector.x = readFloat();
-      vector.y = readFloat();
-      vector.z = readFloat();
-
-      return vector;
-    };
-
-    readFloat();
-    readFloat();
-    readFloat();
-    readFloat();
-    readFloat();
-    readFloat();
-    readFloat();
-    readFloat();
-    readFloat();
-    readFloat('float');
-    readFloat('float');
-    readFloat('float');
-    readFloat('int');
-    readFloat('int');
-    readFloat('int');
-  });
-};
+import { DEBUG, print, assert, debugLog } from './debug';
+import {
+  charSize,
+  uint32Size,
+  uint64Size,
+  doubleSize,
+} from './math/memory';
 
 const parseVDB = (url, { maxDepth } = {}) => {
   const MAX_DEPTH = maxDepth || Infinity;
@@ -898,6 +769,11 @@ const parseVDB = (url, { maxDepth } = {}) => {
   });
 };
 
+const Three = THREE;
+
+print('Three: ', { rev: Three.REVISION });
+print('----------------------------------');
+
 const renderThree = (vdb) => {
   let camera, scene, renderer, controls, mesh;
 
@@ -1030,13 +906,8 @@ const renderThree = (vdb) => {
       grid.root.table.forEach(node => traverseVDB(0, node));
     });
 
-    // geometry.setAttribute('position', new Three.Float32BufferAttribute(vertices, 3));
-    // const ground = new Three.Mesh(
-    //   new Three.PlaneGeometry(50.0, 50.0, 50, 50),
-    //   new Three.MeshBasicMaterial({ color: 0x222222, wireframe: true })
-    // );
-    // ground.rotation.x = -Math.PI / 2.0;
-    // scene.add(ground);
+    bbox.makeEmpty();
+    bbox.expandByObject(preview);
   };
 
   const init = () => {
@@ -1044,7 +915,7 @@ const renderThree = (vdb) => {
     camera.position.set(-5, 5, 7);
 
     scene = new Three.Scene();
-    scene.background = new Three.Color(0x333333);
+    scene.background = new Three.Color(0xffeeff);
 
     const spot = new Three.SpotLight(0xffffcc, 1.0);
     spot.position.set(150.0, 50.0, 150.0);
@@ -1074,12 +945,4 @@ const renderThree = (vdb) => {
   animate();
 };
 
-parseVDB(vdbUrl.sphere);
-// parseVDB(vdbUrl.smoke);
-// parseVDB(vdbUrl.bunny);
-// parseVDB(vdbUrl.explosion);
-// parseVDB(vdbUrl.dragon);
-// parseVDB(vdbUrl.emu);
-// parseVDB(vdbUrl.cube);
-// parseTest();
-// renderThree();
+window.parseVDB = parseVDB;

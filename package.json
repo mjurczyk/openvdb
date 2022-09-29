@@ -2,7 +2,7 @@
   "name": "openvdb",
   "version": "0.1.0",
   "description": "This project indirectly ports OpenVDB file format and tools to JavaScript, TypeScript, and Node. Specific 3D library implementations can be found in sub-directories.",
-  "main": "openvdb.js",
+  "main": "./build/openvdb.js",
   "keywords": [
     "openvdb",
     "vdb",
@@ -13,7 +13,7 @@
     "fluid"
   ],
   "scripts": {
-    "test": ""
+    "build": "rollup ./src/openvdb/index.js --file ./build/openvdb.js"
   },
   "contributors": [
     {
