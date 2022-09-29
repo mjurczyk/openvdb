@@ -1,6 +1,5 @@
 import './debug';
 import './dependencies';
-
 import { DEBUG, print, assert, unsupported } from './debug';
 import {
   charSize,
@@ -8,155 +7,17 @@ import {
   uint64Size,
   doubleSize,
 } from './math/memory';
-
 import {
   Vector3
 } from './math/vector';
+import { BufferIterator } from './core/BufferIterator';
 
 const parseVDB = (url) => new Promise((resolve) => {
-
   fetch(url).then(async (vdb) => {
     const source = new Uint8Array(await vdb.arrayBuffer());
+    const bufferIterator = new BufferIterator(source);
 
-    let buffer = 0;
-    let offset = 0;
-
-    const readBytes = (count) => {
-      buffer = 0;
-
-      source.slice(offset, offset + count).forEach((byte, index) => {
-        buffer = buffer | (byte << (8 * index));
-      });
-
-      offset += count;
-
-      return buffer;
-    };
-
-    const readRawBytes = (count) => {
-      const raw = [];
-
-      if (DEBUG) console.groupCollapsed();
-
-      source.slice(offset, offset + count).forEach((byte, index) => {
-        raw.push(byte);
-      });
-
-      if (DEBUG) console.groupEnd();
-
-      offset += count;
-
-      return Uint8Array.from(raw);
-    };
-
-    const readBool = () => {
-      return Boolean(readBytes(1));
-    };
-
-    const readNameString = (castTo = 'string') => {
-      const nameSize = readBytes(uint32Size);
-      let name = '';
-
-      if (castTo === 'int64') {
-        name = readFloat('int64');
-      } else if (castTo === 'bool') {
-        name = Boolean(readBytes(nameSize));
-      } else if (castTo === 'vec3i') {
-        name = new Vector3(
-          readFloat('int32'),
-          readFloat('int32'),
-          readFloat('int32'),
-        );
-      } else if (castTo === 'vec3s') {
-        name = new Vector3(
-          readFloat('float'),
-          readFloat('float'),
-          readFloat('float'),
-        );
-      } else if (castTo === 'vec3d') {
-        name = new Vector3(
-          readFloat('double'),
-          readFloat('double'),
-          readFloat('double'),
-        );
-      } else {
-        Array(nameSize).fill(0).map((_) => name += String.fromCharCode(readBytes(1)));
-      }
-
-      return name;
-    };
-
-    const readFloat = (precision = 'double') => {
-      buffer = 0;
-
-      const precisionLUT = { // REF https://www.appinf.com/download/FPIssues.pdf
-        'double': {
-          exp: 11,
-          bias: (1 << (11 - 1)) - 1,
-          size: doubleSize
-        },
-        'float': {
-          exp: 8,
-          bias: (1 << (8 - 1)) - 1,
-          size: uint32Size
-        },
-        'int32': {
-          size: uint32Size
-        },
-        'int64': {
-          size: uint64Size
-        },
-        'half': {
-          size: uint32Size / 2,
-          exp: 5,
-          bias: (1 << (5 - 1)) - 1
-        }
-      }[precision];
-
-      if (DEBUG) console.groupCollapsed(`readFloat<${precision}>`);
-
-      let binary = [];
-      Array(precisionLUT.size).fill(0).forEach(() => {
-        binary.unshift(readBytes(1));
-      });
-      binary = binary.map(i => `00000000${i.toString(2)}`.substr(-8)).join('');
-
-      if (precision.includes('int')) {
-        if (DEBUG) console.groupEnd();
-        // REF https://stackoverflow.com/questions/37022434/how-do-i-parse-a-twos-complement-string-to-a-number
-        return ~~parseInt(binary, 2);
-      }
-
-      const sign = binary.slice(0, 1) === '1' ? -1 : 1;
-      const exponent = parseInt(binary.slice(1, precisionLUT.exp + 1), 2) - precisionLUT.bias;
-      const mantissa = '1' + binary.slice(precisionLUT.exp + 1, precision.size);
-
-      let v1 = exponent < 0 ? 0.0 : mantissa.substr(0, exponent + 1);
-      let v2 = '0.' + (Array(exponent < 0 ? -exponent - 1 : 0).fill('0').join('')) + mantissa.substr(exponent < 0 ? 0.0 : exponent + 1);
-
-      v1 = parseInt(v1, 2);
-      v2 = parseInt(v2.replace('.', ''), 2) / Math.pow(2, (v2.split('.')[1] || '').length); // REF https://stackoverflow.com/questions/37109968/how-to-convert-binary-fraction-to-decimal
-
-      if (v1 === 0 && v2 === 0) {
-        return 0;
-      }
-
-      if (DEBUG) console.groupEnd();
-
-      return sign * (v1 + v2);
-    };
-
-    const readVector3 = (precision = 'double') => {
-      const vector = new Vector3();
-
-      vector.x = readFloat(precision);
-      vector.y = readFloat(precision);
-      vector.z = readFloat(precision);
-
-      return vector;
-    };
-
-    const magic = readBytes(uint64Size);
+    const magic = bufferIterator.readBytes(uint64Size);
 
     if (magic !== 0x56444220) {
       print('VDB File Invalid', magic.toString(16));
@@ -164,13 +25,13 @@ const parseVDB = (url) => new Promise((resolve) => {
       print('VDB File valid', magic.toString(16));
     }
 
-    const versionMajor = readBytes(uint32Size);
+    const versionMajor = bufferIterator.readBytes(uint32Size);
     let libraryVersionMajor = 0;
     let libraryVersionMinor = 0;
 
     if (versionMajor > 211) {
-      libraryVersionMajor = readBytes(uint32Size);
-      libraryVersionMinor = readBytes(uint32Size);
+      libraryVersionMajor = bufferIterator.readBytes(uint32Size);
+      libraryVersionMinor = bufferIterator.readBytes(uint32Size);
     }
 
     print({
@@ -179,12 +40,12 @@ const parseVDB = (url) => new Promise((resolve) => {
       libraryVersionMinor
     });
 
-    const hasGridOffsets = readBytes(charSize);
+    const hasGridOffsets = bufferIterator.readBytes(charSize);
 
     let compression;
 
     if (versionMajor >= 220 && versionMajor < 222) {
-      compression = readBytes(charSize);
+      compression = bufferIterator.readBytes(charSize);
       compression = {
         none: compression & 0x0,
         zip: compression & 0x1,
@@ -212,15 +73,15 @@ const parseVDB = (url) => new Promise((resolve) => {
     print({hasGridOffsets, compression});
 
     let uuid = '';
-    Array(36).fill(0).map((_) => uuid += String.fromCharCode(readBytes(1)));
+    Array(36).fill(0).map((_) => uuid += String.fromCharCode(bufferIterator.readBytes(1)));
     print({uuid});
 
     const metadata = {};
-    const metadataCount = readBytes(uint32Size);
+    const metadataCount = bufferIterator.readBytes(uint32Size);
     Array(metadataCount).fill(0).forEach(() => {
-      const name = readNameString();
-      const type = readNameString();
-      const value = readNameString(type);
+      const name = bufferIterator.readNameString();
+      const type = bufferIterator.readNameString();
+      const value = bufferIterator.readNameString(type);
 
       metadata[name] = { type, value };
     });
@@ -234,7 +95,7 @@ const parseVDB = (url) => new Promise((resolve) => {
       // File.cc:364
       unsupported('VDB without grid offsets');
     } else {
-      const gridCount = readBytes(uint32Size);
+      const gridCount = bufferIterator.readBytes(uint32Size);
 
       Array(gridCount).fill(0).forEach(() => {
         const gridDescriptor = {
@@ -244,12 +105,12 @@ const parseVDB = (url) => new Promise((resolve) => {
         };
 
         // read
-        gridDescriptor.uniqueName = readNameString();
+        gridDescriptor.uniqueName = bufferIterator.readNameString();
         gridDescriptor.gridName = (gridDescriptor.uniqueName).split('\x1e')[0];
 
         grids[gridDescriptor.uniqueName] = gridDescriptor;
 
-        gridDescriptor.gridType = readNameString();
+        gridDescriptor.gridType = bufferIterator.readNameString();
 
         if (gridDescriptor.gridType.indexOf('_HalfFloat') !== -1) {
           gridDescriptor.saveAsHalfFloat = true;
@@ -257,29 +118,29 @@ const parseVDB = (url) => new Promise((resolve) => {
         }
 
         if (versionMajor >= 216) {
-          gridDescriptor.instanceParentName = readNameString();
+          gridDescriptor.instanceParentName = bufferIterator.readNameString();
         }
 
-        gridDescriptor.gridBufferPosition = readFloat('int64'); // NOTE Buffer offset at which grid description ends
-        gridDescriptor.blockBufferPosition = readFloat('int64'); // NOTE Buffer offset at which grid blocks end
-        gridDescriptor.endBufferPosition = readFloat('int64'); // NOTE Buffer offset at which the file ends
+        gridDescriptor.gridBufferPosition = bufferIterator.readFloat('int64'); // NOTE Buffer offset at which grid description ends
+        gridDescriptor.blockBufferPosition = bufferIterator.readFloat('int64'); // NOTE Buffer offset at which grid blocks end
+        gridDescriptor.endBufferPosition = bufferIterator.readFloat('int64'); // NOTE Buffer offset at which the file ends
         
-        assert('grid buffer', gridDescriptor.gridBufferPosition, offset);
+        assert('grid buffer', gridDescriptor.gridBufferPosition, bufferIterator.offset);
 
         if (versionMajor >= 222) {
-          gridDescriptor.gridCompression = getGridCompression(readBytes(uint32Size));
+          gridDescriptor.gridCompression = getGridCompression(bufferIterator.readBytes(uint32Size));
         } else {
           gridDescriptor.gridCompression = compression;
         }
 
         gridDescriptor.metadata = {
-          count: readBytes(uint32Size)
+          count: bufferIterator.readBytes(uint32Size)
         };
 
         Array(gridDescriptor.metadata.count).fill(0).forEach(() => {
-          const name = readNameString();
-          const type = readNameString();
-          const value = readNameString(type);
+          const name = bufferIterator.readNameString();
+          const type = bufferIterator.readNameString();
+          const value = bufferIterator.readNameString(type);
 
           gridDescriptor.metadata[name] = { type, value };
         });
@@ -292,7 +153,7 @@ const parseVDB = (url) => new Promise((resolve) => {
 
         const getGridTransform = () => {
           gridDescriptor.transform = {
-            mapType: readNameString(),
+            mapType: bufferIterator.readNameString(),
             translation: new Vector3(),
             scale: new Vector3(),
             voxelSize: new Vector3(),
@@ -309,12 +170,12 @@ const parseVDB = (url) => new Promise((resolve) => {
           if (['UniformScaleTranslateMap', 'ScaleTranslateMap'].includes(gridDescriptor.transform.mapType)) {
             gridDescriptor.transform = {
               ...gridDescriptor.transform,
-              translation: readVector3(),
-              scale: readVector3(),
-              voxelSize: readVector3(),
-              scaleInverse: readVector3(),
-              scaleInverseSq: readVector3(),
-              scaleInverseDouble: readVector3(),
+              translation: bufferIterator.readVector3(),
+              scale: bufferIterator.readVector3(),
+              voxelSize: bufferIterator.readVector3(),
+              scaleInverse: bufferIterator.readVector3(),
+              scaleInverseSq: bufferIterator.readVector3(),
+              scaleInverseDouble: bufferIterator.readVector3(),
             };
 
             gridDescriptor.applyTransform = (vector) => {
@@ -323,11 +184,11 @@ const parseVDB = (url) => new Promise((resolve) => {
           } else if (['UniformScaleMap', 'ScaleMap'].includes(gridDescriptor.transform.mapType)) {
             gridDescriptor.transform = {
               ...gridDescriptor.transform,
-              scale: readVector3(),
-              voxelSize: readVector3(),
-              scaleInverse: readVector3(),
-              scaleInverseSq: readVector3(),
-              scaleInverseDouble: readVector3(),
+              scale: bufferIterator.readVector3(),
+              voxelSize: bufferIterator.readVector3(),
+              scaleInverse: bufferIterator.readVector3(),
+              scaleInverseSq: bufferIterator.readVector3(),
+              scaleInverseDouble: bufferIterator.readVector3(),
             };
 
             gridDescriptor.applyTransform = (vector) => {
@@ -336,7 +197,7 @@ const parseVDB = (url) => new Promise((resolve) => {
           } else if (['TranslationMap'].includes(gridDescriptor.transform.mapType)) {
             gridDescriptor.transform = {
               ...gridDescriptor.transform,
-              translation: readVector3()
+              translation: bufferIterator.readVector3()
             };
 
             gridDescriptor.applyTransform = (vector) => {
@@ -366,7 +227,7 @@ const parseVDB = (url) => new Promise((resolve) => {
         }
 
         gridDescriptor.topology = {
-          bufferCount: readBytes(uint32Size)
+          bufferCount: bufferIterator.readBytes(uint32Size)
         };
 
         if (gridDescriptor.topology.bufferCount !== 1) {
@@ -380,13 +241,13 @@ const parseVDB = (url) => new Promise((resolve) => {
         gridDescriptor.root = {};
 
         if (saveAsHalfFloat) {
-          gridDescriptor.root.background = readFloat(valueType);
+          gridDescriptor.root.background = bufferIterator.readFloat(valueType);
         } else {
-          gridDescriptor.root.background = readFloat(valueType);
+          gridDescriptor.root.background = bufferIterator.readFloat(valueType);
         }
 
-        gridDescriptor.root.numTiles = readBytes(uint32Size);
-        gridDescriptor.root.numChildren = readBytes(uint32Size);
+        gridDescriptor.root.numTiles = bufferIterator.readBytes(uint32Size);
+        gridDescriptor.root.numChildren = bufferIterator.readBytes(uint32Size);
         gridDescriptor.root.table = [];
         gridDescriptor.root.origin = new Vector3();
 
@@ -465,10 +326,10 @@ const parseVDB = (url) => new Promise((resolve) => {
                 const fillShift = Array(8).fill('0').join('');
                 let byte = Array(8).fill(0)
                   .map(() =>
-                    `${fillShift}${readBytes(1).toString(2).split('-').join('')}`.substr(-8).split('').reverse().join('')
+                    `${fillShift}${bufferIterator.readBytes(1).toString(2).split('-').join('')}`.substr(-8).split('').reverse().join('')
                   );
 
-                // let byte = Array(8).fill(0).map(() => readBytes(1).toString(2).split('').join(''));
+                // let byte = Array(8).fill(0).map(() => bufferIterator.readBytes(1).toString(2).split('').join(''));
 
                 // byte.forEach(value => {
                 //   stringified += `|${`${Array(8).fill('0').join('')}${value}`.substr(-8)}`;
@@ -564,7 +425,7 @@ const parseVDB = (url) => new Promise((resolve) => {
               let metadata = 6;
 
               if (versionMajor >= 222) {
-                metadata = readBytes(1);
+                metadata = bufferIterator.readBytes(1);
               }
 
               const background = gridDescriptor.root.background || 0;
@@ -600,16 +461,16 @@ const parseVDB = (url) => new Promise((resolve) => {
               }
 
               const readZipData = async () => {
-                const zippedBytesCount = readBytes(8);
+                const zippedBytesCount = bufferIterator.readBytes(8);
 
                 if (zippedBytesCount <= 0) {
                   Array(-zippedBytesCount).fill(0).forEach(() => {
-                    child.values.push(readFloat(useHalf ? 'half' : valueType));
+                    child.values.push(bufferIterator.readFloat(useHalf ? 'half' : valueType));
                   });
                   
                   return;
                 } else {
-                  const zippedBytes = readRawBytes(zippedBytesCount);
+                  const zippedBytes = bufferIterator.readRawBytes(zippedBytesCount);
                   
                   try {
                     child.values.push(window.pako.inflate(zippedBytes));
@@ -626,7 +487,7 @@ const parseVDB = (url) => new Promise((resolve) => {
                   readZipData(tempCount);
                 } else {
                   Array(tempCount).fill(0).forEach(() => {
-                    child.values.push(readFloat(useHalf ? 'half' : valueType));
+                    child.values.push(bufferIterator.readFloat(useHalf ? 'half' : valueType));
                   });
                 }
               };
@@ -689,11 +550,11 @@ const parseVDB = (url) => new Promise((resolve) => {
         } else {
           Array(gridDescriptor.root.numTiles).fill(0).forEach(() => {
             const vec = new Vector3(
-              readFloat('int32'),
-              readFloat('int32'),
-              readFloat('int32'),
+              bufferIterator.readFloat('int32'),
+              bufferIterator.readFloat('int32'),
+              bufferIterator.readFloat('int32'),
             );
-            const value = readFloat(valueType);
+            const value = bufferIterator.readFloat(valueType);
             const active = readBool();
 
             // NOTE toString() as keys optimal 11/10
@@ -704,9 +565,9 @@ const parseVDB = (url) => new Promise((resolve) => {
 
           Array(gridDescriptor.root.numChildren).fill(0).forEach((_, index) => {
             const vec = new Vector3(
-              readFloat('int32'),
-              readFloat('int32'),
-              readFloat('int32'),
+              bufferIterator.readFloat('int32'),
+              bufferIterator.readFloat('int32'),
+              bufferIterator.readFloat('int32'),
             );
 
             const child = makeChild(0, {
@@ -721,7 +582,7 @@ const parseVDB = (url) => new Promise((resolve) => {
           });
         }
 
-        assert('block buffer', gridDescriptor.blockBufferPosition, offset);
+        assert('block buffer', gridDescriptor.blockBufferPosition, bufferIterator.offset);
       });
     }
 
