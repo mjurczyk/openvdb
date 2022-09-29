@@ -1,0 +1,32 @@
+{
+  "name": "openvdb",
+  "version": "0.1.0",
+  "description": "This project indirectly ports OpenVDB file format and tools to JavaScript, TypeScript, and Node. Specific 3D library implementations can be found in sub-directories.",
+  "main": "openvdb.js",
+  "keywords": [
+    "openvdb",
+    "vdb",
+    "threejs",
+    "babylonjs",
+    "webgl",
+    "houdini",
+    "fluid"
+  ],
+  "scripts": {
+    "test": ""
+  },
+  "contributors": [
+    {
+      "name": "mjurczyk",
+      "url": "https://discourse.threejs.org/u/mjurczyk"
+    },
+    {
+      "name": "notchris",
+      "url": "https://discourse.threejs.org/u/notchris"
+    }
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "rollup": "^2.79.1"
+  }
+}

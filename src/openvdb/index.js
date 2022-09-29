@@ -1074,11 +1074,11 @@ const renderThree = (vdb) => {
   animate();
 };
 
-// parseVDB(vdbUrl.sphere);
+parseVDB(vdbUrl.sphere);
 // parseVDB(vdbUrl.smoke);
 // parseVDB(vdbUrl.bunny);
 // parseVDB(vdbUrl.explosion);
-parseVDB(vdbUrl.dragon);
+// parseVDB(vdbUrl.dragon);
 // parseVDB(vdbUrl.emu);
 // parseVDB(vdbUrl.cube);
 // parseTest();
