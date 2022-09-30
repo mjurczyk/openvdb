@@ -1,11 +1,7 @@
 import { uint32Size } from "../math/memory";
 import { Vector3 } from "../math/vector";
-import { BufferIterator } from "./BufferIterator";
 import { ChildNode } from "./ChildNode";
-import { Compression } from "./Compression";
 import { GridSharedContext } from "./GridSharedContext";
-import { GridUtils } from "./GridUtils";
-import { Version } from "./Version";
 
 export class RootNode {
   readNode() {

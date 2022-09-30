@@ -1,4 +1,3 @@
-
 export class GridSharedContext {
   // NOTE Buffer
   bufferIterator = null;

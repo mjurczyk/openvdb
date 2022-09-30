@@ -31,23 +31,6 @@ export class BufferIterator {
     this.source = source;
   }
 
-  static withBufferIterator(target, bufferIterator) {
-    target.bufferIterator = bufferIterator;
-
-    return target;
-  }
-
-  static getBufferIterator(target) {
-    return target.bufferIterator;
-  }
-
-  static assert(target) {
-    if (!target.bufferIterator) {
-      console.error('BufferIterator', 'assertInjection', 'buffer iterator does not exist on target', { target });
-      throw 0;
-    }
-  }
-
   reset() {
     this.offset = 0;
   }
@@ -86,7 +69,7 @@ export class BufferIterator {
   //      | string length
   //           | string value
   // TODO Rename to readString
-  readNameString(castTo = stringType) {
+  readString(castTo = stringType) {
     const nameSize = this.readBytes(uint32Size);
     let name = '';
 

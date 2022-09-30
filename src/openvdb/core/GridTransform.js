@@ -1,9 +1,9 @@
-import { BufferIterator } from "./BufferIterator";
 import {
   Vector3
 } from '../math/vector';
 import { Version } from "./Version";
 import { unsupported } from "../debug";
+import { GridSharedContext } from './GridSharedContext';
 
 const transformMapType = {
   uniformScaleTranslateMap: 'UniformScaleTranslateMap',
@@ -17,10 +17,10 @@ const transformMapType = {
 
 export class GridTransform {
   readTransform() {
-    const { bufferIterator } = GridSharedContext.getContext(this);
+    const { bufferIterator, version } = GridSharedContext.getContext(this);
 
     this.transformMap = {
-      mapType: bufferIterator.readNameString(),
+      mapType: bufferIterator.readString(),
       translation: new Vector3(),
       scale: new Vector3(),
       voxelSize: new Vector3(),
@@ -29,7 +29,7 @@ export class GridTransform {
       scaleInverseDouble: new Vector3(),
     };
 
-    if (Version.less(this, 219)) {
+    if (Version.less(version, 219)) {
       unsupported('GridDescriptor::getGridTransform old-style transforms currently not supported. Fallback to identity transform.');
       return;
     }

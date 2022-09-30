@@ -5,10 +5,8 @@ import {
   uint64Size
 } from '../math/memory';
 import { BufferIterator } from "./BufferIterator";
-import { Compression } from "./Compression";
 import { GridDescriptor } from "./GridDescriptor";
 import { GridSharedContext } from "./GridSharedContext";
-import { Version } from "./Version";
 
 export class OpenVDBReader {
   libraryVersion;
@@ -54,7 +52,7 @@ export class OpenVDBReader {
       major: -1
     };
 
-    if (this.version > 211) {
+    if (version > 211) {
       this.libraryVersion.major = bufferIterator.readBytes(uint32Size);
       this.libraryVersion.minor = bufferIterator.readBytes(uint32Size);
     } else {
@@ -64,11 +62,12 @@ export class OpenVDBReader {
   }
 
   readHeader() {
+    const { bufferIterator, version } = GridSharedContext.getContext(this);
     this.hasGridOffsets = bufferIterator.readBytes(charSize);
 
     let compression;
 
-    if (this.version >= 220 && this.version < 222) {
+    if (version >= 220 && version < 222) {
       compression = bufferIterator.readBytes(charSize);
       compression = {
         none: compression & 0x0,
@@ -95,9 +94,9 @@ export class OpenVDBReader {
     const metadata = {};
     const metadataCount = bufferIterator.readBytes(uint32Size);
     Array(metadataCount).fill(0).forEach(() => {
-      const name = bufferIterator.readNameString();
-      const type = bufferIterator.readNameString();
-      const value = bufferIterator.readNameString(type);
+      const name = bufferIterator.readString();
+      const type = bufferIterator.readString();
+      const value = bufferIterator.readString(type);
 
       metadata[name] = { type, value };
     });
@@ -106,6 +105,8 @@ export class OpenVDBReader {
   }
 
   readGrids() {
+    const { bufferIterator } = GridSharedContext.getContext(this);
+
     let grids = {};
 
     this.grids = grids;

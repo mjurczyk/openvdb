@@ -1,9 +1,6 @@
 import { unsupported } from "../debug";
 import { Vector3 } from "../math/vector";
-import { BufferIterator } from "./BufferIterator";
-import { Compression } from "./Compression";
 import { GridSharedContext } from "./GridSharedContext";
-import { GridUtils } from "./GridUtils";
 import { Version } from "./Version";
 
 // NOTE Assuming 5_4_3 tree
@@ -27,6 +24,8 @@ const nodeTypeMap = [
 
 export class ChildNode {
   readNode(depth = 0, props) {
+    const { version } = GridSharedContext.getContext(this);
+
     Object.assign(this, props);
 
     this.depth = depth;
@@ -65,7 +64,7 @@ export class ChildNode {
 
     this.table = [];
 
-    if (Version.less(this, 214)) {
+    if (Version.less(version, 214)) {
       unsupported('Internal-node compression');
       return;
     }
@@ -168,14 +167,14 @@ export class ChildNode {
   }
 
   readValues() {
-    const { bufferIterator } = GridSharedContext.getContext(this);
-    const oldVersion = Version.less(this, 222);
+    const { bufferIterator, compression, version } = GridSharedContext.getContext(this);
+    const oldVersion = Version.less(version, 222);
     const numValues = oldVersion ? this.childMask.countOff() : this.numValues;
-    const useCompression = Compression.getCompression(this).activeMask;
+    const useCompression = compression.activeMask;
 
     let metadata = 0x110;
 
-    if (Version.greaterEq(this, 222)) {
+    if (Version.greaterEq(version, 222)) {
       metadata = bufferIterator.readBytes(1);
     }
 
@@ -207,7 +206,7 @@ export class ChildNode {
 
     let tempCount = numValues;
 
-    if (useCompression && metadata !== 6 && Version.greaterEq(this, 222)) {
+    if (useCompression && metadata !== 6 && Version.greaterEq(version, 222)) {
       tempCount = this.valueMask.countOn();
     }
 
@@ -283,11 +282,11 @@ export class ChildNode {
   }
 
   readData(count) {
-    const { bufferIterator, valueType, useHalf } = GridSharedContext.getContext(this);
+    const { bufferIterator, valueType, useHalf, compression } = GridSharedContext.getContext(this);
 
-    if (Compression.getCompression(this).blosc) {
+    if (compression.blosc) {
       unsupported('Compression::BLOSC');
-    } else if (Compression.getCompression(this).zip) {
+    } else if (compression.zip) {
       this.readZipData();
     } else {
       Array(count).fill(0).forEach(() => {
