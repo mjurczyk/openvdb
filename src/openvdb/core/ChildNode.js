@@ -251,6 +251,7 @@ export class ChildNode {
         indices: indices,
         background: this.background
       });
+      child.parent = this;
 
       vec.x = vec.x << child.total;
       vec.y = vec.y << child.total;
@@ -288,7 +289,7 @@ export class ChildNode {
     if (Compression.getCompression(this).blosc) {
       unsupported('Compression::BLOSC');
     } else if (Compression.getCompression(this).zip) {
-      readZipData();
+      this.readZipData();
     } else {
       Array(count).fill(0).forEach(() => {
         this.values.push(this.bufferIterator.readFloat(useHalf ? 'half' : valueType));

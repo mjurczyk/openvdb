@@ -1,3 +1,4 @@
+import { assert, unsupported } from '../debug';
 import {
   boolSize,
   boolType,
@@ -120,6 +121,24 @@ export class BufferIterator {
 
   readFloat(precision = doubleType) {
     const precisionLUT = floatingPointPrecisionLUT[precision];
+
+    if (!precisionLUT) {
+      unsupported(`Unknown value type: ${precision}`);
+    }
+
+    if ([ vec3sType, vec3iType, vec3dType ].includes(precision)) {
+      const valueType = ({
+        [vec3sType]: floatType,
+        [vec3iType]: int32Type,
+        [vec3dType]: doubleType,
+      })[precision];
+
+      return new Vector3(
+        this.readFloat(valueType),
+        this.readFloat(valueType),
+        this.readFloat(valueType),
+      );
+    }
 
     let binary = [];
     Array(precisionLUT.size).fill(0).forEach(() => {
