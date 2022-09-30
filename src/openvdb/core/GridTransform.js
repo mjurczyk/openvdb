@@ -1,21 +1,5 @@
 import { BufferIterator } from "./BufferIterator";
 import {
-  boolSize,
-  boolType,
-  charSize,
-  doubleType,
-  floatType,
-  int32Type,
-  int64Type,
-  stringType,
-  uint32Size,
-  uint64Size,
-  vec3dType,
-  vec3iType,
-  vec3sType,
-  floatingPointPrecisionLUT,
-} from '../math/memory';
-import {
   Vector3
 } from '../math/vector';
 import { Version } from "./Version";

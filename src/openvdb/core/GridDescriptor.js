@@ -3,32 +3,22 @@ import { BufferIterator } from "./BufferIterator";
 import { Compression } from "./Compression";
 import { Version } from "./Version";
 import {
-  boolSize,
-  boolType,
-  charSize,
-  doubleType,
   floatType,
-  int32Type,
   int64Type,
-  stringType,
   uint32Size,
-  uint64Size,
-  vec3dType,
-  vec3iType,
-  vec3sType,
-  floatingPointPrecisionLUT,
 } from '../math/memory';
 import {
   Vector3
 } from '../math/vector';
 import { GridTransform } from "./GridTransform";
+import { RootNode } from "./RootNode";
+import { GridUtils } from "./GridUtils";
 
 export class GridDescriptor {
   static halfFloatGridPrefix = '_HalfFloat';
 
   saveAsHalfFloat = false;
   leavesCount = 0;
-  voxelsCount = 0;
 
   uniqueName;
   gridName;
@@ -117,6 +107,7 @@ export class GridDescriptor {
 
     this.transform = new GridTransform();
     BufferIterator.withBufferIterator(this.transform, BufferIterator.getBufferIterator(this));
+    Version.tagVersion(this.transform, Version.getVersion(this));
 
     this.transform.readTransform();
   }
@@ -130,350 +121,15 @@ export class GridDescriptor {
       return;
     }
 
-    const valueType = this.getGridValueType();
-    this.root = {};
-  
-    if (this.saveAsHalfFloat) {
-      this.root.background = this.bufferIterator.readFloat(valueType);
-    } else {
-      this.root.background = this.bufferIterator.readFloat(valueType);
-    }
-  
-    this.root.numTiles = this.bufferIterator.readBytes(uint32Size);
-    this.root.numChildren = this.bufferIterator.readBytes(uint32Size);
-    this.root.table = [];
-    this.root.origin = new Vector3();
-    const makeTile = (value, active) => ({
-      value,
-      active: !value ? false : active
-    });
+    this.root = new RootNode();
+    BufferIterator.withBufferIterator(this.root, BufferIterator.getBufferIterator(this));
+    GridUtils.tagValueType(this.root, this.getGridValueType(), this.saveAsHalfFloat);
+    Compression.tagCompression(this.root, Compression.getCompression(this));
+    Version.tagVersion(this.root, Version.getVersion(this));
 
-    const makeNode = (child, tile) => ({
-      child,
-      tile,
-      isChild: () => !!child,
-      isTile: () => !!tile,
-      isTileOff: () => tile && !tile.active,
-      isTileOn: () => tile && tile.active,
-    });
+    this.root.readNode();
+    this.leavesCount = this.root.leavesCount;
 
-    const makeChild = (level = 0, props) => ({
-      ...props,
-      log2dim: ([
-        5,
-        4,
-        3
-      ])[level] || 1,
-      nodeType: ([
-        'internal',
-        'internal',
-        'leaf',
-      ])[level] || 'invalid',
-      readTopology: (child) => {
-        const readMask = () => {
-          const mask = {};
-
-          mask.dim = 1 << child.log2dim;
-          mask.size = 1 << 3 * child.log2dim;
-          mask.wordCount = mask.size >> 6;
-          mask.words = [];
-          mask.countOn = () => {
-            let count = 0;
-
-            mask.words.forEach((word, index) => {
-              count += word.split('').filter(bit => bit === '1').length;
-            });
-
-            return count;
-          };
-          mask.countOff = () => mask.size - mask.countOn();
-          mask.forEachOn = (callback) => {
-            mask.words.forEach((word, wordIndex) => {
-              word.split('').forEach((value, bitIndex) => {
-                if (value === '1') {
-                  const offset = wordIndex * 64 + bitIndex;
-
-                  callback({ wordIndex, bitIndex, offset });
-                }
-              });
-            });
-          };
-          mask.forEachOff = (callback) => {
-            mask.words.forEach((word, wordIndex) => {
-              word.split('').forEach((value, bitIndex) => {
-                if (value === '0') {
-                  const offset = wordIndex * 64 + bitIndex;
-
-                  callback({ wordIndex, bitIndex, offset });
-                }
-              });
-            });
-          };
-
-          // let stringified = '';
-
-          Array(mask.wordCount).fill(0).forEach(() => {
-            // stringified += '|';
-
-            const fillShift = Array(8).fill('0').join('');
-            let byte = Array(8).fill(0)
-              .map(() =>
-                `${fillShift}${this.bufferIterator.readBytes(1).toString(2).split('-').join('')}`.substr(-8).split('').reverse().join('')
-              );
-
-            // let byte = Array(8).fill(0).map(() => this.bufferIterator.readBytes(1).toString(2).split('').join(''));
-
-            // byte.forEach(value => {
-            //   stringified += `|${`${Array(8).fill('0').join('')}${value}`.substr(-8)}`;
-            // });
-
-            byte = byte.join('');
-            mask.words.push(`${Array(64).fill('0').join('')}${byte}`.substr(-64));
-          });
-
-          // console.info(stringified);
-
-          mask.onCache = mask.countOn();
-          mask.offCache = mask.countOff();
-
-          return mask;
-        };
-
-        child.total = child.log2dim + ((level) => {
-          const totalMap = [
-            4,
-            3,
-            0
-          ];
-          let sum = 0;
-
-          totalMap.forEach((value, index) => {
-            if (index >= level) {
-              sum += value;
-            }
-          });
-
-          return sum;
-        })(level);
-        child.dim = 1 << child.total;
-        child.numValues = 1 << (3 * child.log2dim);
-        child.level = 2 - level;
-        child.numVoxels = Number(1n << (3n * BigInt(child.total)));
-
-        if (child.level === 0) {
-          this.leavesCount++;
-        }
-
-        if (level < 2) {
-          child.childMask = readMask();
-        }
-
-        child.valueMask = readMask();
-        this.voxelsCount += child.valueMask.onCache;
-
-        child.forEachValue = (callback) => {
-          const vec = new Vector3();
-
-          const getValueCoords = (n) => {
-            let x = n >> 2 * child.log2dim;
-            n &= ((1 << 2 * child.log2dim) - 1);
-            let y = n >> child.log2dim;
-            let z = n & ((1 << child.log2dim) - 1);
-
-            vec.set(x, y, z);
-
-            vec.x = vec.x << child.numVoxels;
-            vec.y = vec.y << child.numVoxels;
-            vec.z = vec.z << child.numVoxels;
-
-            return vec;
-          };
-
-          child.valueMask.forEachOn((indices) => {
-            callback({
-              ...indices,
-              coords: getValueCoords(indices.offset)
-            });
-          });
-        };
-
-        if (level >= 2) {
-          child.leaf = true;
-          return;
-        }
-
-        child.table = [];
-        child.values = [];
-
-        if (Version.less(this, 214)) {
-          unsupported('Internal-node compression');
-        } else {
-          const oldVersion = Version.less(this, 222);
-          const numValues = oldVersion ? child.childMask.countOff() : child.numValues;
-
-          const useHalf = this.saveAsHalfFloat;
-          const useCompression = Compression.getCompression(this).activeMask;
-
-          let metadata = 6;
-
-          if (Version.greaterEq(this, 222)) {
-            metadata = this.bufferIterator.readBytes(1);
-          }
-
-          const background = this.root.background || 0;
-          const inactiveVal1 = background;
-          const inactiveVal0 = metadata === 6 ? background : !background;
-
-          if ([ 2, 4, 5 ].includes(metadata)) {
-            unsupported('Compression::readCompressedValues first conditional');
-            // Read one of at most two distinct inactive values.
-            //     if (seek) {
-            //         is.seekg(/*bytes=*/sizeof(ValueT), std::ios_base::cur);
-            //     } else {
-            //         is.read(reinterpret_cast<char*>(&inactiveVal0), /*bytes=*/sizeof(ValueT));
-            //     }
-            //     if (metadata == MASK_AND_TWO_INACTIVE_VALS) {
-            //         // Read the second of two distinct inactive values.
-            //         if (seek) {
-            //             is.seekg(/*bytes=*/sizeof(ValueT), std::ios_base::cur);
-            //         } else {
-            //             is.read(reinterpret_cast<char*>(&inactiveVal1), /*bytes=*/sizeof(ValueT));
-            //         }
-            //     }
-          }
-          
-          if ([ 3, 4, 5 ].includes(metadata)) {
-            child.selectionMask = readMask();
-          }
-
-          let tempCount = numValues;
-
-          if (useCompression && metadata !== 6 && Version.greaterEq(this, 222)) {
-            tempCount = child.valueMask.countOn();
-          }
-
-          const readZipData = async () => {
-            const zippedBytesCount = this.bufferIterator.readBytes(8);
-
-            if (zippedBytesCount <= 0) {
-              Array(-zippedBytesCount).fill(0).forEach(() => {
-                child.values.push(this.bufferIterator.readFloat(useHalf ? 'half' : valueType));
-              });
-              
-              return;
-            } else {
-              const zippedBytes = this.bufferIterator.readRawBytes(zippedBytesCount);
-              
-              try {
-                child.values.push(window.pako.inflate(zippedBytes));
-              } catch (error) {
-                console.warn('readZipData', 'uncompress', 'error', {error, zippedBytes});
-              }
-            }
-          };
-
-          const readData = () => {
-            if (Compression.getCompression(this).blosc) {
-              unsupported('Compression::BLOSC');
-            } else if (Compression.getCompression(this).zip) {
-              readZipData(tempCount);
-            } else {
-              Array(tempCount).fill(0).forEach(() => {
-                child.values.push(this.bufferIterator.readFloat(useHalf ? 'half' : valueType));
-              });
-            }
-          };
-
-          readData();
-
-          if (useCompression && tempCount !== numValues) {
-            unsupported('Inactive values');
-            // Restore inactive values, using the background value and, if available,
-            //     // the inside/outside mask.  (For fog volumes, the destination buffer is assumed
-            //     // to be initialized to background value zero, so inactive values can be ignored.)
-            //     for (Index destIdx = 0, tempIdx = 0; destIdx < MaskT::SIZE; ++destIdx) {
-            //         if (valueMask.isOn(destIdx)) {
-            //             // Copy a saved active value into this node's buffer.
-            //             destBuf[destIdx] = tempBuf[tempIdx];
-            //             ++tempIdx;
-            //         } else {
-            //             // Reconstruct an unsaved inactive value and copy it into this node's buffer.
-            //             destBuf[destIdx] = (selectionMask.isOn(destIdx) ? inactiveVal1 : inactiveVal0);
-            //         }
-            //     }
-          }
-
-          if (level >= 2) {
-            return;
-          }
-
-          child.childMask.forEachOn((indices) => {
-            let n = indices.offset;
-            const vec = new Vector3();
-
-            let x = n >> 2 * child.log2dim;
-            n &= ((1 << 2 * child.log2dim) - 1);
-            let y = n >> child.log2dim;
-            let z = n & ((1 << child.log2dim) - 1);
-
-            vec.set(x, y, z);
-
-            const subChild = makeChild(level + 1, {
-              origin: vec,
-              indices,
-              background: this.root.background
-            });
-            subChild.id = indices.offset;
-            subChild.readTopology(subChild);
-            subChild.parent = child;
-
-            vec.x = vec.x << subChild.total;
-            vec.y = vec.y << subChild.total;
-            vec.z = vec.z << subChild.total;
-            
-            child.table.push(subChild);
-          });
-        }
-      }
-    });
-
-    if (this.numTiles === 0 && this.numChildren === 0) {
-      unsupported('Empty root node');
-    } else {
-      Array(this.root.numTiles).fill(0).forEach(() => {
-        const vec = new Vector3(
-          this.bufferIterator.readFloat('int32'),
-          this.bufferIterator.readFloat('int32'),
-          this.bufferIterator.readFloat('int32'),
-        );
-        const value = this.bufferIterator.readFloat(valueType);
-        const active = readBool();
-
-        // NOTE toString() as keys optimal 11/10
-        this.root.push(makeNode(null, makeTile(value, active)));
-
-        unsupported('Tile nodes');
-      });
-
-      Array(this.root.numChildren).fill(0).forEach((_, index) => {
-        const vec = new Vector3(
-          this.bufferIterator.readFloat('int32'),
-          this.bufferIterator.readFloat('int32'),
-          this.bufferIterator.readFloat('int32'),
-        );
-
-        const child = makeChild(0, {
-          origin: vec,
-          background: this.root.background
-        });
-        child.id = index;
-        child.readTopology(child);
-        child.parent = this.root;
-
-        this.root.table.push(child);
-      });
-    }
-
-    assert('block buffer', this.blockBufferPosition, this.bufferIterator.offset);
+    assert('Block buffer', this.blockBufferPosition, this.bufferIterator.offset);
   }
 }
