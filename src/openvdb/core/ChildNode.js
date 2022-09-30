@@ -2,6 +2,7 @@ import { unsupported } from "../debug";
 import { Vector3 } from "../math/vector";
 import { BufferIterator } from "./BufferIterator";
 import { Compression } from "./Compression";
+import { GridSharedContext } from "./GridSharedContext";
 import { GridUtils } from "./GridUtils";
 import { Version } from "./Version";
 
@@ -109,6 +110,7 @@ export class ChildNode {
   }
 
   readMask() {
+    const { bufferIterator } = GridSharedContext.getContext(this);
     const mask = {};
 
     mask.dim = 1 << this.log2dim;
@@ -152,7 +154,7 @@ export class ChildNode {
       const fillShift = Array(8).fill('0').join('');
       let byte = Array(8).fill(0)
         .map(() =>
-          `${fillShift}${this.bufferIterator.readBytes(1).toString(2).split('-').join('')}`.substr(-8).split('').reverse().join('')
+          `${fillShift}${bufferIterator.readBytes(1).toString(2).split('-').join('')}`.substr(-8).split('').reverse().join('')
         );
 
       byte = byte.join('');
@@ -166,7 +168,7 @@ export class ChildNode {
   }
 
   readValues() {
-    const { useHalf } = GridUtils.getValueType(this);
+    const { bufferIterator } = GridSharedContext.getContext(this);
     const oldVersion = Version.less(this, 222);
     const numValues = oldVersion ? this.childMask.countOff() : this.numValues;
     const useCompression = Compression.getCompression(this).activeMask;
@@ -174,7 +176,7 @@ export class ChildNode {
     let metadata = 0x110;
 
     if (Version.greaterEq(this, 222)) {
-      metadata = this.bufferIterator.readBytes(1);
+      metadata = bufferIterator.readBytes(1);
     }
 
     const background = this.background;
@@ -240,10 +242,7 @@ export class ChildNode {
       vec.set(x, y, z);
 
       const child = new ChildNode();
-      BufferIterator.withBufferIterator(child, this.bufferIterator);
-      GridUtils.tagValueType(child, ...Object.values(GridUtils.getValueType(this)));
-      Compression.tagCompression(child, Compression.getCompression(this));
-      Version.tagVersion(child, Version.getVersion(this));
+      GridSharedContext.passContext(this, child);
 
       child.readNode(this.depth + 1, {
         id: indices.offset,
@@ -263,17 +262,17 @@ export class ChildNode {
   }
 
   readZipData() {
-    const { valueType, useHalf } = GridUtils.getValueType(this);
-    const zippedBytesCount = this.bufferIterator.readBytes(8);
+    const { bufferIterator, valueType, useHalf } = GridSharedContext.getContext(this);
+    const zippedBytesCount = bufferIterator.readBytes(8);
 
     if (zippedBytesCount <= 0) {
       Array(-zippedBytesCount).fill(0).forEach(() => {
-        this.values.push(this.bufferIterator.readFloat(useHalf ? 'half' : valueType));
+        this.values.push(bufferIterator.readFloat(useHalf ? 'half' : valueType));
       });
       
       return;
     } else {
-      const zippedBytes = this.bufferIterator.readRawBytes(zippedBytesCount);
+      const zippedBytes = bufferIterator.readRawBytes(zippedBytesCount);
       
       try {
         this.values.push(window.pako.inflate(zippedBytes));
@@ -284,7 +283,7 @@ export class ChildNode {
   }
 
   readData(count) {
-    const { valueType, useHalf } = GridUtils.getValueType(this);
+    const { bufferIterator, valueType, useHalf } = GridSharedContext.getContext(this);
 
     if (Compression.getCompression(this).blosc) {
       unsupported('Compression::BLOSC');
@@ -292,7 +291,7 @@ export class ChildNode {
       this.readZipData();
     } else {
       Array(count).fill(0).forEach(() => {
-        this.values.push(this.bufferIterator.readFloat(useHalf ? 'half' : valueType));
+        this.values.push(bufferIterator.readFloat(useHalf ? 'half' : valueType));
       });
     } 
   }

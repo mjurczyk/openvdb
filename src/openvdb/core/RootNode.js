@@ -3,16 +3,17 @@ import { Vector3 } from "../math/vector";
 import { BufferIterator } from "./BufferIterator";
 import { ChildNode } from "./ChildNode";
 import { Compression } from "./Compression";
+import { GridSharedContext } from "./GridSharedContext";
 import { GridUtils } from "./GridUtils";
 import { Version } from "./Version";
 
 export class RootNode {
   readNode() {
-    const { valueType } = GridUtils.getValueType(this);
+    const { bufferIterator, valueType } = GridSharedContext.getContext(this);
 
-    this.background = this.bufferIterator.readFloat(valueType);
-    this.numTiles = this.bufferIterator.readBytes(uint32Size);
-    this.numChildren = this.bufferIterator.readBytes(uint32Size);
+    this.background = bufferIterator.readFloat(valueType);
+    this.numTiles = bufferIterator.readBytes(uint32Size);
+    this.numChildren = bufferIterator.readBytes(uint32Size);
     this.table = [];
     this.origin = new Vector3();
 
@@ -38,15 +39,15 @@ export class RootNode {
 
   readTile() {
     unsupported('Tile nodes');
-
-    const { valueType } = GridUtils.getValueType(this);
+    
+    const { bufferIterator, valueType } = GridSharedContext.getContext(this);
 
     const vec = new Vector3(
-      this.bufferIterator.readFloat('int32'),
-      this.bufferIterator.readFloat('int32'),
-      this.bufferIterator.readFloat('int32'),
+      bufferIterator.readFloat('int32'),
+      bufferIterator.readFloat('int32'),
+      bufferIterator.readFloat('int32'),
     );
-    const value = this.bufferIterator.readFloat(valueType);
+    const value = bufferIterator.readFloat(valueType);
     const active = readBool();
 
     this.push({
@@ -64,17 +65,16 @@ export class RootNode {
   }
 
   readInternalNode() {
+    const { bufferIterator } = GridSharedContext.getContext(this);
+
     const vec = new Vector3(
-      this.bufferIterator.readFloat('int32'),
-      this.bufferIterator.readFloat('int32'),
-      this.bufferIterator.readFloat('int32'),
+      bufferIterator.readFloat('int32'),
+      bufferIterator.readFloat('int32'),
+      bufferIterator.readFloat('int32'),
     );
 
     const child = new ChildNode();
-    BufferIterator.withBufferIterator(child, this.bufferIterator);
-    GridUtils.tagValueType(child, ...Object.values(GridUtils.getValueType(this)));
-    Compression.tagCompression(child, Compression.getCompression(this));
-    Version.tagVersion(child, Version.getVersion(this));
+    GridSharedContext.passContext(this, child);
 
     child.readNode(0, {
       id: this.table.length,

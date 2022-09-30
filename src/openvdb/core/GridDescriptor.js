@@ -7,12 +7,10 @@ import {
   int64Type,
   uint32Size,
 } from '../math/memory';
-import {
-  Vector3
-} from '../math/vector';
 import { GridTransform } from "./GridTransform";
 import { RootNode } from "./RootNode";
 import { GridUtils } from "./GridUtils";
+import { GridSharedContext } from "./GridSharedContext";
 
 export class GridDescriptor {
   static halfFloatGridPrefix = '_HalfFloat';
@@ -25,10 +23,10 @@ export class GridDescriptor {
   gridType;
   
   readGrid() {
-    BufferIterator.assert(this);
+    const { bufferIterator } = GridSharedContext.getContext(this);
 
     this.readGridHeader();
-    assert('Grid buffer position', this.gridBufferPosition, this.bufferIterator.offset);
+    assert('Grid buffer position', this.gridBufferPosition, bufferIterator.offset);
 
     this.readCompression();
     this.readMetadata();
@@ -37,9 +35,11 @@ export class GridDescriptor {
   }
 
   readGridHeader() {
-    this.uniqueName = this.bufferIterator.readNameString();
+    const { bufferIterator } = GridSharedContext.getContext(this);
+
+    this.uniqueName = bufferIterator.readNameString();
     this.gridName = this.uniqueName.split('\x1e')[0];
-    this.gridType = this.bufferIterator.readNameString();
+    this.gridType = bufferIterator.readNameString();
 
     if (this.gridType.indexOf(GridDescriptor.halfFloatGridPrefix) !== -1) {
       this.saveAsHalfFloat = true;
@@ -47,20 +47,22 @@ export class GridDescriptor {
     }
 
     if (Version.greaterEq(this, 216)) {
-      this.instanceParentName = this.bufferIterator.readNameString();
+      this.instanceParentName = bufferIterator.readNameString();
     }
 
     // NOTE Buffer offset at which grid description ends
-    this.gridBufferPosition = this.bufferIterator.readFloat(int64Type);
+    this.gridBufferPosition = bufferIterator.readFloat(int64Type);
      // NOTE Buffer offset at which grid blocks end
-    this.blockBufferPosition = this.bufferIterator.readFloat(int64Type);
+    this.blockBufferPosition = bufferIterator.readFloat(int64Type);
      // NOTE Buffer offset at which the file ends
-    this.endBufferPosition = this.bufferIterator.readFloat(int64Type);
+    this.endBufferPosition = bufferIterator.readFloat(int64Type);
   }
 
   readCompression() {
+    const { bufferIterator } = GridSharedContext.getContext(this);
+
     if (Version.greaterEq(this, 222)) {
-      let compression = this.bufferIterator.readBytes(uint32Size);
+      let compression = bufferIterator.readBytes(uint32Size);
       compression = {
         none: compression & 0x0,
         zip: compression & 0x1,
@@ -68,21 +70,23 @@ export class GridDescriptor {
         blosc: compression & 0x4,
       };
 
-      Compression.tagCompression(this, compression);
+      GridSharedContext.getContext(this).compression = compression;
     } else {
       // NOTE Use inherited compression instead
     }
   }
 
   readMetadata() {
+    const { bufferIterator } = GridSharedContext.getContext(this);
+
     this.metadata = {
-      count: this.bufferIterator.readBytes(uint32Size)
+      count: bufferIterator.readBytes(uint32Size)
     };
   
     Array(this.metadata.count).fill(0).forEach(() => {
-      const name = this.bufferIterator.readNameString();
-      const type = this.bufferIterator.readNameString();
-      const value = this.bufferIterator.readNameString(type);
+      const name = bufferIterator.readNameString();
+      const type = bufferIterator.readNameString();
+      const value = bufferIterator.readNameString(type);
   
       this.metadata[name] = { type, value };
     });
@@ -106,14 +110,18 @@ export class GridDescriptor {
     }
 
     this.transform = new GridTransform();
-    BufferIterator.withBufferIterator(this.transform, BufferIterator.getBufferIterator(this));
-    Version.tagVersion(this.transform, Version.getVersion(this));
+    GridSharedContext.passContext(this, this.transform);
 
     this.transform.readTransform();
   }
 
   readTopology() {
-    const topologyBufferCount = this.bufferIterator.readBytes(uint32Size);
+    const { bufferIterator } = GridSharedContext.getContext(this);
+
+    GridSharedContext.getContext(this).useHalf = this.saveAsHalfFloat;
+    GridSharedContext.getContext(this).valueType = this.getGridValueType();
+
+    const topologyBufferCount = bufferIterator.readBytes(uint32Size);
 
     if (topologyBufferCount !== 1) {
       // NOTE https://github.com/AcademySoftwareFoundation/openvdb/blob/master/openvdb/openvdb/tree/Tree.h#L1120
@@ -122,14 +130,11 @@ export class GridDescriptor {
     }
 
     this.root = new RootNode();
-    BufferIterator.withBufferIterator(this.root, BufferIterator.getBufferIterator(this));
-    GridUtils.tagValueType(this.root, this.getGridValueType(), this.saveAsHalfFloat);
-    Compression.tagCompression(this.root, Compression.getCompression(this));
-    Version.tagVersion(this.root, Version.getVersion(this));
+    GridSharedContext.passContext(this, this.root);
 
     this.root.readNode();
     this.leavesCount = this.root.leavesCount;
 
-    assert('Block buffer', this.blockBufferPosition, this.bufferIterator.offset);
+    assert('Block buffer', this.blockBufferPosition, bufferIterator.offset);
   }
 }

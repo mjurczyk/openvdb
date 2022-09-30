@@ -1,44 +1,33 @@
-
 export class Version {
-  static tagVersion(target, version) {
-    target.version = version;
-
-    return target;
+  static greater(version, min) {
+    return version > min;
   }
 
-  static getVersion(target) {
-    return target.version;
+  static greaterEq(version, min) {
+    return version >= min;
   }
 
-  static greater(target, min) {
-    return target.version > min;
+  static less(version, max) {
+    return version < max;
   }
 
-  static greaterEq(target, min) {
-    return target.version >= min;
+  static lessEq(version, max) {
+    return version <= max;
   }
 
-  static less(target, max) {
-    return target.version < max;
+  static eq(version, exact) {
+    return version === exact;
   }
 
-  static lessEq(target, max) {
-    return target.version <= max;
-  }
-
-  static eq(target, exact) {
-    return target.version === exact;
-  }
-
-  static between(target, min, max, includeMin, includeMax) {
+  static between(version, min, max, includeMin, includeMax) {
     if (includeMin && includeMax) {
-      return target.version >= min && target <= max;
+      return version >= min && version <= max;
     } else if (includeMin) {
-      return target.version >= min && target < max;
+      return version >= min && version < max;
     } else if (includeMax) {
-      return target.version > min && target <= max;
+      return version > min && version <= max;
     } else {
-      return target.version > min && target < max;
+      return version > min && version < max;
     }
   }
 }

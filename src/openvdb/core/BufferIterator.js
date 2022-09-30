@@ -1,4 +1,4 @@
-import { assert, unsupported } from '../debug';
+import { unsupported } from '../debug';
 import {
   boolSize,
   boolType,

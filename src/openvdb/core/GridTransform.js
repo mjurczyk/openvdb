@@ -17,10 +17,10 @@ const transformMapType = {
 
 export class GridTransform {
   readTransform() {
-    BufferIterator.assert(this);
+    const { bufferIterator } = GridSharedContext.getContext(this);
 
     this.transformMap = {
-      mapType: this.bufferIterator.readNameString(),
+      mapType: bufferIterator.readNameString(),
       translation: new Vector3(),
       scale: new Vector3(),
       voxelSize: new Vector3(),
@@ -37,26 +37,26 @@ export class GridTransform {
     if ([transformMapType.uniformScaleTranslateMap, transformMapType.scaleTranslateMap].includes(this.transformMap.mapType)) {
       this.transformMap = {
         ...this.transformMap,
-        translation: this.bufferIterator.readVector3(),
-        scale: this.bufferIterator.readVector3(),
-        voxelSize: this.bufferIterator.readVector3(),
-        scaleInverse: this.bufferIterator.readVector3(),
-        scaleInverseSq: this.bufferIterator.readVector3(),
-        scaleInverseDouble: this.bufferIterator.readVector3(),
+        translation: bufferIterator.readVector3(),
+        scale: bufferIterator.readVector3(),
+        voxelSize: bufferIterator.readVector3(),
+        scaleInverse: bufferIterator.readVector3(),
+        scaleInverseSq: bufferIterator.readVector3(),
+        scaleInverseDouble: bufferIterator.readVector3(),
       };
     } else if ([transformMapType.uniformScaleMap, transformMapType.scaleMap].includes(this.transformMap.mapType)) {
       this.transformMap = {
         ...this.transformMap,
-        scale: this.bufferIterator.readVector3(),
-        voxelSize: this.bufferIterator.readVector3(),
-        scaleInverse: this.bufferIterator.readVector3(),
-        scaleInverseSq: this.bufferIterator.readVector3(),
-        scaleInverseDouble: this.bufferIterator.readVector3(),
+        scale: bufferIterator.readVector3(),
+        voxelSize: bufferIterator.readVector3(),
+        scaleInverse: bufferIterator.readVector3(),
+        scaleInverseSq: bufferIterator.readVector3(),
+        scaleInverseDouble: bufferIterator.readVector3(),
       };
     } else if ([transformMapType.translationMap].includes(this.transformMap.mapType)) {
       this.transformMap = {
         ...this.transformMap,
-        translation: this.bufferIterator.readVector3()
+        translation: bufferIterator.readVector3()
       };
     } else if ([transformMapType.unitaryMap].includes(this.transformMap.mapType)) {
       // TODO https://github.com/AcademySoftwareFoundation/openvdb/blob/master/openvdb/openvdb/math/Maps.h#L1809

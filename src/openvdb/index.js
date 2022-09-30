@@ -1,11 +1,11 @@
 import './debug';
 import './dependencies';
-import { VDBReader } from './core/VDBReader';
+import { OpenVDBReader } from './core/OpenVDBReader';
 
 const parseVDB = (url) => new Promise((resolve) => {
   fetch(url).then(async (vdb) => {
     const source = new Uint8Array(await vdb.arrayBuffer());
-    const vdbReader = new VDBReader();
+    const vdbReader = new OpenVDBReader();
     vdbReader.read(source);
 
     resolve(vdbReader.grids);
