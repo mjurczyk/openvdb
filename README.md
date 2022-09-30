@@ -21,6 +21,37 @@ Keep in mind that, due to memory-access and multithreading limitations of JS, th
 
 ### Without library
 
+## Current Feature Support
+
+Based on files hosted on [https://www.openvdb.org/download/](https://www.openvdb.org/download/).
+  
+| Model | Support | Notes |
+| - | - | - |
+| armadillo.vdb | ✅ Yes  | |
+| buddha.vdb | ✅ Yes | |
+| bunny.vdb | ✅ Yes | |
+| bunny_cloud.vdb | ✅ Yes | |
+| crawler.vdb | ❓ Partial | Loads ok, fails to render (Three.js) due to array memory limits |
+| cube.vdb | ✅ Yes | |
+| dragon.vdb | ✅ Yes | Long loading time |
+| emu.vdb | ❓ Partial | Loads ok, fails to render (Three.js) due to array memory limits |
+| explosion.vdb | ❌ No | Multi-grid VDB |
+| fire.vdb | ❌ No | Multi-grid VDB |
+| icosahedron.vdb | ✅ Yes | |
+| iss.vdb | ❓ Partial | Loads ok, fails to render (Three.js) due to array memory limits |
+| smoke1.vdb | ❓ Partial | Fog volume not implemented yet |
+| smoke2.vdb | ❌ No | Multi-grid VDB |
+| space.vdb | ❌ No | Failed to fetch due to file size, requires streaming |
+| sphere.vdb | ✅ Yes | |
+| torus.vdb | ✅ Yes | |
+| torus_knot.vdb | ✅ Yes | |
+| utahteapot.vdb | ✅ Yes | |
+| venusstatue.vdb | ✅ Yes | |
+| boat_points.vdb | ❌ No | Failed to fetch due to file size, requires streaming |
+| bunny_points.vdb | ❌ No | Failed to fetch due to file size, requires streaming |
+| sphere_points.vdb | ❌ No | Unsupported value type ptdataidx32 |
+| waterfall_points.vdb | ❌ No | Unsupported value type ptdataidx32 |
+
 ## Credits
 
 To avoid re-coding same things over again, parts of the library may be based / taken directly from the following:
