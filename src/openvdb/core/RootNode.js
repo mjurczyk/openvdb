@@ -91,4 +91,12 @@ export class RootNode {
       new Vector3(0.0, 0.0, 0.0),
     ];
   }
+
+  isLeaf() {
+    return false;
+  }
+
+  isRoot() {
+    return true;
+  }
 }

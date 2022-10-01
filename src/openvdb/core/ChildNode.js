@@ -67,6 +67,8 @@ export class ChildNode {
     }
 
     this.table = [];
+    this.firstChild = null;
+
     this.values = [];
 
     if (Version.less(version, 214)) {
@@ -120,7 +122,7 @@ export class ChildNode {
     const useCompression = compression.activeMask;
 
     if (this.isLeaf()) {
-      Array(this.valueMask.size).fill(0.0);
+      this.values = Array(this.valueMask.size).fill(0.0);
 
       this.valueMask.forEachOn(({ offset }) => {
         this.values[offset] = 1.0;
@@ -215,8 +217,12 @@ export class ChildNode {
       vec.y = vec.y << child.total;
       vec.z = vec.z << child.total;
       
-      this.table.push(child);
+      this.table[indices.offset] = child;
       this.leavesCount += child.leavesCount;
+
+      if (!this.firstChild) {
+        this.firstChild = child;
+      }
 
       GridSharedContext.cleanContext(child);
     });
@@ -287,5 +293,9 @@ export class ChildNode {
     this.localBboxCache = localBbox;
 
     return localBbox;
+  }
+
+  getFirstChild() {
+    return this.firstChild;
   }
 }

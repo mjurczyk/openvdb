@@ -3,8 +3,8 @@
     <title>OpenVDB</title>
     <style>
       body {
-        background-color: #ffeeff;
-        color: #000000;
+        background-color: #251B37;
+        color: #FFECEF;
         font-family: 'Baloo Tamma 2', Arial, Helvetica, sans-serif;
         line-height: 1.23;
       }
@@ -47,9 +47,10 @@
         left: 50%;
         transform: translate(-50%);
         z-index: 9999;
-        background-color: #ffffff;
+        background-color: #372948;
         border-radius: 4px;
         box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.5);
+        user-select: none;
       }
     </style>
     <link href="https://fonts.googleapis.com/css2?family=Baloo+Tamma+2&display=swap" rel="stylesheet">
@@ -89,6 +90,7 @@
         const fileUrl = URL.createObjectURL(file);
 
         parseVDB(fileUrl).then((vdb) => {
+          document.querySelector('.dropzone').innerHTML = `<div>Rendering file...</div>`;     
           renderThree(vdb);
         });
       };

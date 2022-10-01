@@ -14,7 +14,7 @@
   ],
   "scripts": {
     "build": "rollup ./src/openvdb/index.js --file ./build/openvdb.js",
-    "build:three": "rollup ./src/three-openvdb/index.js --file ./build/three-openvdb.js"
+    "build:three": "rollup --config ./rollup.config.js"
   },
   "contributors": [
     {
@@ -28,6 +28,7 @@
   ],
   "license": "MIT",
   "devDependencies": {
-    "rollup": "^2.79.1"
+    "rollup": "^2.79.1",
+    "three": "^0.145.0"
   }
 }
