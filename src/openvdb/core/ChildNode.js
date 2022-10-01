@@ -1,6 +1,7 @@
 import { unsupported } from "../debug";
 import { Vector3 } from "../math/vector";
 import { GridSharedContext } from "./GridSharedContext";
+import { Mask } from "./Mask";
 import { Version } from "./Version";
 
 // NOTE Assuming 5_4_3 tree
@@ -49,11 +50,15 @@ export class ChildNode {
     this.background = props.background || 0.0;
 
     if (depth < 2) {
-      this.childMask = this.readMask();
+      this.childMask = new Mask();
+      GridSharedContext.passContext(this, this.childMask);
+      this.childMask.readMask(this);
     }
 
     this.values = [];
-    this.valueMask = this.readMask();
+    this.valueMask = new Mask();
+    GridSharedContext.passContext(this, this.valueMask);
+    this.valueMask.readMask(this);
 
     if (depth >= 2) {
       this.leavesCount = 1;
@@ -108,64 +113,6 @@ export class ChildNode {
     });
   }
 
-  readMask() {
-    const { bufferIterator } = GridSharedContext.getContext(this);
-    const mask = {};
-
-    mask.dim = 1 << this.log2dim;
-    mask.size = 1 << 3 * this.log2dim;
-    mask.wordCount = mask.size >> 6;
-    mask.words = [];
-    mask.countOn = () => {
-      let count = 0;
-
-      mask.words.forEach((word, index) => {
-        count += word.split('').filter(bit => bit === '1').length;
-      });
-
-      return count;
-    };
-    mask.countOff = () => mask.size - mask.countOn();
-    mask.forEachOn = (callback) => {
-      mask.words.forEach((word, wordIndex) => {
-        word.split('').forEach((value, bitIndex) => {
-          if (value === '1') {
-            const offset = wordIndex * 64 + bitIndex;
-
-            callback({ wordIndex, bitIndex, offset });
-          }
-        });
-      });
-    };
-    mask.forEachOff = (callback) => {
-      mask.words.forEach((word, wordIndex) => {
-        word.split('').forEach((value, bitIndex) => {
-          if (value === '0') {
-            const offset = wordIndex * 64 + bitIndex;
-
-            callback({ wordIndex, bitIndex, offset });
-          }
-        });
-      });
-    };
-
-    Array(mask.wordCount).fill(0).forEach(() => {
-      const fillShift = Array(8).fill('0').join('');
-      let byte = Array(8).fill(0)
-        .map(() =>
-          `${fillShift}${bufferIterator.readBytes(1).toString(2).split('-').join('')}`.substr(-8).split('').reverse().join('')
-        );
-
-      byte = byte.join('');
-      mask.words.push(`${Array(64).fill('0').join('')}${byte}`.substr(-64));
-    });
-
-    mask.onCache = mask.countOn();
-    mask.offCache = mask.countOff();
-
-    return mask;
-  }
-
   readValues() {
     const { bufferIterator, compression, version } = GridSharedContext.getContext(this);
     const oldVersion = Version.less(version, 222);
@@ -201,7 +148,9 @@ export class ChildNode {
     }
     
     if ([ 3, 4, 5 ].includes(metadata)) {
-      this.selectionMask = this.readMask();
+      this.selectionMask = new Mask(this);
+      GridSharedContext.passContext(this, this.selectionMask);
+      this.selectionMask.readMask(this);
     }
 
     let tempCount = numValues;
