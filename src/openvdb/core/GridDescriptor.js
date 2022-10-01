@@ -8,6 +8,7 @@ import {
 import { GridTransform } from "./GridTransform";
 import { RootNode } from "./RootNode";
 import { GridSharedContext } from "./GridSharedContext";
+import { log2dimMap, totalMap } from "./ChildNode";
 
 export class GridDescriptor {
   static halfFloatGridPrefix = '_HalfFloat';
@@ -108,7 +109,6 @@ export class GridDescriptor {
   }
 
   readGridTransform() {
-
     this.transform = new GridTransform();
     GridSharedContext.passContext(this, this.transform);
 
@@ -144,5 +144,20 @@ export class GridDescriptor {
 
   readBuffers() {
     // TODO
+  }
+
+  getWorldBbox(child) {
+    const localBbox = (child || this).getLocalBbox();
+
+    return localBbox.map(vector => vector.clone()).map(this.transform.applyTransformMap);
+  }
+
+  getLocalBbox() {
+    const maxLog2Dim = 1 << (log2dimMap[0] + totalMap.reduce((total, next) => total + next));
+
+    return [
+      this.metadata.file_bbox_min.value.subScalar(maxLog2Dim - 1),
+      this.metadata.file_bbox_max.value.addScalar(maxLog2Dim - 1),
+    ];
   }
 }

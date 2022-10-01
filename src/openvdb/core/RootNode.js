@@ -83,4 +83,12 @@ export class RootNode {
 
     GridSharedContext.cleanContext(child);
   }
+
+  getLocalBbox() {
+    // NOTE Ignore bbox for root nodes
+    return [
+      new Vector3(0.0, 0.0, 0.0),
+      new Vector3(0.0, 0.0, 0.0),
+    ];
+  }
 }

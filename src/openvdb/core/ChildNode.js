@@ -5,13 +5,13 @@ import { Mask } from "./Mask";
 import { Version } from "./Version";
 
 // NOTE Assuming 5_4_3 tree
-const log2dimMap = [
+export const log2dimMap = [
   5,
   4,
   3
 ];
 
-const totalMap = [
+export const totalMap = [
   4,
   3,
   0
@@ -55,21 +55,19 @@ export class ChildNode {
       this.childMask.readMask(this);
       GridSharedContext.cleanContext(this.childMask);
     }
-
-    this.values = [];
     this.valueMask = new Mask();
     GridSharedContext.passContext(this, this.valueMask);
     this.valueMask.readMask(this);
     GridSharedContext.cleanContext(this.valueMask);
 
-    if (depth >= 2) {
+    if (this.isLeaf()) {
       this.leavesCount = 1;
-      return;
     } else {
       this.leavesCount = 0;
     }
 
     this.table = [];
+    this.values = [];
 
     if (Version.less(version, 214)) {
       unsupported('Internal-node compression');
@@ -80,11 +78,11 @@ export class ChildNode {
   }
 
   isLeaf() {
-    return this.level <= 0;
+    return this.depth >= 2;
   }
 
   isInternalNode() {
-    return this.level > 0;
+    return !this.isLeaf()
   }
 
   getValueCoords(offset) {
@@ -120,6 +118,16 @@ export class ChildNode {
     const oldVersion = Version.less(version, 222);
     const numValues = oldVersion ? this.childMask.countOff() : this.numValues;
     const useCompression = compression.activeMask;
+
+    if (this.isLeaf()) {
+      Array(this.valueMask.size).fill(0.0);
+
+      this.valueMask.forEachOn(({ offset }) => {
+        this.values[offset] = 1.0;
+      });
+
+      return;
+    }
 
     let metadata = 0x110;
 
@@ -195,13 +203,13 @@ export class ChildNode {
       const child = new ChildNode();
       GridSharedContext.passContext(this, child);
 
+      child.parent = this;
       child.readNode(this.depth + 1, {
         id: indices.offset,
         origin: vec,
         indices: indices,
         background: this.background
       });
-      child.parent = this;
 
       vec.x = vec.x << child.total;
       vec.y = vec.y << child.total;
@@ -247,5 +255,37 @@ export class ChildNode {
         this.values.push(bufferIterator.readFloat(useHalf ? 'half' : valueType));
       });
     } 
+  }
+
+  getLocalBbox() {
+    if (this.localBboxCache) {
+      return this.localBboxCache;
+    }
+
+    let sumParentOffset = new Vector3();
+
+    const traverseOffset = (node) => {
+      if (node && node.origin) {
+        sumParentOffset.add(node.origin);
+      }
+
+      if (node.parent) {
+        traverseOffset(node.parent);
+      }
+    };
+    traverseOffset(this);
+
+    const localBbox = [
+      sumParentOffset,
+      new Vector3(
+        sumParentOffset.x + this.dim,
+        sumParentOffset.y + this.dim,
+        sumParentOffset.z + this.dim,
+      )
+    ];
+
+    this.localBboxCache = localBbox;
+
+    return localBbox;
   }
 }

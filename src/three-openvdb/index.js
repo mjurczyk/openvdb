@@ -11,14 +11,7 @@ const renderThree = (vdb) => {
     const preview = new Three.Object3D();
     scene.add(preview);
 
-    const getBoundingBox = (min, offset) => {
-      return [
-        min.clone(),
-        new Three.Vector3(min.x + offset, min.y + offset, min.z + offset)
-      ];
-    };
-
-    Object.entries(vdb).forEach(([ gridKey, grid ]) => {
+    Object.values(vdb).forEach(grid => {
       const materialGrid = new Three.MeshBasicMaterial({ wireframe: true, color: 0x330033 });
       const geometry = new Three.BoxGeometry(1.0, 1.0);
       const mesh = new Three.InstancedMesh(geometry, materialGrid, grid.leavesCount);
@@ -56,24 +49,15 @@ const renderThree = (vdb) => {
         addParentOffset(node);
 
         if (node.level === 0) {
-          const lod = new Three.LOD();
-
           const materialVoxel = new Three.MeshPhongMaterial({ color: Math.random() * 0x888888 + 0x888888 });
           const voxels = new Three.InstancedMesh(geometry, materialVoxel, node.numVoxels * 3);
           let voxelId = 0;
 
-          // lod.addLevel(voxels, 0.0);
-          // lod.addLevel(new Three.Object3D(), 30.0);
           voxels.visible = false;
           voxelBox.push(voxels);
           preview.add(voxels);
 
-          let nodeBbox = node.origin ? getBoundingBox(sumParentOffset, node.dim) : [
-            grid.metadata.file_bbox_min.value.subScalar(4096 - 1),
-            grid.metadata.file_bbox_max.value.addScalar(4096 - 1),
-          ];
-
-          nodeBbox = nodeBbox.map(grid.transform.applyTransformMap);
+          let nodeBbox = grid.getWorldBbox(node);
           bbox.set(...nodeBbox);
 
           bbox.getCenter(mock.position);
@@ -89,7 +73,6 @@ const renderThree = (vdb) => {
 
           node.forEachValue(({ coords }) => {
             mock.scale.setScalar(voxelSize);
-            // mock.position.copy(nodePosition);
             mock.position.set(0.0, 0.0, 0.0);
 
             mock.position.x += coords.x * voxelSize - voxelSize * 3.5;
@@ -103,32 +86,11 @@ const renderThree = (vdb) => {
           });
         }
 
-
-        // const baseCube = new Three.Mesh(
-        //   new Three.BoxGeometry(1.0, 1.0, 1.0),
-        //   new Three.MeshBasicMaterial({ wireframe: node.level !== 0, color: ([
-        //     0xff0000, // root (blue)
-        //     0x00ff00, // internal (green)
-        //     0x0000ff, // internal (red)
-        //     0xff00ff, // leaf (purple)
-        //   // ])[node.id % 4] || Math.random() * 0x888888 + 0x888888 })
-        //   ])[node.level] || Math.random() * 0x888888 + 0x888888 })
-        // );
-        // bbox.getCenter(baseCube.position);
-        // bbox.getSize(baseCube.scale);
-        // preview.add(baseCube);
-
         if (node.table) {
           node.table.forEach(child => {
             traverseVDB(level + 1, child);
           });
         }
-        
-        // if (node.valueMask) {
-        //   node.valueMask.forEachOn(() => {
-
-        //   });
-        // }
       };
 
       grid.root.table.forEach(node => traverseVDB(0, node));

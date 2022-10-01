@@ -25,6 +25,10 @@ export class Mask {
   }
 
   countOn() {
+    if (this.onCache) {
+      return this.onCache;
+    }
+
     let count = 0;
 
     this.words.forEach(word => {
@@ -35,10 +39,18 @@ export class Mask {
   }
 
   countOff() {
+    if (this.offCache) {
+      return this.offCache;
+    }
+
     return this.size - this.countOn();
   }
 
   forEachOn(callback) {
+    if (this.countOn() === 0) {
+      return;
+    }
+
     this.words.forEach((word, wordIndex) => {
       word.split('').forEach((value, bitIndex) => {
         if (value === '1') {
@@ -51,6 +63,10 @@ export class Mask {
   }
 
   forEachOff(callback) {
+    if (this.countOff() === 0) {
+      return;
+    }
+
     this.words.forEach((word, wordIndex) => {
       word.split('').forEach((value, bitIndex) => {
         if (value === '0') {
