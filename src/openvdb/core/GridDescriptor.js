@@ -20,15 +20,23 @@ export class GridDescriptor {
   gridType;
   
   readGrid() {
-    const { bufferIterator } = GridSharedContext.getContext(this);
+    const { bufferIterator, version } = GridSharedContext.getContext(this);
 
     this.readGridHeader();
     assert('Grid buffer position', this.gridBufferPosition, bufferIterator.offset);
 
     this.readCompression();
     this.readMetadata();
-    this.readGridTransform();
-    this.readTopology();
+
+    if (Version.less(version, 216)) {
+      this.readTopology();
+      this.readGridTransform();
+      this.readBuffers();
+    } else {
+      this.readGridTransform();
+      this.readTopology();
+      this.readBuffers();
+    }
   }
 
   readGridHeader() {
@@ -100,18 +108,13 @@ export class GridDescriptor {
   }
 
   readGridTransform() {
-    const { version } = GridSharedContext.getContext(this);
-
-    if (Version.less(version, 216)) {
-      // NOTE Implement this conditional
-      unsupported('GridDescriptor::getGridTransform pre-216 transform skipped.');
-      return;
-    }
 
     this.transform = new GridTransform();
     GridSharedContext.passContext(this, this.transform);
 
     this.transform.readTransform();
+
+    GridSharedContext.cleanContext(this.transform);
   }
 
   readTopology() {
@@ -134,6 +137,12 @@ export class GridDescriptor {
     this.root.readNode();
     this.leavesCount = this.root.leavesCount;
 
+    GridSharedContext.cleanContext(this.root);
+
     assert('Block buffer', this.blockBufferPosition, bufferIterator.offset);
+  }
+
+  readBuffers() {
+    // TODO
   }
 }

@@ -53,12 +53,14 @@ export class ChildNode {
       this.childMask = new Mask();
       GridSharedContext.passContext(this, this.childMask);
       this.childMask.readMask(this);
+      GridSharedContext.cleanContext(this.childMask);
     }
 
     this.values = [];
     this.valueMask = new Mask();
     GridSharedContext.passContext(this, this.valueMask);
     this.valueMask.readMask(this);
+    GridSharedContext.cleanContext(this.valueMask);
 
     if (depth >= 2) {
       this.leavesCount = 1;
@@ -151,6 +153,7 @@ export class ChildNode {
       this.selectionMask = new Mask(this);
       GridSharedContext.passContext(this, this.selectionMask);
       this.selectionMask.readMask(this);
+      GridSharedContext.cleanContext(this.selectionMask);
     }
 
     let tempCount = numValues;
@@ -206,6 +209,8 @@ export class ChildNode {
       
       this.table.push(child);
       this.leavesCount += child.leavesCount;
+
+      GridSharedContext.cleanContext(child);
     });
   }
 

@@ -80,5 +80,7 @@ export class RootNode {
 
     this.table.push(child);
     this.leavesCount += child.leavesCount;
+
+    GridSharedContext.cleanContext(child);
   }
 }

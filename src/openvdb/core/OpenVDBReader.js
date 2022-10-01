@@ -124,6 +124,8 @@ export class OpenVDBReader {
 
         gridDescriptor.readGrid();
 
+        GridSharedContext.cleanContext(gridDescriptor);
+
         this.grids[gridDescriptor.uniqueName] = gridDescriptor;
       });
     }
