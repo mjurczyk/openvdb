@@ -2,12 +2,16 @@ import './debug';
 import './dependencies';
 import { OpenVDBReader } from './core/OpenVDBReader';
 
-export const loadVDB = (url) => new Promise((resolve) => {
+export const loadVDB = (url) => new Promise((resolve, reject) => {
   fetch(url).then(async (vdb) => {
     const source = new Uint8Array(await vdb.arrayBuffer());
     const vdbReader = new OpenVDBReader();
-    vdbReader.read(source);
 
-    resolve(vdbReader);
+    try {
+      vdbReader.read(source);
+      resolve(vdbReader);
+    } catch {
+      reject('VDB coult not be parsed.');
+    }
   });
 });

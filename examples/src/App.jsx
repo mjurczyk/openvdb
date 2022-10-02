@@ -90,6 +90,8 @@ export const App = () => {
 
       loadVDB(`./assets/${filename}.vdb`).then(vdb => {
         setVdbSource(vdb);
+      }).catch(() => {
+        alert('Could not load the VDB file.');
       });
     });
 
@@ -97,12 +99,6 @@ export const App = () => {
       'BBOX': 'debugBbox',
       'Fog (WebGL2)': 'fog'
     }).name('Render Type').onChange(setRenderType);
-
-    setTimeout(() => {
-      loadVDB('./assets/${}.vdb').then(vdb => {
-        setVdbSource(vdb);
-      });
-    }, 300);
   }, []);
 
   useEffect(() => {
@@ -196,6 +192,8 @@ export const App = () => {
 
       loadVDB(fileSource).then(vdb => {
         setVdbSource(vdb);
+      }).catch(() => {
+        alert('Could not load the VDB file.');
       });
     });
     

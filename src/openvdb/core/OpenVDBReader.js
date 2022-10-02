@@ -26,11 +26,13 @@ export class OpenVDBReader {
   read(source) {
     GridSharedContext.getContext(this).bufferIterator = new BufferIterator(source);
 
-    this.validateVDBFile();
-
-    this.readFileVersion();
-    this.readHeader();
-    this.readGrids();
+    if (this.validateVDBFile()) {
+      this.readFileVersion();
+      this.readHeader();
+      this.readGrids();
+    } else {
+      throw 'Not a VDB file.';
+    }
   }
 
   validateVDBFile() {
@@ -39,6 +41,8 @@ export class OpenVDBReader {
     const magic = bufferIterator.readBytes(uint64Size);
 
     assert('VDB magic number', 0x56444220, magic);
+
+    return 0x56444220 === magic;
   }
 
   readFileVersion() {
