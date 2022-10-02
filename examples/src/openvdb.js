@@ -1912,7 +1912,7 @@ class ChildNode {
     this.dim = 1 << this.total;
     this.numValues = 1 << (3 * this.log2dim);
     this.level = 2 - depth;
-    this.numVoxels = Number(1n << (3n * BigInt(this.total)));
+    this.numVoxels = 1 << (3 * this.total);
     this.background = props.background || 0.0;
 
     if (depth < 2) {
