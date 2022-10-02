@@ -160,4 +160,26 @@ export class GridDescriptor {
       this.metadata.file_bbox_max.value.addScalar(maxLog2Dim - 1),
     ];
   }
+
+  getPreciseWorldBbox() {
+    return [
+      this.transform.applyTransformMap(this.metadata.file_bbox_min.value.clone()),
+      this.transform.applyTransformMap(this.metadata.file_bbox_max.value.clone()),
+    ];
+  }
+
+  valueCache = {};
+
+  getValue(position) {
+    const positionKey = JSON.stringify(position);
+
+    if (this.valueCache[positionKey]) {
+      return this.valueCache[positionKey];
+    }
+
+    const value = this.root.getValue(position);
+    this.valueCache[positionKey] = value;
+
+    return value;
+  }
 }

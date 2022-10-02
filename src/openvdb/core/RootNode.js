@@ -99,4 +99,24 @@ export class RootNode {
   isRoot() {
     return true;
   }
+  
+  valueCache = {};
+
+  getValue(position) {
+    const positionKey = JSON.stringify(position);
+
+    if (this.valueCache[positionKey]) {
+      return this.valueCache[positionKey];
+    }
+
+    let max = 0;
+
+    this.table.forEach(child => {
+      max = Math.max(max, child.getValue(position));
+    });
+
+    this.valueCache[positionKey] = max;
+
+    return max;
+  }
 }

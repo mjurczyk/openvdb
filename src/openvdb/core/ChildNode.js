@@ -118,7 +118,6 @@ export class ChildNode {
   readValues() {
     const { bufferIterator, compression, version } = GridSharedContext.getContext(this);
     const oldVersion = Version.less(version, 222);
-    const numValues = oldVersion ? this.childMask.countOff() : this.numValues;
     const useCompression = compression.activeMask;
 
     if (this.isLeaf()) {
@@ -131,6 +130,7 @@ export class ChildNode {
       return;
     }
 
+    const numValues = oldVersion ? this.childMask.countOff() : this.numValues;
     let metadata = 0x110;
 
     if (Version.greaterEq(version, 222)) {
@@ -297,5 +297,42 @@ export class ChildNode {
 
   getFirstChild() {
     return this.firstChild;
+  }
+
+  valueCache = {};
+
+  getValue(position) {
+    const positionKey = JSON.stringify(position);
+
+    if (this.valueCache[positionKey]) {
+      return this.valueCache[positionKey];
+    }
+
+    const [ min, max ] = this.getLocalBbox();
+
+    const contained = (
+      position.x >= min.x && position.x <= max.x &&
+      position.y >= min.y && position.y <= max.y &&
+      position.z >= min.z && position.z <= max.z
+    );
+
+    if (!contained) {
+      this.valueCache[positionKey] = 0;
+      return 0;
+    }
+
+    if (this.isLeaf()) {
+      this.valueCache[positionKey] = this.valueMask.countOn() > 0;
+      return this.valueMask.countOn() > 0;
+    }
+
+    let maxValue = 0;
+
+    this.childMask.forEachOn(({ offset }) => {
+      maxValue = Math.max(maxValue, this.table[offset].getValue(position));
+    });
+
+    this.valueCache[positionKey] = maxValue;
+    return maxValue;
   }
 }
