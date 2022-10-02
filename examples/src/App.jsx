@@ -2,7 +2,7 @@ import * as Three from 'three';
 import WebGL from 'three/examples/jsm/capabilities/WebGL';
 import styled from 'styled-components';
 import { useEffect, useRef, useState } from 'react';
-import { Canvas, render } from 'react-three-fiber';
+import { Canvas, render, useThree } from 'react-three-fiber';
 import { OrbitControls } from '@react-three/drei';
 import GUI from 'lil-gui';
 import { SimpleDropzone } from 'simple-dropzone';
@@ -102,6 +102,8 @@ export const App = () => {
   }, []);
 
   useEffect(() => {
+    let output;
+
     if (!vdbSource) {
       setOutput(new Three.Object3D());
       return;
@@ -111,10 +113,10 @@ export const App = () => {
       // NOTE Convert each VDB grid to a set of instanced bounding boxes
       // REF Instancing https://github.com/mrdoob/three.js/blob/master/examples/webgl_instancing_dynamic.html#L118
 
-      const vdbLeavesSum = Object.values(vdbSource?.grids).reduce((total, next) => total + next.leavesCount, 0);
+      const vdbLeavesSum = Object.values(vdbSource.grids).reduce((total, next) => total + next.leavesCount, 0);
       const instancedMesh = new Three.InstancedMesh(
         new Three.BoxGeometry(1.0, 1.0, 1.0),
-        new Three.MeshBasicMaterial({ wireframe: true, color: 0xffffff, transparent: true, opacity: 0.1 }),
+        new Three.MeshBasicMaterial({ wireframe: true, color: 0xFFCACA, transparent: true, opacity: 0.1 }),
         vdbLeavesSum
       );
       let instanceId = 0;
@@ -128,12 +130,12 @@ export const App = () => {
         instancedMesh.setMatrixAt(instanceId++, mock.matrix);
       });
       
-      setOutput(instancedMesh);
+      output = instancedMesh;
     }
 
     if (renderType === 'fog') {
       const fog = new Three.Object3D();
-      const geometry = new Three.BoxGeometry(1.0, 1.0, 1.0);
+      const geometry = new Three.BoxGeometry(1.1, 1.1, 1.1);
 
       VolumeToFog.convert(vdbSource, ({ bbox, data, size }) => {
         const fogData = new Three.Data3DTexture(Uint8Array.from(data), size, size, size);
@@ -147,7 +149,7 @@ export const App = () => {
           glslVersion: Three.GLSL3,
           uniforms: {
             base: {
-              value: new Three.Color(0xFFFFFF),
+              value: new Three.Color(0xffffff),
             },
             map: {
               value: fogData
@@ -174,9 +176,18 @@ export const App = () => {
         fog.add(fogTile);
       });
 
-      setOutput(fog);
+      output = fog;
     }
 
+    const sampleGrid = vdbSource.grids[Object.keys(vdbSource.grids)[0]];
+    const worldBbox = new Three.Box3();
+    worldBbox.set(...sampleGrid.getPreciseWorldBbox());
+    const worldOffset = new Three.Vector3();
+    worldBbox.getSize(worldOffset).multiplyScalar(0.5);
+
+    output.position.y += worldOffset.y;
+
+    setOutput(output);
     setDropZoneLoadingState('Drop VDB here');
   }, [vdbSource, renderType]);
 
@@ -208,11 +219,28 @@ export const App = () => {
 
   return (
     <DemoWrapper>
-      <Canvas flat>
-        <OrbitControls makeDefault />
+      <Canvas flat onCreated={(gl) => {
+        gl.camera.position.z = 250.0;
+      }}>
+        <OrbitControls
+          enablePan={false}
+          makeDefault
+          maxPolarAngle={Math.PI / 2.0 - 0.1}
+          maxDistance={475.0}
+        />
         <mesh>
           <sphereGeometry args={[ 500.0, 32, 32 ]} />
           <meshBasicMaterial wireframe color={0x372948} />
+        </mesh>
+        {Array(9).fill(0).map((_, step) => (
+          <mesh rotation={[ -Math.PI / 2.0, 0.0, 0.0 ]} key={step}>
+            <circleGeometry args={[ 500.0 / 8.0 * step, 32 ]} />
+            <meshBasicMaterial wireframe color={0x372948} />
+          </mesh>
+        ))}
+        <mesh rotation={[ -Math.PI / 2.0, 0.0, 0.0 ]} position={[ 0.0, -0.01, 0.0 ]}>
+          <circleGeometry args={[ 500.0, 32 ]} />
+          <meshBasicMaterial color={0x251B37} />
         </mesh>
         <primitive object={output} />
       </Canvas>
