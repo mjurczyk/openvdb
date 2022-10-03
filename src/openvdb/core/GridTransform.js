@@ -99,4 +99,30 @@ export class GridTransform {
 
     return implementation(vector);
   }
+
+  applyInverseTransformMap(vector) {
+    let implementation;
+
+    if ([transformMapType.uniformScaleTranslateMap, transformMapType.scaleTranslateMap].includes(this.transformMap.mapType)) {
+      implementation = (vector) => vector.sub(this.transformMap.translation).multiply(this.transformMap.scaleInverse);
+    } else if ([transformMapType.uniformScaleMap, transformMapType.scaleMap].includes(this.transformMap.mapType)) {
+      implementation = (vector) => vector.multiply(this.transformMap.scaleInverse);
+    } else if ([transformMapType.translationMap].includes(this.transformMap.mapType)) {
+      implementation = (vector) => vector.sub(this.transformMap.translation);
+    } else if ([transformMapType.unitaryMap].includes(this.transformMap.mapType)) {
+      unsupported('GridDescriptor::UnitaryMap');
+      implementation = (vector) => vector;
+    } else if ([transformMapType.nonlinearFrustumMap].includes(this.transformMap.mapType)) {
+      unsupported('GridDescriptor::NonlinearFrustumMap');
+      implementation = (vector) => vector;
+    } else {
+      unsupported('GridDescriptor::Matrix4x4');
+      implementation = (vector) => vector;
+    }
+
+    // NOTE Cache implementation since transform type is static
+    this.applyInverseTransformMap = implementation;
+
+    return implementation(vector);
+  }
 }

@@ -1,16 +1,12 @@
 import * as Three from 'three';
-import WebGL from 'three/examples/jsm/capabilities/WebGL';
 import styled from 'styled-components';
 import { useEffect, useRef, useState } from 'react';
-import { Canvas, render, useThree } from 'react-three-fiber';
-import { OrbitControls } from '@react-three/drei';
+import { Canvas } from 'react-three-fiber';
+import { Html, OrbitControls } from '@react-three/drei';
 import GUI from 'lil-gui';
 import { SimpleDropzone } from 'simple-dropzone';
-import { volumeShaders } from './volumeShaders';
 
-import { loadVDB } from '../../src/openvdb/index';
-import { VolumeToBbox } from '../../src/openvdb/tools/VolumeToBbox';
-import { VolumeToFog } from '../../src/openvdb/tools/VolumeToFog';
+import { loadVDB, VolumeToBbox, VolumeToFog } from '../../src/openvdb/three';
 
 const DemoWrapper = styled.div`
   position: absolute;
@@ -61,17 +57,49 @@ const DropZone = styled.div`
   }
 `;
 
+const PopUpBox = styled(Html)`
+  & > div {
+    display: inline-block;
+    padding: 10px 15px;
+    border-radius: 4px;
+    background-color: #372948;
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
+    white-space: nowrap;
+    transform: translateX(-50%) translateY(-50%);
+    user-select: none;
+    pointer-events: none;
+  }
+`;
+
 export const App = () => {
   const defaults = {
     sourceFile: null,
-    renderType: 'debugBbox'
+    renderType: 'debugBbox',
+    progressiveLoad: true,
+    resolution: 20,
+    threshold: 0.01,
+    opacity: 0.01,
+    range: 0.01,
+    steps: 100
   };
+  // NOTE UI
   const [vdbSource, setVdbSource] = useState(defaults.sourceFile);
-  const [renderType, setRenderType] = useState(defaults.renderType);
   const [output, setOutput] = useState(new Three.Object3D());
-  
-  const dropZoneRef = useRef();
+  const [popUpText, setPopUpText] = useState(null);
   const [dropZoneLoadingState, setDropZoneLoadingState] = useState('Drop VDB here');
+  const dropZoneRef = useRef();
+
+  // NOTE Rendering
+  const [renderType, setRenderType] = useState(defaults.renderType);
+  const [progressiveLoad, setProgressiveLoad] = useState(defaults.progressiveLoad);
+  
+  // NOTE Fog
+  const [resolution, setResolution] = useState(defaults.resolution);
+  const [threshold, setThreshold] = useState(defaults.threshold);
+  const [opacity, setOpacity] = useState(defaults.opacity);
+  const [range, setRange] = useState(defaults.range);
+  const [steps, setSteps] = useState(defaults.steps);
 
   useEffect(() => {
     const gui = new GUI();
@@ -99,6 +127,15 @@ export const App = () => {
       'BBOX': 'debugBbox',
       'Fog (WebGL2)': 'fog'
     }).name('Render Type').onChange(setRenderType);
+
+    gui.add(defaults, 'progressiveLoad', true).name('Progressive').onChange(setProgressiveLoad);
+
+    const fogSettings = gui.addFolder('Fog');
+    fogSettings.add(defaults, 'resolution', 10.0, 100.0, 1.0).name('Resolution').onChange(setResolution);
+    fogSettings.add(defaults, 'threshold', 0.001, 2.0, 0.001).name('Threshold').onChange(setThreshold);
+    fogSettings.add(defaults, 'opacity', 0.001, 2.0, 0.001).name('Opacity').onChange(setOpacity);
+    fogSettings.add(defaults, 'range', 0.001, 2.0, 0.001).name('Range').onChange(setRange);
+    fogSettings.add(defaults, 'steps', 1.0, 100.0, 1.0).name('Steps').onChange(setSteps);
   }, []);
 
   useEffect(() => {
@@ -110,73 +147,22 @@ export const App = () => {
     }
 
     if (renderType === 'debugBbox') {
-      // NOTE Convert each VDB grid to a set of instanced bounding boxes
-      // REF Instancing https://github.com/mrdoob/three.js/blob/master/examples/webgl_instancing_dynamic.html#L118
-
-      const vdbLeavesSum = Object.values(vdbSource.grids).reduce((total, next) => total + next.leavesCount, 0);
-      const instancedMesh = new Three.InstancedMesh(
-        new Three.BoxGeometry(1.0, 1.0, 1.0),
-        new Three.MeshBasicMaterial({ wireframe: true, color: 0xFFCACA, transparent: true, opacity: 0.1 }),
-        vdbLeavesSum
-      );
-      let instanceId = 0;
-      const mock = new Three.Object3D();
-      
-      VolumeToBbox.convert(vdbSource, (bbox) => {
-        bbox.getCenter(mock.position);
-        bbox.getSize(mock.scale);
-
-        mock.updateMatrix();
-        instancedMesh.setMatrixAt(instanceId++, mock.matrix);
-      });
-      
-      output = instancedMesh;
+      output = new VolumeToBbox(vdbSource);
     }
 
     if (renderType === 'fog') {
-      const fog = new Three.Object3D();
-      const geometry = new Three.BoxGeometry(1.1, 1.1, 1.1);
-
-      VolumeToFog.convert(vdbSource, ({ bbox, data, size }) => {
-        const fogData = new Three.Data3DTexture(Uint8Array.from(data), size, size, size);
-        fogData.format = Three.RedFormat;
-				fogData.minFilter = Three.LinearFilter;
-				fogData.magFilter = Three.LinearFilter;
-				fogData.unpackAlignment = 1;
-				fogData.needsUpdate = true;
-
-        const fogMaterial = new Three.ShaderMaterial({
-          glslVersion: Three.GLSL3,
-          uniforms: {
-            base: {
-              value: new Three.Color(0xffffff),
-            },
-            map: {
-              value: fogData
-            },
-            threshold: { value: 0.001 },
-            opacity: { value: 0.01 },
-            range: { value: 0.001 },
-            steps: { value: 10 },
-          },
-          vertexShader: volumeShaders.vertex,
-          fragmentShader: volumeShaders.fragment,
-          side: Three.BackSide,
-          transparent: true
-        });
-
-        const fogTile = new Three.Mesh(
-          geometry,
-          fogMaterial
-        );
-
-        bbox.getSize(fogTile.scale);
-        bbox.getCenter(fogTile.position);
-
-        fog.add(fogTile);
+      output = new VolumeToFog(vdbSource, {
+        resolution: resolution,
+        progressive: progressiveLoad,
+        threshold: threshold,
+        opacity: opacity,
+        range: range,
+        steps: steps,
+      }, () => {
+        setPopUpText(null);
+      }, ({ convertedVoxels, totalVoxels }) => {
+        setPopUpText(`${convertedVoxels} / ${totalVoxels} voxels (${((convertedVoxels / totalVoxels) * 100.0).toFixed(0)}%)`);
       });
-
-      output = fog;
     }
 
     const sampleGrid = vdbSource.grids[Object.keys(vdbSource.grids)[0]];
@@ -189,7 +175,30 @@ export const App = () => {
 
     setOutput(output);
     setDropZoneLoadingState('Drop VDB here');
-  }, [vdbSource, renderType]);
+
+    return () => {
+      if (output?.dispose) {
+        output.dispose();
+      }
+    };
+  }, [vdbSource, renderType, progressiveLoad, resolution]);
+
+  useEffect(() => {
+    if (renderType !== 'fog') {
+      return;
+    }
+
+    output.traverse(child => {
+      if (child.material?.isVolumetricFogMaterial) {
+        child.material.uniforms.threshold.value = threshold;
+        child.material.uniforms.opacity.value = opacity;
+        child.material.uniforms.range.value = range;
+        child.material.uniforms.steps.value = steps;
+
+        child.material.needsUpdate = true;
+      }
+    });
+  }, [renderType, threshold, opacity, range, steps]);
 
   useEffect(() => {
     const dropzone = new SimpleDropzone(dropZoneRef.current, document.createElement('input'));
@@ -223,7 +232,6 @@ export const App = () => {
         gl.camera.position.z = 250.0;
       }}>
         <OrbitControls
-          enablePan={false}
           makeDefault
           maxPolarAngle={Math.PI / 2.0 - 0.1}
           maxDistance={475.0}
@@ -243,6 +251,13 @@ export const App = () => {
           <meshBasicMaterial color={0x251B37} />
         </mesh>
         <primitive object={output} />
+        {popUpText !== null && (
+          <PopUpBox>
+            <div>
+              {popUpText}
+            </div>
+          </PopUpBox>
+        )}
       </Canvas>
       <DropZone ref={dropZoneRef}>
         <div>
