@@ -131,7 +131,7 @@ export const App = () => {
     gui.add(defaults, 'progressiveLoad', true).name('Progressive').onChange(setProgressiveLoad);
 
     const fogSettings = gui.addFolder('Fog');
-    fogSettings.add(defaults, 'resolution', 10.0, 100.0, 1.0).name('Resolution').onChange(setResolution);
+    fogSettings.add(defaults, 'resolution', 10.0, 200.0, 1.0).name('Resolution').onChange(setResolution);
     fogSettings.add(defaults, 'threshold', 0.001, 2.0, 0.001).name('Threshold').onChange(setThreshold);
     fogSettings.add(defaults, 'opacity', 0.001, 2.0, 0.001).name('Opacity').onChange(setOpacity);
     fogSettings.add(defaults, 'range', 0.001, 2.0, 0.001).name('Range').onChange(setRange);

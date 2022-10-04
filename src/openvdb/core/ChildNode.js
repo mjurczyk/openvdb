@@ -48,6 +48,7 @@ export class ChildNode {
     this.level = 2 - depth;
     this.numVoxels = 1 << (3 * this.total);
     this.background = props.background || 0.0;
+    this.offsetMask = (1 << this.log2dim) - 1;
 
     if (depth < 2) {
       this.childMask = new Mask();
@@ -311,15 +312,21 @@ export class ChildNode {
     );
   }
 
-  getValue(positionKey, position, accessor = null) {
-    if (this.valueCache[positionKey]) {
-      accessor.cache(this);
-
-      return this.valueCache[positionKey];
+  coordToOffset(position) {
+    if (this.isLeaf()) {
+      return ((position.x & this.offsetMask) << (2 * this.log2dim)) + ((position.y & this.offsetMask) << this.log2dim) + (position.z & this.offsetMask);
     }
+  }
+
+  getValue(positionKey, position, accessor = null) {
+    // if (this.valueCache[positionKey]) {
+    //   accessor.cache(this);
+
+    //   return this.valueCache[positionKey];
+    // }
 
     if (!this.contains(position)) {
-      this.valueCache[positionKey] = 0;
+      // this.valueCache[positionKey] = 0;
       return 0;
     }
 
@@ -328,25 +335,28 @@ export class ChildNode {
     }
 
     if (this.isLeaf()) {
-      this.valueCache[positionKey] = this.valueMask.countOn() > 0;
-      return this.valueMask.countOn() > 0;
+      const leafValue = this.valueMask.isOn(this.coordToOffset(position));
+
+      // this.valueCache[positionKey] = leafValue;
+      return leafValue;
     }
 
     let maxValue = 0.0;
 
     // TODO Convert this to coordsToOffset, instead of looping through all children
     let i = 0;
-    this.childMask.forEachOn(({ offset }, interrupt) => {
+    this.childMask.forEachOn(({ offset }) => {
       const childValue = this.table[offset].getValue(positionKey, position, accessor);
       i++;
 
       if (childValue) {
         maxValue = childValue;
-        interrupt();
+
+        return 0;
       }
     });
 
-    this.valueCache[positionKey] = maxValue;
+    // this.valueCache[positionKey] = maxValue;
     return maxValue;
   }
 }

@@ -50,21 +50,27 @@ export class Mask {
     return this.size - this.countOn();
   }
 
+  onValuesCache = null;
+  offValuesCache = null;
+
   onIndexCache = null;
-  offIndexCache = null;
 
   forEachOn(callback) {
     if (this.countOn() === 0) {
       return;
     }
 
-    if (!this.onIndexCache) {
+    if (!this.onValuesCache) {
+      this.onValuesCache = [];
       this.onIndexCache = [];
 
       this.words.forEach((word, wordIndex) => {
         word.split('').forEach((value, bitIndex) => {
           if (value === '1') {
-            this.onIndexCache.push(wordIndex, bitIndex, wordIndex * 64 + bitIndex);
+            const offset = wordIndex * 64 + bitIndex;
+
+            this.onValuesCache.push(wordIndex, bitIndex, offset);
+            this.onIndexCache[offset] = true;
           }
         });
       });
@@ -75,14 +81,15 @@ export class Mask {
     }
 
     let i = 0;
-    const interrupt = () => i = this.onIndexCache.length;
 
-    for (i = 0; i < this.onIndexCache.length;) {
-      callback({
-        wordIndex: this.onIndexCache[i++],
-        bitIndex: this.onIndexCache[i++],
-        offset: this.onIndexCache[i++],
-      }, interrupt);
+    while(i < this.onValuesCache.length) {
+      if (callback({
+        wordIndex: this.onValuesCache[i++],
+        bitIndex: this.onValuesCache[i++],
+        offset: this.onValuesCache[i++],
+      }) === 0) {
+        break;
+      }
     }
   }
 
@@ -91,13 +98,13 @@ export class Mask {
       return;
     }
 
-    if (!this.offIndexCache) {
-      this.offIndexCache = [];
+    if (!this.offValuesCache) {
+      this.offValuesCache = [];
 
       this.words.forEach((word, wordIndex) => {
         word.split('').forEach((value, bitIndex) => {
           if (value === '0') {
-            this.offIndexCache.push(wordIndex, bitIndex, wordIndex * 64 + bitIndex);
+            this.offValuesCache.push(wordIndex, bitIndex, wordIndex * 64 + bitIndex);
           }
         });
       });
@@ -108,14 +115,23 @@ export class Mask {
     }
 
     let i = 0;
-    const interrupt = () => i = this.onIndexCache.length;
 
-    for (i = 0; i < this.offIndexCache.length;) {
-      callback({
-        wordIndex: this.offIndexCache[i++],
-        bitIndex: this.offIndexCache[i++],
-        offset: this.offIndexCache[i++],
-      }, interrupt);
+    while(i < this.offValuesCache.length) {
+      if (callback({
+        wordIndex: this.offValuesCache[i++],
+        bitIndex: this.offValuesCache[i++],
+        offset: this.offValuesCache[i++],
+      }) === 0) {
+        break;
+      }
     }
+  }
+
+  isOn(offset) {
+    return this.onIndexCache[offset];
+  }
+
+  isOff(offset) {
+    return !this.onIndexCache[offset];
   }
 }
