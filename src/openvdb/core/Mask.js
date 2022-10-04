@@ -22,6 +22,10 @@ export class Mask {
 
     this.onCache = this.countOn();
     this.offCache = this.countOff();
+
+    // NOTE Cache mask indices
+    this.forEachOn();
+    this.forEachOff();
   }
 
   countOn() {
@@ -46,20 +50,40 @@ export class Mask {
     return this.size - this.countOn();
   }
 
+  onIndexCache = null;
+  offIndexCache = null;
+
   forEachOn(callback) {
     if (this.countOn() === 0) {
       return;
     }
 
-    this.words.forEach((word, wordIndex) => {
-      word.split('').forEach((value, bitIndex) => {
-        if (value === '1') {
-          const offset = wordIndex * 64 + bitIndex;
+    if (!this.onIndexCache) {
+      this.onIndexCache = [];
 
-          callback({ wordIndex, bitIndex, offset });
-        }
+      this.words.forEach((word, wordIndex) => {
+        word.split('').forEach((value, bitIndex) => {
+          if (value === '1') {
+            this.onIndexCache.push(wordIndex, bitIndex, wordIndex * 64 + bitIndex);
+          }
+        });
       });
-    });
+    }
+
+    if (!callback) {
+      return;
+    }
+
+    let i = 0;
+    const interrupt = () => i = this.onIndexCache.length;
+
+    for (i = 0; i < this.onIndexCache.length;) {
+      callback({
+        wordIndex: this.onIndexCache[i++],
+        bitIndex: this.onIndexCache[i++],
+        offset: this.onIndexCache[i++],
+      }, interrupt);
+    }
   }
 
   forEachOff(callback) {
@@ -67,14 +91,31 @@ export class Mask {
       return;
     }
 
-    this.words.forEach((word, wordIndex) => {
-      word.split('').forEach((value, bitIndex) => {
-        if (value === '0') {
-          const offset = wordIndex * 64 + bitIndex;
+    if (!this.offIndexCache) {
+      this.offIndexCache = [];
 
-          callback({ wordIndex, bitIndex, offset });
-        }
+      this.words.forEach((word, wordIndex) => {
+        word.split('').forEach((value, bitIndex) => {
+          if (value === '0') {
+            this.offIndexCache.push(wordIndex, bitIndex, wordIndex * 64 + bitIndex);
+          }
+        });
       });
-    }); 
+    }
+
+    if (!callback) {
+      return;
+    }
+
+    let i = 0;
+    const interrupt = () => i = this.onIndexCache.length;
+
+    for (i = 0; i < this.offIndexCache.length;) {
+      callback({
+        wordIndex: this.offIndexCache[i++],
+        bitIndex: this.offIndexCache[i++],
+        offset: this.offIndexCache[i++],
+      }, interrupt);
+    }
   }
 }

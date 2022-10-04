@@ -102,9 +102,7 @@ export class RootNode {
   
   valueCache = {};
 
-  getValue(position) {
-    const positionKey = JSON.stringify(position);
-
+  getValue(positionKey, position, accessor = null) {
     if (this.valueCache[positionKey]) {
       return this.valueCache[positionKey];
     }
@@ -112,7 +110,7 @@ export class RootNode {
     let max = 0;
 
     this.table.forEach(child => {
-      max = Math.max(max, child.getValue(position));
+      max = Math.max(max, child.getValue(positionKey, position, accessor));
     });
 
     this.valueCache[positionKey] = max;

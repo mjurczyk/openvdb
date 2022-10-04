@@ -10,7 +10,8 @@ export const loadVDB = (url) => new Promise((resolve, reject) => {
     try {
       vdbReader.read(source);
       resolve(vdbReader);
-    } catch {
+    } catch (error) {
+      console.error({error});
       reject('VDB coult not be parsed.');
     }
   });

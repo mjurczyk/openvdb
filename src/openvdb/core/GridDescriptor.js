@@ -9,6 +9,7 @@ import { GridTransform } from "./GridTransform";
 import { RootNode } from "./RootNode";
 import { GridSharedContext } from "./GridSharedContext";
 import { log2dimMap, totalMap } from "./ChildNode";
+import { Accessor } from "./Accessor";
 
 export class GridDescriptor {
   static halfFloatGridPrefix = '_HalfFloat';
@@ -169,17 +170,9 @@ export class GridDescriptor {
   }
 
   valueCache = {};
+  accessor = new Accessor(this);
 
   getValue(position) {
-    const positionKey = JSON.stringify(position);
-
-    if (this.valueCache[positionKey]) {
-      return this.valueCache[positionKey];
-    }
-
-    const value = this.root.getValue(position);
-    this.valueCache[positionKey] = value;
-
-    return value;
+    return this.accessor.getValue(position);
   }
 }

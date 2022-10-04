@@ -301,24 +301,30 @@ export class ChildNode {
 
   valueCache = {};
 
-  getValue(position) {
-    const positionKey = JSON.stringify(position);
-
-    if (this.valueCache[positionKey]) {
-      return this.valueCache[positionKey];
-    }
-
+  contains(position) {
     const [ min, max ] = this.getLocalBbox();
 
-    const contained = (
+    return (
       position.x >= min.x && position.x <= max.x &&
       position.y >= min.y && position.y <= max.y &&
       position.z >= min.z && position.z <= max.z
     );
+  }
 
-    if (!contained) {
+  getValue(positionKey, position, accessor = null) {
+    if (this.valueCache[positionKey]) {
+      accessor.cache(this);
+
+      return this.valueCache[positionKey];
+    }
+
+    if (!this.contains(position)) {
       this.valueCache[positionKey] = 0;
       return 0;
+    }
+
+    if (accessor) {
+      accessor.cache(this);
     }
 
     if (this.isLeaf()) {
@@ -326,10 +332,18 @@ export class ChildNode {
       return this.valueMask.countOn() > 0;
     }
 
-    let maxValue = 0;
+    let maxValue = 0.0;
 
-    this.childMask.forEachOn(({ offset }) => {
-      maxValue = Math.max(maxValue, this.table[offset].getValue(position));
+    // TODO Convert this to coordsToOffset, instead of looping through all children
+    let i = 0;
+    this.childMask.forEachOn(({ offset }, interrupt) => {
+      const childValue = this.table[offset].getValue(positionKey, position, accessor);
+      i++;
+
+      if (childValue) {
+        maxValue = childValue;
+        interrupt();
+      }
     });
 
     this.valueCache[positionKey] = maxValue;
