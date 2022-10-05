@@ -31,26 +31,26 @@ Based on files hosted on [https://www.openvdb.org/download/](https://www.openvdb
 | buddha.vdb | ✅ Yes | |
 | bunny.vdb | ✅ Yes | |
 | bunny_cloud.vdb | ✅ Yes | |
-| crawler.vdb | ❓ Partial | Loads ok, fails to render (Three.js) due to array memory limits |
+| crawler.vdb | ❓ Partial | Loads ok, fails to render (Three.js) due to memory limits |
 | cube.vdb | ✅ Yes | |
-| dragon.vdb | ✅ Yes | Long loading time |
-| emu.vdb | ❓ Partial | Loads ok, fails to render (Three.js) due to array memory limits |
-| explosion.vdb | ❌ No | Multi-grid VDB |
-| fire.vdb | ❌ No | Multi-grid VDB |
+| dragon.vdb | ✅ Yes | |
+| emu.vdb | ❓ Partial | Loads ok, fails to render (Three.js) due to memory limits |
+| explosion.vdb | ❓ Partial | Loads ok, fails to render due to offsets, lacks color support |
+| fire.vdb | ❓ Partial | Loads ok, fails to render due to offsets, lacks color support |
 | icosahedron.vdb | ✅ Yes | |
-| iss.vdb | ❓ Partial | Loads ok, fails to render (Three.js) due to array memory limits |
-| smoke1.vdb | ❓ Partial | Fog volume not implemented yet |
-| smoke2.vdb | ❌ No | Multi-grid VDB |
-| space.vdb | ❌ No | Failed to fetch due to file size, requires streaming |
+| iss.vdb | ❓ Partial | Loads ok, fails to render (Three.js) due to memory limits |
+| smoke1.vdb | ❓ Partial | Loads ok, fails to render due to offsets, lacks color support |
+| smoke2.vdb | ❓ Partial | Loads ok, fails to render due to offsets, lacks color support |
+| space.vdb | ❓ Partial | Loads ok, fails to render (Three.js) due to memory limits |
 | sphere.vdb | ✅ Yes | |
 | torus.vdb | ✅ Yes | |
 | torus_knot.vdb | ✅ Yes | |
 | utahteapot.vdb | ✅ Yes | |
 | venusstatue.vdb | ✅ Yes | |
-| boat_points.vdb | ❌ No | Failed to fetch due to file size, requires streaming |
-| bunny_points.vdb | ❌ No | Failed to fetch due to file size, requires streaming |
-| sphere_points.vdb | ❌ No | Unsupported value type ptdataidx32 |
-| waterfall_points.vdb | ❌ No | Unsupported value type ptdataidx32 |
+| boat_points.vdb | ❓ Partial | Loads ok, points rendering not fully implemented |
+| bunny_points.vdb | ❓ Partial | Loads ok, points rendering not fully implemented |
+| sphere_points.vdb | ❓ Partial | Loads ok, points rendering not fully implemented |
+| waterfall_points.vdb | ❓ Partial | Loads ok, points rendering not fully implemented |
 
 ## Credits
 
