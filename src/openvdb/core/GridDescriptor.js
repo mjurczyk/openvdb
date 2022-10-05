@@ -5,7 +5,6 @@ import {
   int64Type,
   uint32Size,
 } from '../math/memory';
-import { gridClassLevelSet } from '../math/metadata';
 import { GridTransform } from "./GridTransform";
 import { RootNode } from "./RootNode";
 import { GridSharedContext } from "./GridSharedContext";
@@ -121,7 +120,7 @@ export class GridDescriptor {
   getGridClass() {
     const value = Object.entries(this.metadata).find(([ id ]) => id === 'class');
 
-    return (value ? value[1].value : undefined) || gridClassLevelSet;
+    return (value ? value[1].value : undefined) || 'level set';
   }
 
   readGridTransform() {
