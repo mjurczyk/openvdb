@@ -57,6 +57,7 @@ Based on files hosted on [https://www.openvdb.org/download/](https://www.openvdb
 To avoid re-coding same things over again, parts of the library may be based / taken directly from the following:
 
 * [gkjohnson/three-mesh-bvh](https://github.com/gkjohnson/three-mesh-bvh): BVH implementation
-* [nodeca/pako](https://github.com/issues): ZIP compression
+* [manzt/numcodecs.js](https://github.com/manzt/numcodecs.js/): BLOSC & ZLIB compression
+  * [nodeca/pako](https://github.com/issues): ZLIB compression
 
 Be sure to ⭐️ those!
