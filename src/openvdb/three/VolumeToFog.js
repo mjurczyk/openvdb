@@ -2,11 +2,19 @@ import * as Three from 'three';
 import { Bbox } from '../math/bbox';
 import { Vector3 } from '../math/vector';
 
+const sampleColors = [
+  0xff0000,
+  0x00ff00,
+  0x0000ff,
+];
+
 export class VolumeToFog extends Three.Group {
   processes = [];
 
   constructor(vdb, { resolution, progressive, threshold, opacity, range, steps }, onConverted, onProgress) {
     super();
+
+    this.frustumCulled = false;
 
     const grids = Object.values(vdb.grids);
 
@@ -30,7 +38,7 @@ export class VolumeToFog extends Three.Group {
         glslVersion: Three.GLSL3,
         uniforms: {
           base: {
-            value: new Three.Color(0xffffff),
+            value: new Three.Color(sampleColors[gridIndex]),
           },
           map: {
             value: data3dTexture
@@ -42,11 +50,14 @@ export class VolumeToFog extends Three.Group {
         },
         vertexShader: volumeShaders.vertex,
         fragmentShader: volumeShaders.fragment,
-        side: Three.FrontSide,
+        side: Three.BackSide,
+        depthTest: false,
+        depthWrite: false,
         transparent: true
       });
       material.isVolumetricFogMaterial = true;
       const fog = new Three.Mesh(geometry, material);
+      fog.frustumCulled = false;
 
       const resolutionInv = 1.0 / resolution;
       const resolutionPow2 = Math.pow(resolution, 2);
@@ -189,6 +200,19 @@ export const volumeShaders = {
   uniform float range;
   uniform float opacity;
   uniform float steps;
+  uint wang_hash(uint seed)
+  {
+      seed = (seed ^ 61u) ^ (seed >> 16u);
+      seed *= 9u;
+      seed = seed ^ (seed >> 4u);
+      seed *= 0x27d4eb2du;
+      seed = seed ^ (seed >> 15u);
+      return seed;
+  }
+  float randomFloat(inout uint seed)
+  {
+      return float(wang_hash(seed)) / 4294967296.;
+  }
   vec2 hitBox( vec3 orig, vec3 dir ) {
     const vec3 box_min = vec3( - 0.5 );
     const vec3 box_max = vec3( 0.5 );
@@ -217,6 +241,12 @@ export const volumeShaders = {
     vec3 inc = 1.0 / abs( rayDir );
     float delta = min( inc.x, min( inc.y, inc.z ) );
     delta /= steps;
+    // Nice little seed from
+    // https://blog.demofox.org/2020/05/25/casual-shadertoy-path-tracing-1-basic-camera-diffuse-emissive/
+    uint seed = uint( gl_FragCoord.x ) * uint( 1973 ) + uint( gl_FragCoord.y ) * uint( 9277 );
+    vec3 size = vec3( textureSize( map, 0 ) );
+    float randNum = randomFloat( seed ) * 2.0 - 1.0;
+    p += rayDir * randNum * ( 1.0 / size );
     vec4 ac = vec4( base, 0.0 );
     for ( float t = bounds.x; t < bounds.y; t += delta ) {
       float d = sample1( p + 0.5 );

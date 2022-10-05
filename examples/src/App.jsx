@@ -135,7 +135,7 @@ export const App = () => {
     fogSettings.add(defaults, 'threshold', 0.001, 2.0, 0.001).name('Threshold').onChange(setThreshold);
     fogSettings.add(defaults, 'opacity', 0.001, 2.0, 0.001).name('Opacity').onChange(setOpacity);
     fogSettings.add(defaults, 'range', 0.001, 2.0, 0.001).name('Range').onChange(setRange);
-    fogSettings.add(defaults, 'steps', 1.0, 100.0, 1.0).name('Steps').onChange(setSteps);
+    fogSettings.add(defaults, 'steps', 1.0, 500.0, 1.0).name('Steps').onChange(setSteps);
   }, []);
 
   useEffect(() => {

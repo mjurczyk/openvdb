@@ -1,6 +1,12 @@
 import * as Three from 'three';
 import { Bbox } from '../math/bbox';
 
+const sampleColors = [
+  0xff0000,
+  0x00ff00,
+  0x0000ff,
+];
+
 export class VolumeToBbox extends Three.Group {
   constructor(vdb) {
     super();
@@ -10,10 +16,15 @@ export class VolumeToBbox extends Three.Group {
     const mock = new Three.Object3D();
     const bbox = new Bbox();
 
-    Object.values(vdb.grids).forEach(grid => {
+    Object.values(vdb.grids).forEach((grid, index) => {
       const instancedMesh = new Three.InstancedMesh(
         new Three.BoxGeometry(1.0, 1.0, 1.0),
-        new Three.MeshBasicMaterial({ wireframe: true, color: 0xFFCACA, transparent: true, opacity: 0.1 }),
+        new Three.MeshBasicMaterial({
+          wireframe: true,
+          color: sampleColors[index],
+          transparent: true,
+          opacity: 0.1
+        }),
         grid.leavesCount
       );
       let instanceId = 0;

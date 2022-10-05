@@ -78,7 +78,7 @@ export class GridTransform {
     let implementation;
 
     if ([transformMapType.uniformScaleTranslateMap, transformMapType.scaleTranslateMap].includes(this.transformMap.mapType)) {
-      implementation = (vector) => vector.multiply(this.transformMap.scale).add(this.transformMap.translation);
+      implementation = (vector) => vector.multiply(this.transformMap.scale);
     } else if ([transformMapType.uniformScaleMap, transformMapType.scaleMap].includes(this.transformMap.mapType)) {
       implementation = (vector) => vector.multiply(this.transformMap.scale);
     } else if ([transformMapType.translationMap].includes(this.transformMap.mapType)) {
@@ -104,7 +104,7 @@ export class GridTransform {
     let implementation;
 
     if ([transformMapType.uniformScaleTranslateMap, transformMapType.scaleTranslateMap].includes(this.transformMap.mapType)) {
-      implementation = (vector) => vector.sub(this.transformMap.translation).multiply(this.transformMap.scaleInverse);
+      implementation = (vector) => vector.multiply(this.transformMap.scaleInverse);
     } else if ([transformMapType.uniformScaleMap, transformMapType.scaleMap].includes(this.transformMap.mapType)) {
       implementation = (vector) => vector.multiply(this.transformMap.scaleInverse);
     } else if ([transformMapType.translationMap].includes(this.transformMap.mapType)) {

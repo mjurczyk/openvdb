@@ -16,6 +16,8 @@ export const doubleType = 'double';
 export const vec3iType = 'vec3i';
 export const vec3sType = 'vec3s';
 export const vec3dType = 'vec3d';
+export const pointDataIndex32 = 'ptdataidx32';
+export const pointDataIndex64 = 'ptdataidx64';
 
  // NOTE https://www.appinf.com/download/FPIssues.pdf
 export const floatingPointPrecisionLUT = {
@@ -33,6 +35,12 @@ export const floatingPointPrecisionLUT = {
     size: uint32Size
   },
   [int64Type]: {
+    size: uint64Size
+  },
+  [pointDataIndex32]: {
+    size: uint32Size
+  },
+  [pointDataIndex64]: {
     size: uint64Size
   },
   [halfFloatType]: {

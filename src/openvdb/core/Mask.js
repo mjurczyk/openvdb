@@ -50,45 +50,38 @@ export class Mask {
     return this.size - this.countOn();
   }
 
-  onValuesCache = null;
-  offValuesCache = null;
-
   onIndexCache = null;
 
   forEachOn(callback) {
     if (this.countOn() === 0) {
       return;
     }
-
-    if (!this.onValuesCache) {
-      this.onValuesCache = [];
-      this.onIndexCache = [];
-
-      this.words.forEach((word, wordIndex) => {
-        word.split('').forEach((value, bitIndex) => {
-          if (value === '1') {
-            const offset = wordIndex * 64 + bitIndex;
-
-            this.onValuesCache.push(wordIndex, bitIndex, offset);
-            this.onIndexCache[offset] = true;
-          }
-        });
-      });
-    }
-
+    
     if (!callback) {
       return;
     }
 
-    let i = 0;
+    let wordIndex = 0;
+    let bitIndex = 0;
 
-    while(i < this.onValuesCache.length) {
-      if (callback({
-        wordIndex: this.onValuesCache[i++],
-        bitIndex: this.onValuesCache[i++],
-        offset: this.onValuesCache[i++],
-      }) === 0) {
-        break;
+    if (!this.onIndexCache) {
+      this.onIndexCache = [];
+    }
+
+    for (wordIndex = 0; wordIndex < this.words.length; wordIndex++) {
+      const word = this.words[wordIndex].split('');
+
+      for (bitIndex = 0; bitIndex < word.length; bitIndex++) {
+        if (word[bitIndex] === '1') {
+          const offset = wordIndex * 64 + bitIndex;
+        
+          this.onIndexCache[offset] = true;
+          
+          if (callback({wordIndex, bitIndex, offset}) === 0) {
+            bitIndex = word.length;
+            wordIndex = this.words.length;
+          }
+        }
       }
     }
   }
@@ -98,31 +91,28 @@ export class Mask {
       return;
     }
 
-    if (!this.offValuesCache) {
-      this.offValuesCache = [];
-
-      this.words.forEach((word, wordIndex) => {
-        word.split('').forEach((value, bitIndex) => {
-          if (value === '0') {
-            this.offValuesCache.push(wordIndex, bitIndex, wordIndex * 64 + bitIndex);
-          }
-        });
-      });
-    }
-
     if (!callback) {
       return;
     }
 
-    let i = 0;
+    if (!this.onIndexCache) {
+      this.onIndexCache = [];
+    }
 
-    while(i < this.offValuesCache.length) {
-      if (callback({
-        wordIndex: this.offValuesCache[i++],
-        bitIndex: this.offValuesCache[i++],
-        offset: this.offValuesCache[i++],
-      }) === 0) {
-        break;
+    for (wordIndex = 0; wordIndex < this.words.length; wordIndex++) {
+      const word = this.words[wordIndex].split('');
+
+      for (bitIndex = 0; bitIndex < word.length; bitIndex++) {
+        if (word[bitIndex] === '1') {
+          const offset = wordIndex * 64 + bitIndex;
+        
+          this.onIndexCache[offset] = true;
+          
+          if (callback({wordIndex, bitIndex, offset}) === 0) {
+            bitIndex = word.length;
+            wordIndex = this.words.length;
+          }
+        }
       }
     }
   }
