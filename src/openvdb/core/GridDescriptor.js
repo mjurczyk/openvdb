@@ -5,6 +5,7 @@ import {
   int64Type,
   uint32Size,
 } from '../math/memory';
+import { gridClassLevelSet } from '../math/metadata';
 import { GridTransform } from "./GridTransform";
 import { RootNode } from "./RootNode";
 import { GridSharedContext } from "./GridSharedContext";
@@ -27,6 +28,10 @@ export class GridDescriptor {
     this.readGridHeader();
     assert('Grid buffer position', this.gridBufferPosition, bufferIterator.offset);
 
+    if (this.gridBufferPosition !== bufferIterator.offset) {
+      bufferIterator.offset = this.gridBufferPosition;
+    }
+
     this.readCompression();
     this.readMetadata();
 
@@ -39,6 +44,10 @@ export class GridDescriptor {
       this.readTopology();
       this.readBuffers();
     }
+
+    
+    // NOTE Hack to make multi-grid VDBs work without reading leaf values
+    bufferIterator.offset = this.endBufferPosition;
   }
 
   readGridHeader() {
@@ -107,6 +116,12 @@ export class GridDescriptor {
     const value = Object.entries(this.metadata).find(([ id ]) => id === 'value_type');
 
     return (value ? value[1].value : undefined) || floatType;
+  }
+
+  getGridClass() {
+    const value = Object.entries(this.metadata).find(([ id ]) => id === 'class');
+
+    return (value ? value[1].value : undefined) || gridClassLevelSet;
   }
 
   readGridTransform() {

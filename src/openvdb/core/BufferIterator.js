@@ -105,10 +105,6 @@ export class BufferIterator {
   readFloat(precision = doubleType) {
     const precisionLUT = floatingPointPrecisionLUT[precision];
 
-    if (!precisionLUT) {
-      unsupported(`Unknown value type: ${precision}`);
-    }
-
     if ([ vec3sType, vec3iType, vec3dType ].includes(precision)) {
       const valueType = ({
         [vec3sType]: floatType,
@@ -121,6 +117,10 @@ export class BufferIterator {
         this.readFloat(valueType),
         this.readFloat(valueType),
       );
+    }
+
+    if (!precisionLUT) {
+      unsupported(`Unknown value type: ${precision}`);
     }
 
     let binary = [];
@@ -160,5 +160,9 @@ export class BufferIterator {
     vector.z = this.readFloat(precision);
 
     return vector;
+  }
+
+  skip(count) {
+    this.offset += count;
   }
 }

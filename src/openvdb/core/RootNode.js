@@ -1,3 +1,4 @@
+import { unsupported } from "../debug";
 import { uint32Size } from "../math/memory";
 import { Vector3 } from "../math/vector";
 import { ChildNode } from "./ChildNode";

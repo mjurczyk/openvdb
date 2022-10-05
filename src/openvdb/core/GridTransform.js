@@ -90,7 +90,7 @@ export class GridTransform {
       unsupported('GridDescriptor::NonlinearFrustumMap');
       implementation = (vector) => vector;
     } else {
-      unsupported('GridDescriptor::Matrix4x4');
+      unsupported('GridDescriptor::Matrix4x4', this.transformMap.mapType);
       implementation = (vector) => vector;
     }
 
@@ -116,7 +116,7 @@ export class GridTransform {
       unsupported('GridDescriptor::NonlinearFrustumMap');
       implementation = (vector) => vector;
     } else {
-      unsupported('GridDescriptor::Matrix4x4');
+      unsupported('GridDescriptor::Matrix4x4', this.transformMap.mapType);
       implementation = (vector) => vector;
     }
 

@@ -5,6 +5,7 @@ import {
   uint64Size
 } from '../math/memory';
 import { BufferIterator } from "./BufferIterator";
+import { Compression } from "./Compression";
 import { GridDescriptor } from "./GridDescriptor";
 import { GridSharedContext } from "./GridSharedContext";
 
@@ -18,12 +19,15 @@ export class OpenVDBReader {
     GridSharedContext.tagContext(this, new GridSharedContext());
   }
 
-  prepare() {
-    // TODO Pre-fill VDB structure without reading actual values
+  // TODO Pre-fill VDB structure without reading actual values
+  async prepare() {
+    await Compression.prepareModules();
+
     GridSharedContext.getContext(this).bufferIterator = new BufferIterator(source);
   }
 
-  read(source) {
+  async read(source) {
+    await Compression.prepareModules();
     GridSharedContext.getContext(this).bufferIterator = new BufferIterator(source);
 
     if (this.validateVDBFile()) {

@@ -8,11 +8,11 @@ export const loadVDB = (url) => new Promise((resolve, reject) => {
     const vdbReader = new OpenVDBReader();
 
     try {
-      vdbReader.read(source);
+      await vdbReader.read(source);
       resolve(vdbReader);
     } catch (error) {
       console.error({error});
-      reject('VDB coult not be parsed.');
+      reject('VDB could not be parsed.');
     }
   });
 });

@@ -1,5 +1,7 @@
 import { unsupported } from "../debug";
+import { uint32Size } from "../math/memory";
 import { Vector3 } from "../math/vector";
+import { Compression } from "./Compression";
 import { GridSharedContext } from "./GridSharedContext";
 import { Mask } from "./Mask";
 import { Version } from "./Version";
@@ -229,7 +231,7 @@ export class ChildNode {
     });
   }
 
-  readZipData() {
+  readCompressedData(codec) {
     const { bufferIterator, valueType, useHalf } = GridSharedContext.getContext(this);
     const zippedBytesCount = bufferIterator.readBytes(8);
 
@@ -243,7 +245,8 @@ export class ChildNode {
       const zippedBytes = bufferIterator.readRawBytes(zippedBytesCount);
       
       try {
-        this.values.push(window.pako.inflate(zippedBytes));
+        this.values.push(codec.decode(zippedBytes));
+
       } catch (error) {
         console.warn('readZipData', 'uncompress', 'error', {error, zippedBytes});
       }
@@ -254,9 +257,9 @@ export class ChildNode {
     const { bufferIterator, valueType, useHalf, compression } = GridSharedContext.getContext(this);
 
     if (compression.blosc) {
-      unsupported('Compression::BLOSC');
+      this.readCompressedData(Compression.blosc);
     } else if (compression.zip) {
-      this.readZipData();
+      this.readCompressedData(Compression.zlib);
     } else {
       Array(count).fill(0).forEach(() => {
         this.values.push(bufferIterator.readFloat(useHalf ? 'half' : valueType));
