@@ -104,9 +104,9 @@ export class RootNode {
   valueCache = {};
 
   getValue(positionKey, position, accessor = null) {
-    if (this.valueCache[positionKey]) {
-      return this.valueCache[positionKey];
-    }
+    // if (this.valueCache[positionKey]) {
+    //   return this.valueCache[positionKey];
+    // }
 
     let max = 0;
 
@@ -114,7 +114,7 @@ export class RootNode {
       max = Math.max(max, child.getValue(positionKey, position, accessor));
     });
 
-    this.valueCache[positionKey] = max;
+    // this.valueCache[positionKey] = max;
 
     return max;
   }
