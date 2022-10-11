@@ -1,8 +1,6 @@
-import {
-  Vector3
-} from '../math/vector';
-import { Version } from "./Version";
-import { unsupported } from "../debug";
+import { Vector3 } from '../math/vector';
+import { Version } from './Version';
+import { unsupported } from '../debug';
 import { GridSharedContext } from './GridSharedContext';
 
 const transformMapType = {
@@ -30,11 +28,17 @@ export class GridTransform {
     };
 
     if (Version.less(version, 219)) {
-      unsupported('GridDescriptor::getGridTransform old-style transforms currently not supported. Fallback to identity transform.');
+      unsupported(
+        'GridDescriptor::getGridTransform old-style transforms currently not supported. Fallback to identity transform.'
+      );
       return;
     }
 
-    if ([transformMapType.uniformScaleTranslateMap, transformMapType.scaleTranslateMap].includes(this.transformMap.mapType)) {
+    if (
+      [transformMapType.uniformScaleTranslateMap, transformMapType.scaleTranslateMap].includes(
+        this.transformMap.mapType
+      )
+    ) {
       this.transformMap = {
         ...this.transformMap,
         translation: bufferIterator.readVector3(),
@@ -44,7 +48,11 @@ export class GridTransform {
         scaleInverseSq: bufferIterator.readVector3(),
         scaleInverseDouble: bufferIterator.readVector3(),
       };
-    } else if ([transformMapType.uniformScaleMap, transformMapType.scaleMap].includes(this.transformMap.mapType)) {
+    } else if (
+      [transformMapType.uniformScaleMap, transformMapType.scaleMap].includes(
+        this.transformMap.mapType
+      )
+    ) {
       this.transformMap = {
         ...this.transformMap,
         scale: bufferIterator.readVector3(),
@@ -56,7 +64,7 @@ export class GridTransform {
     } else if ([transformMapType.translationMap].includes(this.transformMap.mapType)) {
       this.transformMap = {
         ...this.transformMap,
-        translation: bufferIterator.readVector3()
+        translation: bufferIterator.readVector3(),
       };
     } else if ([transformMapType.unitaryMap].includes(this.transformMap.mapType)) {
       // TODO https://github.com/AcademySoftwareFoundation/openvdb/blob/master/openvdb/openvdb/math/Maps.h#L1809
@@ -77,10 +85,19 @@ export class GridTransform {
   applyTransformMap(vector) {
     let implementation;
 
-    if ([transformMapType.uniformScaleTranslateMap, transformMapType.scaleTranslateMap].includes(this.transformMap.mapType)) {
+    if (
+      [transformMapType.uniformScaleTranslateMap, transformMapType.scaleTranslateMap].includes(
+        this.transformMap.mapType
+      )
+    ) {
       implementation = (vector) => vector.multiply(this.transformMap.scale);
-    } else if ([transformMapType.uniformScaleMap, transformMapType.scaleMap].includes(this.transformMap.mapType)) {
-      implementation = (vector) => vector.multiply(this.transformMap.scale);
+    } else if (
+      [transformMapType.uniformScaleMap, transformMapType.scaleMap].includes(
+        this.transformMap.mapType
+      )
+    ) {
+      implementation = (vector) =>
+        vector.multiply(this.transformMap.scale).add(this.transformMap.translation);
     } else if ([transformMapType.translationMap].includes(this.transformMap.mapType)) {
       implementation = (vector) => vector.add(this.transformMap.translation);
     } else if ([transformMapType.unitaryMap].includes(this.transformMap.mapType)) {
@@ -103,12 +120,21 @@ export class GridTransform {
   applyInverseTransformMap(vector) {
     let implementation;
 
-    if ([transformMapType.uniformScaleTranslateMap, transformMapType.scaleTranslateMap].includes(this.transformMap.mapType)) {
+    if (
+      [transformMapType.uniformScaleTranslateMap, transformMapType.scaleTranslateMap].includes(
+        this.transformMap.mapType
+      )
+    ) {
       implementation = (vector) => vector.multiply(this.transformMap.scaleInverse);
-    } else if ([transformMapType.uniformScaleMap, transformMapType.scaleMap].includes(this.transformMap.mapType)) {
+    } else if (
+      [transformMapType.uniformScaleMap, transformMapType.scaleMap].includes(
+        this.transformMap.mapType
+      )
+    ) {
       implementation = (vector) => vector.multiply(this.transformMap.scaleInverse);
     } else if ([transformMapType.translationMap].includes(this.transformMap.mapType)) {
-      implementation = (vector) => vector.sub(this.transformMap.translation);
+      implementation = (vector) =>
+        vector.sub(this.transformMap.translation).sub(this.transformMap.translation);
     } else if ([transformMapType.unitaryMap].includes(this.transformMap.mapType)) {
       unsupported('GridDescriptor::UnitaryMap');
       implementation = (vector) => vector;

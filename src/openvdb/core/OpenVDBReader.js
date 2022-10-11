@@ -1,13 +1,9 @@
-import { assert, unsupported } from "../debug";
-import {
-  charSize,
-  uint32Size,
-  uint64Size
-} from '../math/memory';
-import { BufferIterator } from "./BufferIterator";
-import { Compression } from "./Compression";
-import { GridDescriptor } from "./GridDescriptor";
-import { GridSharedContext } from "./GridSharedContext";
+import { assert, unsupported } from '../debug';
+import { charSize, uint32Size, uint64Size } from '../math/memory';
+import { BufferIterator } from './BufferIterator';
+import { Compression } from './Compression';
+import { GridDescriptor } from './GridDescriptor';
+import { GridSharedContext } from './GridSharedContext';
 
 export class OpenVDBReader {
   libraryVersion;
@@ -57,7 +53,7 @@ export class OpenVDBReader {
 
     this.libraryVersion = {
       minor: -1,
-      major: -1
+      major: -1,
     };
 
     if (version > 211) {
@@ -88,26 +84,30 @@ export class OpenVDBReader {
         none: false,
         zip: false,
         activeMask: true,
-        blosc: false
+        blosc: false,
       };
     }
 
     GridSharedContext.getContext(this).compression = compression;
 
     let uuid = '';
-    Array(36).fill(0).map((_) => uuid += String.fromCharCode(bufferIterator.readBytes(1)));
+    Array(36)
+      .fill(0)
+      .map((_) => (uuid += String.fromCharCode(bufferIterator.readBytes(1))));
 
     this.uuid = uuid;
 
     const metadata = {};
     const metadataCount = bufferIterator.readBytes(uint32Size);
-    Array(metadataCount).fill(0).forEach(() => {
-      const name = bufferIterator.readString();
-      const type = bufferIterator.readString();
-      const value = bufferIterator.readString(type);
+    Array(metadataCount)
+      .fill(0)
+      .forEach(() => {
+        const name = bufferIterator.readString();
+        const type = bufferIterator.readString();
+        const value = bufferIterator.readString(type);
 
-      metadata[name] = { type, value };
-    });
+        metadata[name] = { type, value };
+      });
 
     this.metadata = metadata;
   }
@@ -126,16 +126,18 @@ export class OpenVDBReader {
     } else {
       const gridCount = bufferIterator.readBytes(uint32Size);
 
-      Array(gridCount).fill(0).forEach(() => {
-        const gridDescriptor = new GridDescriptor(bufferIterator);
-        GridSharedContext.passContext(this, gridDescriptor);
+      Array(gridCount)
+        .fill(0)
+        .forEach(() => {
+          const gridDescriptor = new GridDescriptor(bufferIterator);
+          GridSharedContext.passContext(this, gridDescriptor);
 
-        gridDescriptor.readGrid();
+          gridDescriptor.readGrid();
 
-        GridSharedContext.cleanContext(gridDescriptor);
+          GridSharedContext.cleanContext(gridDescriptor);
 
-        this.grids[gridDescriptor.uniqueName] = gridDescriptor;
-      });
+          this.grids[gridDescriptor.uniqueName] = gridDescriptor;
+        });
     }
   }
 }

@@ -1,29 +1,16 @@
-import { unsupported } from "../debug";
-import { uint32Size } from "../math/memory";
-import { Vector3 } from "../math/vector";
-import { Compression } from "./Compression";
-import { GridSharedContext } from "./GridSharedContext";
-import { Mask } from "./Mask";
-import { Version } from "./Version";
+import { unsupported } from '../debug';
+import { Vector3 } from '../math/vector';
+import { Compression } from './Compression';
+import { GridSharedContext } from './GridSharedContext';
+import { Mask } from './Mask';
+import { Version } from './Version';
 
 // NOTE Assuming 5_4_3 tree
-export const log2dimMap = [
-  5,
-  4,
-  3
-];
+export const log2dimMap = [5, 4, 3];
 
-export const totalMap = [
-  4,
-  3,
-  0
-];
+export const totalMap = [4, 3, 0];
 
-const nodeTypeMap = [
-  'internal',
-  'internal',
-  'leaf',
-];
+const nodeTypeMap = ['internal', 'internal', 'leaf'];
 
 export class ChildNode {
   readNode(depth = 0, props) {
@@ -32,25 +19,26 @@ export class ChildNode {
     Object.assign(this, props);
 
     this.depth = depth;
-    this.log2dim = log2dimMap[depth] || 1,
-    this.nodeType = nodeTypeMap[depth] || 'invalid';
-    this.total = this.log2dim + ((depth) => {
-      let sum = 0;
+    (this.log2dim = log2dimMap[depth] || 1), (this.nodeType = nodeTypeMap[depth] || 'invalid');
+    this.total =
+      this.log2dim +
+      ((depth) => {
+        let sum = 0;
 
-      totalMap.forEach((value, index) => {
-        if (index >= depth) {
-          sum += value;
-        }
-      });
+        totalMap.forEach((value, index) => {
+          if (index >= depth) {
+            sum += value;
+          }
+        });
 
-      return sum;
-    })(depth);
+        return sum;
+      })(depth);
     this.dim = 1 << this.total;
     this.numValues = 1 << (3 * this.log2dim);
     this.level = 2 - depth;
     this.numVoxels = 1 << (3 * this.total);
     this.background = props.background || 0.0;
-    this.offsetMask = (1 << this.log2dim) - 1;
+    this.offsetMask = this.dim - 1;
 
     if (depth < 2) {
       this.childMask = new Mask();
@@ -87,14 +75,14 @@ export class ChildNode {
   }
 
   isInternalNode() {
-    return !this.isLeaf()
+    return !this.isLeaf();
   }
 
   getValueCoords(offset) {
     const vec = new Vector3();
 
-    let x = offset >> 2 * this.log2dim;
-    offset &= ((1 << 2 * this.log2dim) - 1);
+    let x = offset >> (2 * this.log2dim);
+    offset &= (1 << (2 * this.log2dim)) - 1;
     let y = offset >> this.log2dim;
     let z = offset & ((1 << this.log2dim) - 1);
 
@@ -113,7 +101,7 @@ export class ChildNode {
         wordIndex: indices.wordIndex,
         bitIndex: indices.bitIndex,
         offset: indices.offset,
-        coords: this.getValueCoords(indices.offset)
+        coords: this.getValueCoords(indices.offset),
       });
     });
   }
@@ -144,7 +132,7 @@ export class ChildNode {
     const inactiveVal1 = background;
     const inactiveVal0 = metadata === 6 ? background : !background;
 
-    if ([ 2, 4, 5 ].includes(metadata)) {
+    if ([2, 4, 5].includes(metadata)) {
       unsupported('Compression::readCompressedValues first conditional');
       // Read one of at most two distinct inactive values.
       //     if (seek) {
@@ -161,8 +149,8 @@ export class ChildNode {
       //         }
       //     }
     }
-    
-    if ([ 3, 4, 5 ].includes(metadata)) {
+
+    if ([3, 4, 5].includes(metadata)) {
       this.selectionMask = new Mask(this);
       GridSharedContext.passContext(this, this.selectionMask);
       this.selectionMask.readMask(this);
@@ -198,8 +186,8 @@ export class ChildNode {
       let n = indices.offset;
       const vec = new Vector3();
 
-      let x = n >> 2 * this.log2dim;
-      n &= ((1 << 2 * this.log2dim) - 1);
+      let x = n >> (2 * this.log2dim);
+      n &= (1 << (2 * this.log2dim)) - 1;
       let y = n >> this.log2dim;
       let z = n & ((1 << this.log2dim) - 1);
 
@@ -213,13 +201,13 @@ export class ChildNode {
         id: indices.offset,
         origin: vec,
         indices: indices,
-        background: this.background
+        background: this.background,
       });
 
       vec.x = vec.x << child.total;
       vec.y = vec.y << child.total;
       vec.z = vec.z << child.total;
-      
+
       this.table[indices.offset] = child;
       this.leavesCount += child.leavesCount;
 
@@ -236,19 +224,23 @@ export class ChildNode {
     const zippedBytesCount = bufferIterator.readBytes(8);
 
     if (zippedBytesCount <= 0) {
-      Array(-zippedBytesCount).fill(0).forEach(() => {
-        this.values.push(bufferIterator.readFloat(useHalf ? 'half' : valueType));
-      });
-      
+      Array(-zippedBytesCount)
+        .fill(0)
+        .forEach(() => {
+          this.values.push(bufferIterator.readFloat(useHalf ? 'half' : valueType));
+        });
+
       return;
     } else {
       const zippedBytes = bufferIterator.readRawBytes(zippedBytesCount);
-      
+
       try {
         this.values.push(codec.decode(zippedBytes));
-
       } catch (error) {
-        console.warn('readZipData', 'uncompress', 'error', {error, zippedBytes});
+        console.warn('readZipData', 'uncompress', 'error', {
+          error,
+          zippedBytes,
+        });
       }
     }
   }
@@ -261,10 +253,12 @@ export class ChildNode {
     } else if (compression.zip) {
       this.readCompressedData(Compression.zlib);
     } else {
-      Array(count).fill(0).forEach(() => {
-        this.values.push(bufferIterator.readFloat(useHalf ? 'half' : valueType));
-      });
-    } 
+      Array(count)
+        .fill(0)
+        .forEach(() => {
+          this.values.push(bufferIterator.readFloat(useHalf ? 'half' : valueType));
+        });
+    }
   }
 
   getLocalBbox() {
@@ -290,8 +284,8 @@ export class ChildNode {
       new Vector3(
         sumParentOffset.x + this.dim,
         sumParentOffset.y + this.dim,
-        sumParentOffset.z + this.dim,
-      )
+        sumParentOffset.z + this.dim
+      ),
     ];
 
     this.localBboxCache = localBbox;
@@ -306,31 +300,41 @@ export class ChildNode {
   valueCache = {};
 
   contains(position) {
-    const [ min, max ] = this.getLocalBbox();
+    const [min, max] = this.getLocalBbox();
 
     return (
-      position.x >= min.x && position.x <= max.x &&
-      position.y >= min.y && position.y <= max.y &&
-      position.z >= min.z && position.z <= max.z
+      position.x >= min.x &&
+      position.x <= max.x &&
+      position.y >= min.y &&
+      position.y <= max.y &&
+      position.z >= min.z &&
+      position.z <= max.z
     );
   }
 
   coordToOffset(position) {
     if (this.isLeaf()) {
-      return ((position.x & this.offsetMask) << (2 * this.log2dim)) + ((position.y & this.offsetMask) << this.log2dim) + (position.z & this.offsetMask);
+      return (
+        ((position.x & this.offsetMask) << (2 * this.log2dim)) |
+        ((position.y & this.offsetMask) << this.log2dim) |
+        (position.z & this.offsetMask)
+      );
+    } else {
+      return (
+        (((position.x & this.offsetMask) >> this.firstChild.total) << (2 * this.log2dim)) |
+        (((position.y & this.offsetMask) >> this.firstChild.total) << this.log2dim) |
+        ((position.z & this.offsetMask) >> this.firstChild.total)
+      );
     }
   }
 
-  getValue(positionKey, position, accessor = null) {
-    // if (this.valueCache[positionKey]) {
-    //   accessor.cache(this);
+  reads = 0.0;
+  readsMiss = 0.0;
+  readsOk = 0.0;
 
-    //   return this.valueCache[positionKey];
-    // }
-
+  getValue(position, accessor = null) {
     if (!this.contains(position)) {
-      // this.valueCache[positionKey] = 0;
-      return 0;
+      return 0.0;
     }
 
     if (accessor) {
@@ -338,28 +342,43 @@ export class ChildNode {
     }
 
     if (this.isLeaf()) {
-      const leafValue = this.valueMask.isOn(this.coordToOffset(position));
-
-      // this.valueCache[positionKey] = leafValue;
-      return leafValue;
+      return this.valueMask.isOn(this.coordToOffset(position));
     }
 
-    let maxValue = 0.0;
+    const targetChild = this.table[this.coordToOffset(position)];
 
-    // TODO Convert this to coordsToOffset, instead of looping through all children
-    let i = 0;
-    this.childMask.forEachOn(({ offset }) => {
-      const childValue = this.table[offset].getValue(positionKey, position, accessor);
-      i++;
+    if (targetChild) {
+      return targetChild.getValue(position, accessor);
+    }
 
-      if (childValue) {
-        maxValue = childValue;
+    return 0.0;
+  }
 
-        return 0;
-      }
-    });
+  getLeafAt(position, accessor = null) {
+    this.reads++;
 
-    // this.valueCache[positionKey] = maxValue;
-    return maxValue;
+    if (!this.contains(position)) {
+      this.readsMiss++;
+      return null;
+    }
+
+    if (this.isLeaf()) {
+      this.readsOk++;
+      return this;
+    }
+
+    if (accessor) {
+      accessor.cache(this);
+    }
+
+    const targetChild = this.table[this.coordToOffset(position)];
+
+    if (targetChild) {
+      this.readsMiss++;
+      return targetChild.getLeafAt(position, accessor);
+    }
+
+    this.readsOk++;
+    return null;
   }
 }

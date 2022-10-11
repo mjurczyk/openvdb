@@ -1,11 +1,7 @@
 import * as Three from 'three';
 import { Bbox } from '../math/bbox';
 
-const sampleColors = [
-  0xff0000,
-  0x00ff00,
-  0x0000ff,
-];
+const sampleColors = [0xff0000, 0x00ff00, 0x0000ff];
 
 export class VolumeToBbox extends Three.Group {
   constructor(vdb) {
@@ -23,7 +19,7 @@ export class VolumeToBbox extends Three.Group {
           wireframe: true,
           color: sampleColors[index],
           transparent: true,
-          opacity: 0.1
+          opacity: 0.1,
         }),
         grid.leavesCount
       );
@@ -47,7 +43,7 @@ export class VolumeToBbox extends Three.Group {
         }
       };
 
-      grid.root.table.forEach(node => traverseVDB(node));
+      grid.root.table.forEach((node) => traverseVDB(node));
 
       this.add(instancedMesh);
     });

@@ -1,15 +1,11 @@
-import { assert, unsupported } from "../debug";
-import { Version } from "./Version";
-import {
-  floatType,
-  int64Type,
-  uint32Size,
-} from '../math/memory';
-import { GridTransform } from "./GridTransform";
-import { RootNode } from "./RootNode";
-import { GridSharedContext } from "./GridSharedContext";
-import { log2dimMap, totalMap } from "./ChildNode";
-import { Accessor } from "./Accessor";
+import { assert, unsupported } from '../debug';
+import { Version } from './Version';
+import { floatType, int64Type, uint32Size } from '../math/memory';
+import { GridTransform } from './GridTransform';
+import { RootNode } from './RootNode';
+import { GridSharedContext } from './GridSharedContext';
+import { log2dimMap, totalMap } from './ChildNode';
+import { Accessor } from './Accessor';
 
 export class GridDescriptor {
   static halfFloatGridPrefix = '_HalfFloat';
@@ -20,7 +16,7 @@ export class GridDescriptor {
   uniqueName;
   gridName;
   gridType;
-  
+
   readGrid() {
     const { bufferIterator, version } = GridSharedContext.getContext(this);
 
@@ -44,7 +40,6 @@ export class GridDescriptor {
       this.readBuffers();
     }
 
-    
     // NOTE Hack to make multi-grid VDBs work without reading leaf values
     bufferIterator.offset = this.endBufferPosition;
   }
@@ -67,9 +62,9 @@ export class GridDescriptor {
 
     // NOTE Buffer offset at which grid description ends
     this.gridBufferPosition = bufferIterator.readFloat(int64Type);
-     // NOTE Buffer offset at which grid blocks end
+    // NOTE Buffer offset at which grid blocks end
     this.blockBufferPosition = bufferIterator.readFloat(int64Type);
-     // NOTE Buffer offset at which the file ends
+    // NOTE Buffer offset at which the file ends
     this.endBufferPosition = bufferIterator.readFloat(int64Type);
   }
 
@@ -92,19 +87,21 @@ export class GridDescriptor {
   }
 
   readMetadata() {
-    const { bufferIterator, version} = GridSharedContext.getContext(this);
+    const { bufferIterator, version } = GridSharedContext.getContext(this);
 
     this.metadata = {
-      count: bufferIterator.readBytes(uint32Size)
+      count: bufferIterator.readBytes(uint32Size),
     };
-  
-    Array(this.metadata.count).fill(0).forEach(() => {
-      const name = bufferIterator.readString();
-      const type = bufferIterator.readString();
-      const value = bufferIterator.readString(type);
-  
-      this.metadata[name] = { type, value };
-    });
+
+    Array(this.metadata.count)
+      .fill(0)
+      .forEach(() => {
+        const name = bufferIterator.readString();
+        const type = bufferIterator.readString();
+        const value = bufferIterator.readString(type);
+
+        this.metadata[name] = { type, value };
+      });
 
     if (Version.less(version, 219)) {
       this.metadata.name = this.gridName;
@@ -112,13 +109,13 @@ export class GridDescriptor {
   }
 
   getGridValueType() {
-    const value = Object.entries(this.metadata).find(([ id ]) => id === 'value_type');
+    const value = Object.entries(this.metadata).find(([id]) => id === 'value_type');
 
     return (value ? value[1].value : undefined) || floatType;
   }
 
   getGridClass() {
-    const value = Object.entries(this.metadata).find(([ id ]) => id === 'class');
+    const value = Object.entries(this.metadata).find(([id]) => id === 'class');
 
     return (value ? value[1].value : undefined) || 'level set';
   }
@@ -164,7 +161,7 @@ export class GridDescriptor {
   getWorldBbox(child) {
     const localBbox = (child || this).getLocalBbox();
 
-    return localBbox.map(vector => vector.clone()).map(this.transform.applyTransformMap);
+    return localBbox.map((vector) => vector.clone()).map(this.transform.applyTransformMap);
   }
 
   getLocalBbox() {
@@ -188,5 +185,9 @@ export class GridDescriptor {
 
   getValue(position) {
     return this.accessor.getValue(position);
+  }
+
+  getLeafAt(position) {
+    return this.accessor.getLeafAt(position);
   }
 }

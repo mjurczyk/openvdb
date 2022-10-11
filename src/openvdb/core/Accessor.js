@@ -7,23 +7,39 @@ export class Accessor {
   }
 
   getValue(position) {
-    const positionKey = JSON.stringify(position);
-
-    return this.probeValues(positionKey, position);
+    return this.probeValues(position);
   }
 
-  probeValues(positionKey, position) {
+  getLeafAt(position) {
+    return this.probeLeaves(position);
+  }
+
+  probeValues(position) {
     if (this.stack.length) {
       const cachedNode = this.stack.pop();
 
       if (cachedNode.contains(position)) {
-        return cachedNode.getValue(positionKey, position, this);
+        return cachedNode.getValue(position, this);
       }
     } else {
-      return this.grid.root.getValue(positionKey, position, this);
+      return this.grid.root.getValue(position, this);
     }
 
-    return this.probeValues(positionKey, position);
+    return this.probeValues(position);
+  }
+
+  probeLeaves(position) {
+    if (this.stack.length) {
+      const cachedNode = this.stack.pop();
+
+      if (cachedNode.contains(position)) {
+        return cachedNode.getLeafAt(position, this);
+      }
+    } else {
+      return this.grid.root.getLeafAt(position, this);
+    }
+
+    return this.probeLeaves(position);
   }
 
   cache(node) {

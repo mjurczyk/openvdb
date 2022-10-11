@@ -2,16 +2,17 @@ import * as Three from 'three';
 import { Bbox } from '../math/bbox';
 import { Vector3 } from '../math/vector';
 
-const sampleColors = [
-  0xff0000,
-  0x00ff00,
-  0x0000ff,
-];
+const sampleColors = [0xff0000, 0x00ff00, 0x0000ff];
 
 export class VolumeToFog extends Three.Group {
   processes = [];
 
-  constructor(vdb, { resolution, progressive, threshold, opacity, range, steps }, onConverted, onProgress) {
+  constructor(
+    vdb,
+    { resolution, progressive, threshold, opacity, range, steps },
+    onConverted,
+    onProgress
+  ) {
     super();
 
     this.frustumCulled = false;
@@ -41,19 +42,19 @@ export class VolumeToFog extends Three.Group {
             value: new Three.Color(sampleColors[gridIndex]),
           },
           map: {
-            value: data3dTexture
+            value: data3dTexture,
           },
-          threshold: { value: typeof threshold === 'undefined' ? 0.01 : threshold},
-          opacity: { value: typeof opacity === 'undefined' ? 0.01 : opacity},
-          range: { value: typeof range === 'undefined' ? 0.01 : range},
-          steps: { value: typeof steps === 'undefined' ? 100 : steps},
+          threshold: { value: typeof threshold === 'undefined' ? 0.01 : threshold },
+          opacity: { value: typeof opacity === 'undefined' ? 0.01 : opacity },
+          range: { value: typeof range === 'undefined' ? 0.01 : range },
+          steps: { value: typeof steps === 'undefined' ? 100 : steps },
         },
         vertexShader: volumeShaders.vertex,
         fragmentShader: volumeShaders.fragment,
         side: Three.BackSide,
         depthTest: false,
         depthWrite: false,
-        transparent: true
+        transparent: true,
       });
       material.isVolumetricFogMaterial = true;
       const fog = new Three.Mesh(geometry, material);
@@ -111,7 +112,7 @@ export class VolumeToFog extends Three.Group {
             target.z += step.z;
           }
 
-          data[x + y * resolution + z * resolutionPow2] = grid.getValue(target) ? 100.0 : 0.0;
+          data[x + y * resolution + z * resolutionPow2] = grid.getValue(target) ? 1.0 : 0.0;
 
           convertedVoxels++;
 
@@ -121,7 +122,7 @@ export class VolumeToFog extends Three.Group {
 
           yield;
         }
-      };
+      }
 
       let probe = probeValue();
 
@@ -260,6 +261,5 @@ export const volumeShaders = {
     color = ac;
     if ( color.a == 0.0 ) discard;
   }
-  `
+  `,
 };
-

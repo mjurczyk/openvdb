@@ -12,11 +12,9 @@ import {
   vec3dType,
   vec3iType,
   vec3sType,
-  floatingPointPrecisionLUT
+  floatingPointPrecisionLUT,
 } from '../math/memory';
-import {
-  Vector3
-} from '../math/vector';
+import { Vector3 } from '../math/vector';
 
 export class BufferIterator {
   source = null;
@@ -81,22 +79,24 @@ export class BufferIterator {
       name = new Vector3(
         this.readFloat(int32Type),
         this.readFloat(int32Type),
-        this.readFloat(int32Type),
+        this.readFloat(int32Type)
       );
     } else if (castTo === vec3sType) {
       name = new Vector3(
         this.readFloat(floatType),
         this.readFloat(floatType),
-        this.readFloat(floatType),
+        this.readFloat(floatType)
       );
     } else if (castTo === vec3dType) {
       name = new Vector3(
         this.readFloat(doubleType),
         this.readFloat(doubleType),
-        this.readFloat(doubleType),
+        this.readFloat(doubleType)
       );
     } else {
-      Array(nameSize).fill(0).map((_) => name += String.fromCharCode(this.readBytes(charSize)));
+      Array(nameSize)
+        .fill(0)
+        .map((_) => (name += String.fromCharCode(this.readBytes(charSize))));
     }
 
     return name;
@@ -105,17 +105,17 @@ export class BufferIterator {
   readFloat(precision = doubleType) {
     const precisionLUT = floatingPointPrecisionLUT[precision];
 
-    if ([ vec3sType, vec3iType, vec3dType ].includes(precision)) {
-      const valueType = ({
+    if ([vec3sType, vec3iType, vec3dType].includes(precision)) {
+      const valueType = {
         [vec3sType]: floatType,
         [vec3iType]: int32Type,
         [vec3dType]: doubleType,
-      })[precision];
+      }[precision];
 
       return new Vector3(
         this.readFloat(valueType),
         this.readFloat(valueType),
-        this.readFloat(valueType),
+        this.readFloat(valueType)
       );
     }
 
@@ -124,12 +124,14 @@ export class BufferIterator {
     }
 
     let binary = [];
-    Array(precisionLUT.size).fill(0).forEach(() => {
-      binary.unshift(this.readBytes(charSize));
-    });
-    binary = binary.map(i => `00000000${i.toString(2)}`.substr(-8)).join('');
+    Array(precisionLUT.size)
+      .fill(0)
+      .forEach(() => {
+        binary.unshift(this.readBytes(charSize));
+      });
+    binary = binary.map((i) => `00000000${i.toString(2)}`.substr(-8)).join('');
 
-    if ([ int32Type, int64Type ].includes(precision)) {
+    if ([int32Type, int64Type].includes(precision)) {
       // NOTE https://stackoverflow.com/questions/37022434/how-do-i-parse-a-twos-complement-string-to-a-number
       return ~~parseInt(binary, 2);
     }
@@ -140,8 +142,13 @@ export class BufferIterator {
 
     // NOTE https://stackoverflow.com/questions/37109968/how-to-convert-binary-fraction-to-decimal
     let v1 = exponent < 0 ? 0.0 : mantissa.substr(0, exponent + 1);
-    let v2 = '0.' + (Array(exponent < 0 ? -exponent - 1 : 0).fill('0').join('')) + mantissa.substr(exponent < 0 ? 0.0 : exponent + 1);
-    
+    let v2 =
+      '0.' +
+      Array(exponent < 0 ? -exponent - 1 : 0)
+        .fill('0')
+        .join('') +
+      mantissa.substr(exponent < 0 ? 0.0 : exponent + 1);
+
     v1 = parseInt(v1, 2);
     v2 = parseInt(v2.replace('.', ''), 2) / Math.pow(2, (v2.split('.')[1] || '').length);
 

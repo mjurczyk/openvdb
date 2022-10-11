@@ -1,9 +1,5 @@
 import { loadVDB } from '../index';
-import { VolumeToBbox } from "./VolumeToBbox";
-import { VolumeToFog } from "./VolumeToFog";
+import { VolumeToBbox } from './VolumeToBbox';
+import { VolumeToFog } from './VolumeToFog';
 
-export {
-  loadVDB,
-  VolumeToBbox,
-  VolumeToFog
-};
+export { loadVDB, VolumeToBbox, VolumeToFog };

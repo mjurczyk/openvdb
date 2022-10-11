@@ -1,8 +1,8 @@
-import { unsupported } from "../debug";
-import { uint32Size } from "../math/memory";
-import { Vector3 } from "../math/vector";
-import { ChildNode } from "./ChildNode";
-import { GridSharedContext } from "./GridSharedContext";
+import { unsupported } from '../debug';
+import { uint32Size } from '../math/memory';
+import { Vector3 } from '../math/vector';
+import { ChildNode } from './ChildNode';
+import { GridSharedContext } from './GridSharedContext';
 
 export class RootNode {
   readNode() {
@@ -25,24 +25,28 @@ export class RootNode {
 
     this.leavesCount = 0;
 
-    Array(this.numTiles).fill(0).forEach(() => {
-      this.readTile();
-    });
+    Array(this.numTiles)
+      .fill(0)
+      .forEach(() => {
+        this.readTile();
+      });
 
-    Array(this.numChildren).fill(0).forEach(() => {
-      this.readInternalNode();
-    });
+    Array(this.numChildren)
+      .fill(0)
+      .forEach(() => {
+        this.readInternalNode();
+      });
   }
 
   readTile() {
     unsupported('Tile nodes');
-    
+
     const { bufferIterator, valueType } = GridSharedContext.getContext(this);
 
     const vec = new Vector3(
       bufferIterator.readFloat('int32'),
       bufferIterator.readFloat('int32'),
-      bufferIterator.readFloat('int32'),
+      bufferIterator.readFloat('int32')
     );
     const value = bufferIterator.readFloat(valueType);
     const active = readBool();
@@ -51,7 +55,7 @@ export class RootNode {
       child: null,
       tile: {
         value,
-        active: !value ? false : active
+        active: !value ? false : active,
       },
       origin: vec,
       isChild: () => !!child,
@@ -67,7 +71,7 @@ export class RootNode {
     const vec = new Vector3(
       bufferIterator.readFloat('int32'),
       bufferIterator.readFloat('int32'),
-      bufferIterator.readFloat('int32'),
+      bufferIterator.readFloat('int32')
     );
 
     const child = new ChildNode();
@@ -76,7 +80,7 @@ export class RootNode {
     child.readNode(0, {
       id: this.table.length,
       origin: vec,
-      background: this.background
+      background: this.background,
     });
 
     this.table.push(child);
@@ -87,10 +91,7 @@ export class RootNode {
 
   getLocalBbox() {
     // NOTE Ignore bbox for root nodes
-    return [
-      new Vector3(0.0, 0.0, 0.0),
-      new Vector3(0.0, 0.0, 0.0),
-    ];
+    return [new Vector3(0.0, 0.0, 0.0), new Vector3(0.0, 0.0, 0.0)];
   }
 
   isLeaf() {
@@ -100,22 +101,32 @@ export class RootNode {
   isRoot() {
     return true;
   }
-  
-  valueCache = {};
 
-  getValue(positionKey, position, accessor = null) {
-    // if (this.valueCache[positionKey]) {
-    //   return this.valueCache[positionKey];
-    // }
+  getValue(position, accessor = null) {
+    let max = 0.0;
 
-    let max = 0;
+    for (let i = 0; i < this.table.length; i++) {
+      max = Math.max(max, this.table[i].getValue(position, accessor));
 
-    this.table.forEach(child => {
-      max = Math.max(max, child.getValue(positionKey, position, accessor));
-    });
-
-    // this.valueCache[positionKey] = max;
+      if (max !== 0.0) {
+        i = this.table.length;
+      }
+    }
 
     return max;
+  }
+
+  getLeafAt(position, accessor = null) {
+    let leaf = null;
+
+    for (let i = 0; i < this.table.length; i++) {
+      leaf = this.table[i].getLeafAt(position, accessor);
+
+      if (leaf !== null) {
+        i = this.table.length;
+      }
+    }
+
+    return leaf;
   }
 }
