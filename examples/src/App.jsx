@@ -1,12 +1,13 @@
 import * as Three from 'three';
 import styled from 'styled-components';
-import { useEffect, useRef, useState } from 'react';
-import { Canvas } from 'react-three-fiber';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Canvas, useFrame } from 'react-three-fiber';
 import { Html, OrbitControls } from '@react-three/drei';
 import GUI from 'lil-gui';
 import { SimpleDropzone } from 'simple-dropzone';
 
 import { loadVDB, VolumeToBbox, VolumeToFog } from '../../src/openvdb/three';
+import { DebugLight } from './utils/DebugLight';
 
 const DemoWrapper = styled.div`
   position: absolute;
@@ -79,7 +80,7 @@ export const App = () => {
     progressiveLoad: true,
     resolution: 20,
     threshold: 0.01,
-    opacity: 0.01,
+    opacity: 1.0,
     range: 0.01,
     steps: 100
   };
@@ -133,7 +134,7 @@ export const App = () => {
     const fogSettings = gui.addFolder('Fog');
     fogSettings.add(defaults, 'resolution', 10.0, 200.0, 1.0).name('Resolution').onChange(setResolution);
     fogSettings.add(defaults, 'threshold', 0.001, 2.0, 0.001).name('Threshold').onChange(setThreshold);
-    fogSettings.add(defaults, 'opacity', 0.001, 2.0, 0.001).name('Opacity').onChange(setOpacity);
+    fogSettings.add(defaults, 'opacity', 1.0, 2.0, 0.001).name('Opacity').onChange(setOpacity);
     fogSettings.add(defaults, 'range', 0.001, 2.0, 0.001).name('Range').onChange(setRange);
     fogSettings.add(defaults, 'steps', 1.0, 500.0, 1.0).name('Steps').onChange(setSteps);
   }, []);
@@ -151,7 +152,7 @@ export const App = () => {
     }
 
     if (renderType === 'fog') {
-      output = new VolumeToFog(vdbSource, {
+      output = new VolumeToFog(vdbSource, null, {
         resolution: resolution,
         progressive: progressiveLoad,
         threshold: threshold,
@@ -226,6 +227,8 @@ export const App = () => {
     });
   }, [dropZoneRef.current]);
 
+  const randomLightColor = useMemo(() => Math.random() * 0x888888 + 0x888888, []);
+
   return (
     <DemoWrapper>
       <Canvas flat onCreated={(gl) => {
@@ -248,7 +251,7 @@ export const App = () => {
         ))}
         <mesh rotation={[ -Math.PI / 2.0, 0.0, 0.0 ]} position={[ 0.0, -0.01, 0.0 ]}>
           <circleGeometry args={[ 500.0, 32 ]} />
-          <meshBasicMaterial color={0x251B37} />
+          <meshStandardMaterial color={0x251B37} />
         </mesh>
         <primitive object={output} />
         {popUpText !== null && (
@@ -258,6 +261,8 @@ export const App = () => {
             </div>
           </PopUpBox>
         )}
+        <DebugLight color={0x00ffff} position={[ 20.0, 50.0, 10.0 ]} />
+        <DebugLight color={0xff00ff} position={[ -20.0, 50.0, 10.0 ]} />
       </Canvas>
       <DropZone ref={dropZoneRef}>
         <div>

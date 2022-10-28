@@ -24,40 +24,49 @@ Keep in mind that, due to memory-access and multithreading limitations of JS, th
 ## Current Feature Support
 
 Based on files hosted on [https://www.openvdb.org/download/](https://www.openvdb.org/download/).
-  
-| Model | Support | Notes |
-| - | - | - |
-| armadillo.vdb | ✅ Yes  | |
-| buddha.vdb | ✅ Yes | |
-| bunny.vdb | ✅ Yes | |
-| bunny_cloud.vdb | ✅ Yes | |
-| crawler.vdb | ❓ Partial | Loads ok, fails to render (Three.js) due to memory limits |
-| cube.vdb | ✅ Yes | |
-| dragon.vdb | ✅ Yes | |
-| emu.vdb | ❓ Partial | Loads ok, fails to render (Three.js) due to memory limits |
-| explosion.vdb | ❓ Partial | Loads ok, fails to render due to offsets, lacks color support |
-| fire.vdb | ❓ Partial | Loads ok, fails to render due to offsets, lacks color support |
-| icosahedron.vdb | ✅ Yes | |
-| iss.vdb | ❓ Partial | Loads ok, fails to render (Three.js) due to memory limits |
-| smoke1.vdb | ❓ Partial | Loads ok, fails to render due to offsets, lacks color support |
-| smoke2.vdb | ❓ Partial | Loads ok, fails to render due to offsets, lacks color support |
-| space.vdb | ❓ Partial | Loads ok, fails to render (Three.js) due to memory limits |
-| sphere.vdb | ✅ Yes | |
-| torus.vdb | ✅ Yes | |
-| torus_knot.vdb | ✅ Yes | |
-| utahteapot.vdb | ✅ Yes | |
-| venusstatue.vdb | ✅ Yes | |
-| boat_points.vdb | ❓ Partial | Loads ok, points rendering not fully implemented |
-| bunny_points.vdb | ❓ Partial | Loads ok, points rendering not fully implemented |
-| sphere_points.vdb | ❓ Partial | Loads ok, points rendering not fully implemented |
-| waterfall_points.vdb | ❓ Partial | Loads ok, points rendering not fully implemented |
+
+| Model                | Support    | Notes                                                         |
+| -------------------- | ---------- | ------------------------------------------------------------- |
+| armadillo.vdb        | ✅ Yes     |                                                               |
+| buddha.vdb           | ✅ Yes     |                                                               |
+| bunny.vdb            | ✅ Yes     |                                                               |
+| bunny_cloud.vdb      | ✅ Yes     |                                                               |
+| crawler.vdb          | ❓ Partial | Loads ok, fails to render (Three.js) due to memory limits     |
+| cube.vdb             | ✅ Yes     |                                                               |
+| dragon.vdb           | ✅ Yes     |                                                               |
+| emu.vdb              | ❓ Partial | Loads ok, fails to render (Three.js) due to memory limits     |
+| explosion.vdb        | ❓ Partial | Loads ok, fails to render due to offsets, lacks color support |
+| fire.vdb             | ❓ Partial | Loads ok, fails to render due to offsets, lacks color support |
+| icosahedron.vdb      | ✅ Yes     |                                                               |
+| iss.vdb              | ❓ Partial | Loads ok, fails to render (Three.js) due to memory limits     |
+| smoke1.vdb           | ❓ Partial | Loads ok, fails to render due to offsets, lacks color support |
+| smoke2.vdb           | ❓ Partial | Loads ok, fails to render due to offsets, lacks color support |
+| space.vdb            | ❓ Partial | Loads ok, fails to render (Three.js) due to memory limits     |
+| sphere.vdb           | ✅ Yes     |                                                               |
+| torus.vdb            | ✅ Yes     |                                                               |
+| torus_knot.vdb       | ✅ Yes     |                                                               |
+| utahteapot.vdb       | ✅ Yes     |                                                               |
+| venusstatue.vdb      | ✅ Yes     |                                                               |
+| boat_points.vdb      | ❓ Partial | Loads ok, points rendering not fully implemented              |
+| bunny_points.vdb     | ❓ Partial | Loads ok, points rendering not fully implemented              |
+| sphere_points.vdb    | ❓ Partial | Loads ok, points rendering not fully implemented              |
+| waterfall_points.vdb | ❓ Partial | Loads ok, points rendering not fully implemented              |
+
+## Development
+
+```
+git clone https://github.com/mjurczyk/openvdb
+cd ./openvdb
+npm run i
+npm run dev
+```
 
 ## Credits
 
 To avoid re-coding same things over again, parts of the library may be based / taken directly from the following:
 
-* [gkjohnson/three-mesh-bvh](https://github.com/gkjohnson/three-mesh-bvh): BVH implementation
-* [manzt/numcodecs.js](https://github.com/manzt/numcodecs.js/): BLOSC & ZLIB compression
-  * [nodeca/pako](https://github.com/issues): ZLIB compression
+- [gkjohnson/three-mesh-bvh](https://github.com/gkjohnson/three-mesh-bvh): BVH implementation
+- [manzt/numcodecs.js](https://github.com/manzt/numcodecs.js/): BLOSC & ZLIB compression
+  - [nodeca/pako](https://github.com/issues): ZLIB compression
 
 Be sure to ⭐️ those!
