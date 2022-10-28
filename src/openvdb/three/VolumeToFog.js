@@ -177,7 +177,7 @@ export class VolumeToFog extends Three.Group {
             vec3 vDirectionDeltaStep = vRayDirection * delta;
 
             float density = 0.0;
-            vec3 albedo = vec3(0.01);
+            vec3 albedo = vec3(0.0, 0.0, 0.1);
             
             for (float i = vBounds.x; i < vBounds.y; i += delta) {
               float volumeSample = texture(volumeMap, vPoint + VOLUME_BBOX_SPAN).r;
@@ -187,9 +187,9 @@ export class VolumeToFog extends Three.Group {
                 break;
               }
 
-              geometry.position = vPoint;
-
               if (volumeSample > 0.) {
+                geometry.position = vPoint;
+
                 #if (NUM_POINT_LIGHTS > 0)
 
                 PointLight pointLight;
@@ -211,7 +211,7 @@ export class VolumeToFog extends Three.Group {
                     float lightSample = texture(volumeMap, vLightProbe + VOLUME_BBOX_SPAN).r;
                     
                     if (lightSample != 0.) {
-                      absorbance += .01; // NOTE Increase density here
+                      absorbance += .2; // NOTE Increase absorbance here
                     }
 
                     if (absorbance >= 1.0) {
@@ -222,8 +222,9 @@ export class VolumeToFog extends Three.Group {
                   }
 
                   albedo += ((volumeSample * pointLight.color * pow(1. / lightDistance, 2.))) / min(1., absorbance);
-                  // albedo += ((density * pointLight.color * pow(1. / lightDistance, 2.))) / absorbance;
                 }
+
+                albedo = saturate(albedo);
 
                 #endif
               }
@@ -231,10 +232,10 @@ export class VolumeToFog extends Three.Group {
               vPoint += vDirectionDeltaStep;
             }
 
-            outgoingLight.rgb = albedo;
+            outgoingLight.rgb = albedo / density;
             diffuseColor.a = density;
 
-            if (density == 0.0) {
+            if (density == 0.) {
               discard;
             }
 
@@ -298,7 +299,9 @@ export class VolumeToFog extends Three.Group {
             target.z += step.z;
           }
 
-          data[x + y * resolution + z * resolutionPow2] = grid.getValue(target) ? 255.0 : 0.0;
+          data[x + y * resolution + z * resolutionPow2] = grid.getValue(target)
+            ? Math.random() * 255.0
+            : 0.0;
 
           convertedVoxels++;
 

@@ -132,7 +132,7 @@ export const App = () => {
     gui.add(defaults, 'progressiveLoad', true).name('Progressive').onChange(setProgressiveLoad);
 
     const fogSettings = gui.addFolder('Fog');
-    fogSettings.add(defaults, 'resolution', 10.0, 200.0, 1.0).name('Resolution').onChange(setResolution);
+    fogSettings.add(defaults, 'resolution', 10.0, 1000.0, 1.0).name('Resolution').onChange(setResolution);
     fogSettings.add(defaults, 'threshold', 0.001, 2.0, 0.001).name('Threshold').onChange(setThreshold);
     fogSettings.add(defaults, 'opacity', 1.0, 2.0, 0.001).name('Opacity').onChange(setOpacity);
     fogSettings.add(defaults, 'range', 0.001, 2.0, 0.001).name('Range').onChange(setRange);
@@ -261,8 +261,8 @@ export const App = () => {
             </div>
           </PopUpBox>
         )}
-        <DebugLight color={0x00ffff} position={[ 20.0, 50.0, 10.0 ]} />
-        <DebugLight color={0xff00ff} position={[ -20.0, 50.0, 10.0 ]} />
+        <DebugLight color={0x00ffff} position={[ 30.0, 50.0, 10.0 ]} />
+        <DebugLight color={0xff00ff} position={[ -30.0, 50.0, 10.0 ]} />
       </Canvas>
       <DropZone ref={dropZoneRef}>
         <div>
