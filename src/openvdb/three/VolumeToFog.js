@@ -177,11 +177,13 @@ export class VolumeToFog extends Three.Group {
             vec3 vDirectionDeltaStep = vRayDirection * delta;
 
             float density = 0.0;
-            vec3 albedo = vec3(0.0, 0.0, 0.1);
+            vec3 albedo = vec3(0., 0., 0.1);
+
+            float absorbanceFactor = 1.; // NOTE Put into uniforms
             
             for (float i = vBounds.x; i < vBounds.y; i += delta) {
               float volumeSample = texture(volumeMap, vPoint + VOLUME_BBOX_SPAN).r;
-              density += ((volumeSample / 256.) * steps);
+              density += (volumeSample / 1028.) * steps;
 
               if (density >= 1.) {
                 break;
@@ -198,7 +200,7 @@ export class VolumeToFog extends Three.Group {
                   pointLight = pointLights[lightIndex];
                   getPointLightInfo(pointLight, geometry, directLight);
 
-                  float lightMarchLimit = 5.0;
+                  float lightMarchLimit = 10.0;
                   vec3 vLightProbe = vec3(vPoint);
                   float absorbance = 0.0;
 
@@ -211,7 +213,7 @@ export class VolumeToFog extends Three.Group {
                     float lightSample = texture(volumeMap, vLightProbe + VOLUME_BBOX_SPAN).r;
                     
                     if (lightSample != 0.) {
-                      absorbance += .2; // NOTE Increase absorbance here
+                      absorbance += absorbanceFactor / float(NUM_POINT_LIGHTS); // NOTE Increase absorbance here
                     }
 
                     if (absorbance >= 1.0) {
@@ -224,8 +226,6 @@ export class VolumeToFog extends Three.Group {
                   albedo += ((volumeSample * pointLight.color * pow(1. / lightDistance, 2.))) / min(1., absorbance);
                 }
 
-                albedo = saturate(albedo);
-
                 #endif
               }
 
@@ -233,7 +233,7 @@ export class VolumeToFog extends Three.Group {
             }
 
             outgoingLight.rgb = albedo / density;
-            diffuseColor.a = density;
+            diffuseColor.a = density * absorbanceFactor;
 
             if (density == 0.) {
               discard;
@@ -300,7 +300,8 @@ export class VolumeToFog extends Three.Group {
           }
 
           data[x + y * resolution + z * resolutionPow2] = grid.getValue(target)
-            ? Math.random() * 255.0
+            ? // ? Math.random() * 255.0
+              255.0
             : 0.0;
 
           convertedVoxels++;
