@@ -227,8 +227,6 @@ export const App = () => {
     });
   }, [dropZoneRef.current]);
 
-  const randomLightColor = useMemo(() => Math.random() * 0x888888 + 0x888888, []);
-
   return (
     <DemoWrapper>
       <Canvas flat onCreated={(gl) => {
@@ -251,7 +249,7 @@ export const App = () => {
         ))}
         <mesh rotation={[ -Math.PI / 2.0, 0.0, 0.0 ]} position={[ 0.0, -0.01, 0.0 ]}>
           <circleGeometry args={[ 500.0, 32 ]} />
-          <meshStandardMaterial color={0x251B37} />
+          <meshBasicMaterial color={0x251B37} />
         </mesh>
         <mesh position={[ 10.0, 10.0, 10.0 ]}>
           <sphereGeometry args={[ 5.0, 32, 32 ]} />
@@ -268,9 +266,9 @@ export const App = () => {
         <DebugLight color={0x00ffff} position={[ 30.0, 50.0, 10.0 ]} />
         <DebugLight color={0xff00ff} position={[ -30.0, 50.0, 10.0 ]} />
         <DebugLight color={0x00ff00} position={[ 0.0, 40.0, 0.0 ]} />
-        {/* <directionalLight position={[ 0.0, 1.0, 0.0 ]} color={0xff0000} intensity={2.} /> */}
-        {/* <directionalLight position={[ 0.0, 1.0, 0.0 ]} color={0xffffff} intensity={1.} /> */}
-        {/* <directionalLight position={[ 0.0, -1.0, 0.0 ]} color={0xff00ff} intensity={1.} /> */}
+        <directionalLight position={[ 0.0, 1.0, 0.0 ]} color={0xff0000} intensity={5.} />
+        <directionalLight position={[ 0.0, -1.0, 0.0 ]} color={0xffffff} intensity={1.} />
+        <directionalLight position={[ 1.0, 0.0, 0.0 ]} color={0xff00ff} intensity={5.} />
       </Canvas>
       <DropZone ref={dropZoneRef}>
         <div>
