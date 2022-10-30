@@ -253,7 +253,7 @@ export const App = () => {
         </mesh>
         <mesh position={[ 10.0, 10.0, 10.0 ]}>
           <sphereGeometry args={[ 5.0, 32, 32 ]} />
-          <meshPhongMaterial color={0x000055} />
+          <meshPhongMaterial color={0xff00ff} />
         </mesh>
         <primitive object={output} />
         {popUpText !== null && (
@@ -263,12 +263,14 @@ export const App = () => {
             </div>
           </PopUpBox>
         )}
-        <DebugLight color={0x00ffff} position={[ 30.0, 50.0, 10.0 ]} />
+        {/* <DebugLight color={0x00ffff} position={[ 30.0, 50.0, 10.0 ]} />
         <DebugLight color={0xff00ff} position={[ -30.0, 50.0, 10.0 ]} />
         <DebugLight color={0x00ff00} position={[ 0.0, 40.0, 0.0 ]} />
         <directionalLight position={[ 0.0, 1.0, 0.0 ]} color={0xff0000} intensity={5.} />
         <directionalLight position={[ 0.0, -1.0, 0.0 ]} color={0xffffff} intensity={1.} />
-        <directionalLight position={[ 1.0, 0.0, 0.0 ]} color={0xff00ff} intensity={5.} />
+        <directionalLight position={[ 1.0, 0.0, 0.0 ]} color={0xff00ff} intensity={5.} /> */}
+        <ambientLight color={0x110011} />
+        {/* <hemisphereLight args={[0xff0000, 0x0000ff ]} intensity={0.1} /> */}
       </Canvas>
       <DropZone ref={dropZoneRef}>
         <div>
