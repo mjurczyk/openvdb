@@ -69,6 +69,7 @@ export class VolumeToFog extends Three.Group {
       data3dTexture.needsUpdate = true;
 
       const geometry = new Three.BoxGeometry(1.1, 1.1, 1.1);
+      // const geometry = new Three.SphereGeometry(1.0, 32, 32);
 
       const material = baseMaterial.clone();
       material.side = Three.DoubleSide;
@@ -85,10 +86,21 @@ export class VolumeToFog extends Three.Group {
         shader.uniforms.steps = { value: typeof steps === 'undefined' ? 100 : steps };
         shader.isVolumetricFogMaterial = true;
 
+        const shaderVaryings = `
+           varying mat4 mA;
+           varying mat4 mB;
+           varying mat4 mC;
+           varying mat4 mD;
+           varying mat4 mE;
+        `;
+
         shader.vertexShader = shader.vertexShader
           .replace(
             `#include <common>`,
             `
+
+          ${shaderVaryings}
+
           out vec3 vOrigin;
           out vec3 vDirection;
 
@@ -96,14 +108,115 @@ export class VolumeToFog extends Three.Group {
         `
           )
           .replace(
-            `#include <project_vertex>`,
+            `#include <worldpos_vertex>`,
             `
+            #include <worldpos_vertex>
+
           vOrigin = vec3( inverse( modelMatrix ) * vec4( cameraPosition, 1.0 ) ).xyz;
           vDirection = position - vOrigin;
 
-          #include <project_vertex>
+          mA = modelMatrix;
+          mB = inverse(modelMatrix);
+          mC = modelViewMatrix;
+          mD = inverse(modelViewMatrix);
+          mE = projectionMatrix;
         `
           );
+
+        const volumeLightsConfig = `
+          float absorbanceFactor = .75; // NOTE Put into uniforms
+          float lightMarchLimit = 10.0;
+          vec3 vUnit = (mA * vec4(1., 0., 0., 0.)).xyz;
+          
+          geometry.position = vPoint;
+        `;
+
+        const volumePointLights = `
+          PointLight pointLight;
+
+          float pointLightsLimit = float(NUM_POINT_LIGHTS + 1);
+
+          for (int lightIndex = 0; lightIndex < NUM_POINT_LIGHTS; lightIndex++) {
+            pointLight = pointLights[lightIndex];
+            getPointLightInfo(pointLight, geometry, directLight);
+
+            vec3 vLightProbe = vec3(vPoint);
+            float absorbance = 0.0;
+
+            vec3 lightDirection = vPoint - (mD * vec4(pointLight.position, 1.)).xyz;
+            float lightDistance = length(lightDirection) * length(vUnit);
+            lightDirection = normalize(lightDirection);
+            vec3 vLightStep = (lightDirection / VOLUME_BBOX_SPAN) / lightMarchLimit;
+
+            for (int lightMarch = 0; lightMarch < int(lightMarchLimit); lightMarch++) {
+              vLightProbe -= vLightStep;
+
+              float lightSample = texture(volumeMap, vLightProbe + VOLUME_BBOX_SPAN).r;
+              
+              absorbance += exp(-1. / (absorbanceFactor * lightSample));
+
+              if (absorbance >= 1.) {
+                absorbance = 1.0;
+
+                break;
+              }
+            }
+
+            albedo += saturate((volumeSample * pointLight.color * pow(1. / lightDistance, 2.)) * (1. - absorbance));
+          }
+        `;
+
+        const volumeDirLights = `
+          DirectionalLight directionalLight;
+
+          float dirLightsLimit = float(NUM_DIR_LIGHTS + 1);
+
+          #pragma unroll_loop_start
+          for (int lightIndex = 0; lightIndex < NUM_DIR_LIGHTS; lightIndex++) {
+            directionalLight = directionalLights[lightIndex];
+            getDirectionalLightInfo(directionalLight, geometry, directLight);
+
+            vec3 vLightProbe = vec3(vPoint);
+            float absorbance = 0.0;
+
+            vec3 lightDirection = -( vec4(directLight.direction, 0.0) * viewMatrix ).xyz;
+            float lightDistance = exp(4.); // NOTE I don't know why 4, but it works for all models and I'm too scared to touch it 🥲
+            lightDirection = normalize(lightDirection);
+            vec3 vLightStep = lightDirection * (lightDistance / lightMarchLimit);
+
+            for (int lightMarch = 0; lightMarch < int(lightMarchLimit); lightMarch++) {
+              vLightProbe -= vLightStep;
+
+              float lightSample = texture(volumeMap, vLightProbe + VOLUME_BBOX_SPAN).r;
+              
+              if (lightSample != 0.) {
+                // absorbance += absorbanceFactor;
+                absorbance += exp(1. - absorbanceFactor) / (lightMarchLimit / dirLightsLimit);
+              }
+
+              if (absorbance >= 1.0) {
+                absorbance = 1.0;
+
+                break;
+              }
+            }
+
+            albedo += RECIPROCAL_PI * ((volumeSample * directionalLight.color * pow(1. / lightDistance, 2.))) * exp(1. - absorbance);
+          }
+          #pragma unroll_loop_end
+        `;
+
+        const volumeSpotLights = `
+        
+        `;
+
+        const volumeAmbientLights = `
+        
+        `;
+
+        const volumeHemisphereLights = `
+        
+        `;
 
         shader.fragmentShader = shader.fragmentShader
           .replace(
@@ -119,6 +232,8 @@ export class VolumeToFog extends Three.Group {
           uniform float threshold;
           uniform float range;
           uniform float steps;
+
+          ${shaderVaryings}
 
           #define VOLUME_BBOX_SPAN 0.5
 
@@ -145,14 +260,6 @@ export class VolumeToFog extends Three.Group {
           .replace(`#include <lights_fragment_begin>`, `// NOTE Override light calculations`)
           .replace(`#include <lights_fragment_end>`, `// NOTE Override light calculations`)
           .replace(
-            '#include <lights_pars_begin>',
-            `
-            #include <lights_pars_begin>
-
-            // NOTE Feel free to add light marching helpers here
-          `
-          )
-          .replace(
             `#include <output_fragment>`,
             `
             vec3 vWorld = -vViewPosition;
@@ -177,10 +284,10 @@ export class VolumeToFog extends Three.Group {
             vec3 vDirectionDeltaStep = vRayDirection * delta;
 
             float density = 0.0;
-            vec3 albedo = vec3(0., 0., 0.1);
+            vec3 albedo = vec3(0., 0., 0.);
 
-            float absorbanceFactor = 1.; // NOTE Put into uniforms
-            
+            ${volumeLightsConfig}
+
             for (float i = vBounds.x; i < vBounds.y; i += delta) {
               float volumeSample = texture(volumeMap, vPoint + VOLUME_BBOX_SPAN).r;
               density += (volumeSample / 1028.) * steps;
@@ -190,50 +297,20 @@ export class VolumeToFog extends Three.Group {
               }
 
               if (volumeSample > 0.) {
-                geometry.position = vPoint;
-
                 #if (NUM_POINT_LIGHTS > 0)
+                  ${volumePointLights}
+                #endif
 
-                PointLight pointLight;
-
-                for (int lightIndex = 0; lightIndex < NUM_POINT_LIGHTS; lightIndex++) {
-                  pointLight = pointLights[lightIndex];
-                  getPointLightInfo(pointLight, geometry, directLight);
-
-                  float lightMarchLimit = 10.0;
-                  vec3 vLightProbe = vec3(vPoint);
-                  float absorbance = 0.0;
-
-                  vec3 lightDirection = vWorld + vPoint - pointLight.position;
-                  float lightDistance = length(lightDirection);
-                  lightDirection = normalize(lightDirection);
-                  vec3 vLightStep = lightDirection / lightDistance;
-
-                  for (int lightMarch = 0; lightMarch < int(lightMarchLimit); lightMarch++) {
-                    float lightSample = texture(volumeMap, vLightProbe + VOLUME_BBOX_SPAN).r;
-                    
-                    if (lightSample != 0.) {
-                      absorbance += absorbanceFactor / float(NUM_POINT_LIGHTS); // NOTE Increase absorbance here
-                    }
-
-                    if (absorbance >= 1.0) {
-                      break;
-                    }
-
-                    vLightProbe -= vLightStep;
-                  }
-
-                  albedo += ((volumeSample * pointLight.color * pow(1. / lightDistance, 2.))) / min(1., absorbance);
-                }
-
+                #if ( NUM_DIR_LIGHTS > 0 )
+                  /* ${volumeDirLights} */
                 #endif
               }
 
               vPoint += vDirectionDeltaStep;
             }
 
-            outgoingLight.rgb = albedo / density;
-            diffuseColor.a = density * absorbanceFactor;
+            outgoingLight.rgb = saturate(albedo / density);
+            diffuseColor.a = saturate(density * opacity);
 
             if (density == 0.) {
               discard;
@@ -300,7 +377,7 @@ export class VolumeToFog extends Three.Group {
           }
 
           data[x + y * resolution + z * resolutionPow2] = grid.getValue(target)
-            ? // ? Math.random() * 255.0
+            ? // ? 220.0 + Math.random() * (255.0 - 220.0)
               255.0
             : 0.0;
 

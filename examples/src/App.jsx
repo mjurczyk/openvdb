@@ -132,7 +132,7 @@ export const App = () => {
     gui.add(defaults, 'progressiveLoad', true).name('Progressive').onChange(setProgressiveLoad);
 
     const fogSettings = gui.addFolder('Fog');
-    fogSettings.add(defaults, 'resolution', 10.0, 500.0, 1.0).name('Resolution').onChange(setResolution);
+    fogSettings.add(defaults, 'resolution', 10.0, 200.0, 1.0).name('Resolution').onChange(setResolution);
     fogSettings.add(defaults, 'threshold', 0.001, 2.0, 0.001).name('Threshold').onChange(setThreshold);
     fogSettings.add(defaults, 'opacity', 1.0, 2.0, 0.001).name('Opacity').onChange(setOpacity);
     fogSettings.add(defaults, 'range', 0.001, 2.0, 0.001).name('Range').onChange(setRange);
@@ -253,6 +253,10 @@ export const App = () => {
           <circleGeometry args={[ 500.0, 32 ]} />
           <meshStandardMaterial color={0x251B37} />
         </mesh>
+        <mesh position={[ 10.0, 10.0, 10.0 ]}>
+          <sphereGeometry args={[ 5.0, 32, 32 ]} />
+          <meshPhongMaterial color={0x000055} />
+        </mesh>
         <primitive object={output} />
         {popUpText !== null && (
           <PopUpBox>
@@ -263,6 +267,10 @@ export const App = () => {
         )}
         <DebugLight color={0x00ffff} position={[ 30.0, 50.0, 10.0 ]} />
         <DebugLight color={0xff00ff} position={[ -30.0, 50.0, 10.0 ]} />
+        <DebugLight color={0x00ff00} position={[ 0.0, 40.0, 0.0 ]} />
+        {/* <directionalLight position={[ 0.0, 1.0, 0.0 ]} color={0xff0000} intensity={2.} /> */}
+        {/* <directionalLight position={[ 0.0, 1.0, 0.0 ]} color={0xffffff} intensity={1.} /> */}
+        {/* <directionalLight position={[ 0.0, -1.0, 0.0 ]} color={0xff00ff} intensity={1.} /> */}
       </Canvas>
       <DropZone ref={dropZoneRef}>
         <div>

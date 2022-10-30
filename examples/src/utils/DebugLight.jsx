@@ -30,7 +30,7 @@ export const DebugLight = (props) => {
 
   return (
     <group ref={pivotRef}>
-      <pointLight color={props.color} intensity={.5} {...props} ref={lightRef}>
+      <pointLight color={props.color} intensity={1.} {...props} ref={lightRef}>
         <mesh>
           <sphereGeometry args={[ 1.0, 32, 32]} />
           <meshBasicMaterial color={props.color} />
