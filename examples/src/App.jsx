@@ -251,10 +251,6 @@ export const App = () => {
           <circleGeometry args={[ 500.0, 32 ]} />
           <meshBasicMaterial color={0x251B37} />
         </mesh>
-        <mesh position={[ 10.0, 10.0, 10.0 ]}>
-          <sphereGeometry args={[ 5.0, 32, 32 ]} />
-          <meshPhongMaterial color={0xff00ff} />
-        </mesh>
         <primitive object={output} />
         {popUpText !== null && (
           <PopUpBox>
@@ -263,14 +259,14 @@ export const App = () => {
             </div>
           </PopUpBox>
         )}
-        <DebugLight color={0x00ffff} position={[ 10.0, 50.0, 10.0 ]} lightType="spot" />
-        <DebugLight color={0xff00ff} position={[ -10.0, 70.0, 10.0 ]} lightType="spot" />
-        {/* {/* <DebugLight color={0x00ffff} position={[ 30.0, 50.0, 10.0 ]} /> */}
-        {/* <DebugLight color={0xff00ff} position={[ -30.0, 50.0, 10.0 ]} /> */}
-        {/* <DebugLight color={0x00ff00} position={[ 0.0, 40.0, 0.0 ]} /> */}
-        {/* <directionalLight position={[ 0.0, 1.0, 0.0 ]} color={0xff0000} intensity={5.} />
-        <directionalLight position={[ 0.0, -1.0, 0.0 ]} color={0xffffff} intensity={1.} />
-        <directionalLight position={[ 1.0, 0.0, 0.0 ]} color={0xff00ff} intensity={5.} /> */}
+        <DebugLight color={0x00ffff} position={[ 10.0, 50.0, 10.0 ]} intensity={10.0} lightType="spot" />
+        <DebugLight color={0xff00ff} position={[ -10.0, 70.0, 10.0 ]} intensity={10.0} lightType="spot" />
+        <DebugLight color={0x00ffff} position={[ 10.0, 70.0, 10.0 ]} intensity={0.1} />
+        <DebugLight color={0xff0000} position={[ -30.0, 50.0, 10.0 ]} />
+        <DebugLight color={0x00ff00} position={[ 0.0, 40.0, 0.0 ]} />
+        {/* <directionalLight position={[ 0.0, 1.0, 0.0 ]} color={0xff0000} intensity={1.} /> */}
+        {/* <directionalLight position={[ 0.0, -1.0, 0.0 ]} color={0x00ff00} intensity={1.} /> */}
+        {/* <directionalLight position={[ 1.0, 0.0, 0.0 ]} color={0xff00ff} intensity={5.} /> */}
         {/* <ambientLight color={0x110011} /> */}
         {/* <hemisphereLight args={[0xff0000, 0x0000ff ]} intensity={0.1} /> */}
       </Canvas>

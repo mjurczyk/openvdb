@@ -131,8 +131,8 @@ export class VolumeToFog extends Three.Group {
         const volumeLightsConfig = `
           // NOTE For absorbanceFactor closer to 1.0, we want high lightMarchLimit and lower volumeSteps
           //      For absorbanceFactor closer to 0.1, we want lower lightMarchLimit and higher volumeSteps
-          float lightMarchLimit = 20.0;
-          float absorbanceFactor = .1; // NOTE Put into uniforms
+          float lightMarchLimit = 10.0;
+          float absorbanceFactor = .5; // NOTE Put into uniforms
 
           vec3 vUnit = (mA * vec4(1., 0., 0., 0.)).xyz;
           
@@ -156,6 +156,10 @@ export class VolumeToFog extends Three.Group {
 
             for (int lightMarch = 0; lightMarch < int(lightMarchLimit); lightMarch++) {
               vLightProbe -= vLightStep;
+
+              if (isOutsideVolume(vLightProbe + VOLUME_BBOX_SPAN)) {
+                break;
+              }
 
               float lightSample = texture(volumeMap, vLightProbe + VOLUME_BBOX_SPAN).r;
               
@@ -189,6 +193,10 @@ export class VolumeToFog extends Three.Group {
             for (int lightMarch = 0; lightMarch < int(lightMarchLimit); lightMarch++) {
               vLightProbe -= vLightStep;
 
+              if (isOutsideVolume(vLightProbe + VOLUME_BBOX_SPAN)) {
+                break;
+              }
+
               float lightSample = texture(volumeMap, vLightProbe + VOLUME_BBOX_SPAN).r;
               
               absorbance += exp(-1. / absorbanceFactor) * lightSample;
@@ -200,8 +208,8 @@ export class VolumeToFog extends Three.Group {
               }
             }
 
-            // NOTE No idea why 0.001 yet
-            albedo += saturate((volumeSample * directionalLight.color * 0.001) * (1. - absorbance));
+            // NOTE No idea why 0.01 yet
+            albedo += saturate((volumeSample * directionalLight.color * 0.01) * (1. - absorbance));
           }
           #pragma unroll_loop_end
         `;
@@ -227,6 +235,10 @@ export class VolumeToFog extends Three.Group {
             if (spotAttenuation > 0.) {
               for (int lightMarch = 0; lightMarch < int(lightMarchLimit); lightMarch++) {
                 vLightProbe -= vLightStep;
+                
+                if (isOutsideVolume(vLightProbe + VOLUME_BBOX_SPAN)) {
+                  break;
+                }
 
                 float lightSample = texture(volumeMap, vLightProbe + VOLUME_BBOX_SPAN).r;
                 
@@ -255,18 +267,27 @@ export class VolumeToFog extends Three.Group {
 
             vec3 lightDirection = -normalize((vec4(hemiLight.direction, 1.) * viewMatrix).xyz);
             vec3 vLightStep = (lightDirection * VOLUME_BBOX_SPAN) / lightMarchLimit;
+            float lightSample;
 
             for (int lightMarch = 1; lightMarch < int(lightMarchLimit / 2.); lightMarch++) {
-              float lightSample = texture(volumeMap, vLightProbe + VOLUME_BBOX_SPAN - float(lightMarch) * vLightStep).r;
+              vec3 textureProbe = vLightProbe + VOLUME_BBOX_SPAN - float(lightMarch) * vLightStep;
+ 
+              if (!isOutsideVolume(textureProbe)) {
+                lightSample = texture(volumeMap, textureProbe).r;
               
-              if (absorbanceUp < 1.) {
-                absorbanceUp += exp(-1. / absorbanceFactor) * lightSample;
+                if (absorbanceUp < 1.) {
+                  absorbanceUp += exp(-1. / absorbanceFactor) * lightSample;
+                }
               }
 
-              lightSample = texture(volumeMap, vLightProbe + VOLUME_BBOX_SPAN + float(lightMarch) * vLightStep).r;
-              
-              if (absorbanceDown < 1.) {
-                absorbanceDown += exp(-1. / absorbanceFactor) * lightSample;
+              textureProbe = vLightProbe + VOLUME_BBOX_SPAN + float(lightMarch) * vLightStep;
+
+              if (!isOutsideVolume(textureProbe)) {
+                lightSample = texture(volumeMap, textureProbe).r;
+                
+                if (absorbanceDown < 1.) {
+                  absorbanceDown += exp(-1. / absorbanceFactor) * lightSample;
+                }
               }
             }
 
@@ -302,6 +323,17 @@ export class VolumeToFog extends Three.Group {
           ${shaderVaryings}
 
           #define VOLUME_BBOX_SPAN 0.5
+
+          bool isOutsideVolume(vec3 source) {
+            return (
+              source.x >= 1. ||
+              source.y >= 1. ||
+              source.z >= 1. ||
+              source.x <= 0. ||
+              source.y <= 0. ||
+              source.z <= 0.
+            );
+          }
 
           vec2 getVolumeBbox(vec3 vPointOfReference) {
             const vec3 vBoxMin = vec3(-0.5);
@@ -346,7 +378,7 @@ export class VolumeToFog extends Three.Group {
             vec3 vPoint = vOrigin + vBounds.x * vRayDirection;
             vec3 vPointStep = 1.0 / abs(vRayDirection);
 
-            float delta = min(vPointStep.x, min(vPointStep.y, vPointStep.z)) / 500.0;
+            float delta = min(vPointStep.x, min(vPointStep.y, vPointStep.z)) / 200.0;
             vec3 vDirectionDeltaStep = vRayDirection * delta;
 
             float density = 0.0;
@@ -356,9 +388,9 @@ export class VolumeToFog extends Three.Group {
 
             for (float i = vBounds.x; i < vBounds.y; i += delta) {
               float volumeSample = texture(volumeMap, vPoint + VOLUME_BBOX_SPAN).r;
-              density += (volumeSample / 1028.) * 100.0;
+              density += (volumeSample / 512.) * 100.0;
 
-              if (density >= 1.) {
+              if (density > exp(-1. + 1. / absorbanceFactor)) {
                 break;
               }
 
@@ -388,6 +420,8 @@ export class VolumeToFog extends Three.Group {
 
               vPoint += vDirectionDeltaStep;
             }
+
+            density = min(1.0, density);
 
             outgoingLight.rgb = saturate(albedo / density);
             diffuseColor.a = saturate(density * opacity);
@@ -457,6 +491,8 @@ export class VolumeToFog extends Three.Group {
           }
 
           data[x + y * resolution + z * resolutionPow2] = grid.getValue(target) ? 255.0 : 0.0;
+          // data[x + y * resolution + z * resolutionPow2] = Math.random() * 255.0;
+          // data[x + y * resolution + z * resolutionPow2] = 255.0;
 
           convertedVoxels++;
 
