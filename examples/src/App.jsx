@@ -2,7 +2,7 @@ import * as Three from 'three';
 import styled from 'styled-components';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame } from 'react-three-fiber';
-import { Html, OrbitControls } from '@react-three/drei';
+import { Html, OrbitControls, Stats } from '@react-three/drei';
 import GUI from 'lil-gui';
 import { SimpleDropzone } from 'simple-dropzone';
 
@@ -263,13 +263,15 @@ export const App = () => {
             </div>
           </PopUpBox>
         )}
-        {/* <DebugLight color={0x00ffff} position={[ 30.0, 50.0, 10.0 ]} />
-        <DebugLight color={0xff00ff} position={[ -30.0, 50.0, 10.0 ]} />
-        <DebugLight color={0x00ff00} position={[ 0.0, 40.0, 0.0 ]} />
-        <directionalLight position={[ 0.0, 1.0, 0.0 ]} color={0xff0000} intensity={5.} />
+        <DebugLight color={0x00ffff} position={[ 10.0, 50.0, 10.0 ]} lightType="spot" />
+        <DebugLight color={0xff00ff} position={[ -10.0, 70.0, 10.0 ]} lightType="spot" />
+        {/* {/* <DebugLight color={0x00ffff} position={[ 30.0, 50.0, 10.0 ]} /> */}
+        {/* <DebugLight color={0xff00ff} position={[ -30.0, 50.0, 10.0 ]} /> */}
+        {/* <DebugLight color={0x00ff00} position={[ 0.0, 40.0, 0.0 ]} /> */}
+        {/* <directionalLight position={[ 0.0, 1.0, 0.0 ]} color={0xff0000} intensity={5.} />
         <directionalLight position={[ 0.0, -1.0, 0.0 ]} color={0xffffff} intensity={1.} />
         <directionalLight position={[ 1.0, 0.0, 0.0 ]} color={0xff00ff} intensity={5.} /> */}
-        <ambientLight color={0x110011} />
+        {/* <ambientLight color={0x110011} /> */}
         {/* <hemisphereLight args={[0xff0000, 0x0000ff ]} intensity={0.1} /> */}
       </Canvas>
       <DropZone ref={dropZoneRef}>
@@ -277,6 +279,7 @@ export const App = () => {
           {dropZoneLoadingState}
         </div>
       </DropZone>
+      <Stats />
     </DemoWrapper>
   );
 };

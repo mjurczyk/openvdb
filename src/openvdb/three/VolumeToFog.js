@@ -89,6 +89,10 @@ export class VolumeToFog extends Three.Group {
            varying mat4 mC;
            varying mat4 mD;
            varying mat4 mE;
+           varying mat4 mF;
+           varying mat4 mG;
+           varying mat3 mH;
+           varying mat3 mI;
         `;
 
         shader.vertexShader = shader.vertexShader
@@ -117,12 +121,19 @@ export class VolumeToFog extends Three.Group {
           mC = modelViewMatrix;
           mD = inverse(modelViewMatrix);
           mE = projectionMatrix;
+          mF = viewMatrix;
+          mG = inverse(viewMatrix);
+          mH = normalMatrix;
+          mI = inverse(normalMatrix);
         `
           );
 
         const volumeLightsConfig = `
-          float absorbanceFactor = 1.; // NOTE Put into uniforms
-          float lightMarchLimit = 10.0;
+          // NOTE For absorbanceFactor closer to 1.0, we want high lightMarchLimit and lower volumeSteps
+          //      For absorbanceFactor closer to 0.1, we want lower lightMarchLimit and higher volumeSteps
+          float lightMarchLimit = 20.0;
+          float absorbanceFactor = .1; // NOTE Put into uniforms
+
           vec3 vUnit = (mA * vec4(1., 0., 0., 0.)).xyz;
           
           geometry.position = vPoint;
@@ -157,7 +168,7 @@ export class VolumeToFog extends Three.Group {
               }
             }
 
-            albedo += RECIPROCAL_PI * saturate((volumeSample * pointLight.color * pow(1. / lightDistance, 2.)) * (1. - absorbance));
+            albedo += saturate((volumeSample * pointLight.color * pow(1. / lightDistance, 2.)) * (1. - absorbance));
           }
         `;
 
@@ -190,13 +201,47 @@ export class VolumeToFog extends Three.Group {
             }
 
             // NOTE No idea why 0.001 yet
-            albedo += RECIPROCAL_PI * saturate((volumeSample * directionalLight.color * 0.001) * (1. - absorbance));
+            albedo += saturate((volumeSample * directionalLight.color * 0.001) * (1. - absorbance));
           }
           #pragma unroll_loop_end
         `;
 
         const volumeSpotLights = `
-        
+          SpotLight spotLight;
+
+          for (int lightIndex = 0; lightIndex < NUM_SPOT_LIGHTS; lightIndex++) {
+            spotLight = spotLights[lightIndex];
+            getSpotLightInfo(spotLight, geometry, directLight);
+
+            vec3 vLightProbe = vec3(vPoint);
+            float absorbance = 0.0;
+
+            vec3 lightDirection = vPoint - (mD * vec4(spotLight.position, 1.)).xyz;
+            float lightDistance = length(lightDirection) * length(vUnit);
+            lightDirection = normalize(lightDirection);
+            vec3 vLightStep = (lightDirection * VOLUME_BBOX_SPAN) / lightMarchLimit;
+
+            float angleCos = dot(normalize(-lightDirection), normalize(mI * spotLight.direction));
+            float spotAttenuation = smoothstep(spotLight.coneCos, spotLight.penumbraCos, angleCos);
+
+            if (spotAttenuation > 0.) {
+              for (int lightMarch = 0; lightMarch < int(lightMarchLimit); lightMarch++) {
+                vLightProbe -= vLightStep;
+
+                float lightSample = texture(volumeMap, vLightProbe + VOLUME_BBOX_SPAN).r;
+                
+                absorbance += exp(-1. / absorbanceFactor) * lightSample;
+
+                if (absorbance >= 1.) {
+                  absorbance = 1.0;
+
+                  break;
+                }
+              }
+            }
+
+            albedo += spotAttenuation * saturate((volumeSample * spotLight.color * pow(1. / lightDistance, 2.)) * (1. - absorbance));
+          }
         `;
 
         const volumeHemiLights = `
@@ -211,7 +256,7 @@ export class VolumeToFog extends Three.Group {
             vec3 lightDirection = -normalize((vec4(hemiLight.direction, 1.) * viewMatrix).xyz);
             vec3 vLightStep = (lightDirection * VOLUME_BBOX_SPAN) / lightMarchLimit;
 
-            for (int lightMarch = 1; lightMarch < int(lightMarchLimit); lightMarch++) {
+            for (int lightMarch = 1; lightMarch < int(lightMarchLimit / 2.); lightMarch++) {
               float lightSample = texture(volumeMap, vLightProbe + VOLUME_BBOX_SPAN - float(lightMarch) * vLightStep).r;
               
               if (absorbanceUp < 1.) {
@@ -230,7 +275,7 @@ export class VolumeToFog extends Three.Group {
 
             vec3 colorMix = mix(hemiLight.skyColor * (1. - absorbanceUp), hemiLight.groundColor * (1. - absorbanceDown), .5) / 2.0;
 
-            albedo += RECIPROCAL_PI * saturate((volumeSample * colorMix));
+            albedo += saturate((volumeSample * colorMix));
           }
           #pragma unroll_loop_end
         `;
@@ -301,7 +346,7 @@ export class VolumeToFog extends Three.Group {
             vec3 vPoint = vOrigin + vBounds.x * vRayDirection;
             vec3 vPointStep = 1.0 / abs(vRayDirection);
 
-            float delta = min(vPointStep.x, min(vPointStep.y, vPointStep.z)) / steps;
+            float delta = min(vPointStep.x, min(vPointStep.y, vPointStep.z)) / 500.0;
             vec3 vDirectionDeltaStep = vRayDirection * delta;
 
             float density = 0.0;
@@ -311,7 +356,7 @@ export class VolumeToFog extends Three.Group {
 
             for (float i = vBounds.x; i < vBounds.y; i += delta) {
               float volumeSample = texture(volumeMap, vPoint + VOLUME_BBOX_SPAN).r;
-              density += (volumeSample / 1028.) * steps;
+              density += (volumeSample / 1028.) * 100.0;
 
               if (density >= 1.) {
                 break;
@@ -411,10 +456,7 @@ export class VolumeToFog extends Three.Group {
             target.z += step.z;
           }
 
-          data[x + y * resolution + z * resolutionPow2] = grid.getValue(target)
-            ? 220.0 + Math.random() * (255.0 - 220.0)
-            : // 255.0
-              0.0;
+          data[x + y * resolution + z * resolutionPow2] = grid.getValue(target) ? 255.0 : 0.0;
 
           convertedVoxels++;
 
