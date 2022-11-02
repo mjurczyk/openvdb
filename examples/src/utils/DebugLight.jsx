@@ -2,7 +2,7 @@ import { useRef } from "react";
 import { useFrame } from "react-three-fiber";
 
 export const DebugLight = (props) => {
-  const { lightType } = props;
+  const { lightType, movementDirection } = props;
 
   const lightRef = useRef();
   const pivotRef = useRef();
@@ -18,16 +18,15 @@ export const DebugLight = (props) => {
 
     if (!lightRef.current.userData.originalPosition) {
       lightRef.current.userData.originalPosition = lightRef.current.position.clone();
-      lightRef.current.userData.seed = Math.random();
+      lightRef.current.userData.seed = 1.0;
     }
 
-    // NOTE Linear
-    // lightRef.current.position.x = lightRef.current.userData.originalPosition.x + Math.sin(lightRef.current.userData.seed + dt) * 100.0;
-    // lightRef.current.position.z = lightRef.current.userData.originalPosition.z + Math.sin(lightRef.current.userData.seed - dt) * 10.0;
-
-    // NOTE Orbit
-    pivotRef.current.rotateY(0.01);
-    lightRef.current.position.z = lightRef.current.userData.originalPosition.z + Math.sin(lightRef.current.userData.seed - dt) * 10.0;
+    if (movementDirection === 'linear') {
+      lightRef.current.position.x = lightRef.current.userData.originalPosition.x + Math.sin(lightRef.current.userData.seed + dt) * 120.0;
+    } else {
+      pivotRef.current.rotateY(0.01);
+      lightRef.current.position.z = lightRef.current.userData.originalPosition.z + Math.sin(lightRef.current.userData.seed - dt) * 10.0;
+    }
   });
 
   if (lightType === 'spot') {

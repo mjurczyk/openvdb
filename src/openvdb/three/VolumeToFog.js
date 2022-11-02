@@ -1,4 +1,5 @@
 import * as Three from 'three';
+import { MathUtils } from 'three';
 import { Bbox } from '../math/bbox';
 import { Vector3 } from '../math/vector';
 
@@ -10,7 +11,7 @@ export class VolumeToFog extends Three.Group {
   constructor(
     vdb,
     material,
-    { resolution, progressive, threshold, opacity, range, steps },
+    { resolution, progressive, absorbance, opacity, steps, noise, color },
     onConverted,
     onProgress
   ) {
@@ -74,13 +75,17 @@ export class VolumeToFog extends Three.Group {
       material.side = Three.DoubleSide;
       material.transparent = true;
       material.color.set(sampleColors[gridIndex]);
+      material.opacity = typeof opacity === 'undefined' ? 1.0 : opacity;
 
       material.onBeforeCompile = (shader) => {
+        shader.uniforms.baseColor = { value: new Three.Color(color || 0x000000) };
         shader.uniforms.volumeMap = { value: data3dTexture };
-        shader.uniforms.threshold = { value: typeof threshold === 'undefined' ? 0.01 : threshold };
-        shader.uniforms.opacity = { value: typeof opacity === 'undefined' ? 1.0 : opacity };
-        shader.uniforms.range = { value: typeof range === 'undefined' ? 0.01 : range };
+        shader.uniforms.opacity = { value: material.opacity };
         shader.uniforms.steps = { value: typeof steps === 'undefined' ? 100 : steps };
+        shader.uniforms.absorbanceFactor = {
+          value: typeof absorbance === 'undefined' ? 1.0 : absorbance,
+        };
+        shader.uniforms.resolution = { value: resolution };
         shader.isVolumetricFogMaterial = true;
 
         const shaderVaryings = `
@@ -131,8 +136,7 @@ export class VolumeToFog extends Three.Group {
         const volumeLightsConfig = `
           // NOTE For absorbanceFactor closer to 1.0, we want high lightMarchLimit and lower volumeSteps
           //      For absorbanceFactor closer to 0.1, we want lower lightMarchLimit and higher volumeSteps
-          float lightMarchLimit = 10.0;
-          float absorbanceFactor = .5; // NOTE Put into uniforms
+          float lightMarchLimit = mix(5.0, resolution / 5.0, absorbanceFactor);
 
           vec3 vUnit = (mA * vec4(1., 0., 0., 0.)).xyz;
           
@@ -316,9 +320,10 @@ export class VolumeToFog extends Three.Group {
           in vec3 vDirection;
 
           uniform sampler3D volumeMap;
-          uniform float threshold;
-          uniform float range;
           uniform float steps;
+          uniform float absorbanceFactor;
+          uniform vec3 baseColor;
+          uniform float resolution;
 
           ${shaderVaryings}
 
@@ -378,7 +383,7 @@ export class VolumeToFog extends Three.Group {
             vec3 vPoint = vOrigin + vBounds.x * vRayDirection;
             vec3 vPointStep = 1.0 / abs(vRayDirection);
 
-            float delta = min(vPointStep.x, min(vPointStep.y, vPointStep.z)) / 200.0;
+            float delta = min(vPointStep.x, min(vPointStep.y, vPointStep.z)) / mix(steps, resolution, absorbanceFactor);
             vec3 vDirectionDeltaStep = vRayDirection * delta;
 
             float density = 0.0;
@@ -395,6 +400,8 @@ export class VolumeToFog extends Three.Group {
               }
 
               if (volumeSample > 0.) {
+                volumeSample *= exp(-1. + absorbanceFactor);
+
                 ${volumeAmbientLight}
 
                 #if NUM_HEMI_LIGHTS > 0
@@ -423,8 +430,8 @@ export class VolumeToFog extends Three.Group {
 
             density = min(1.0, density);
 
-            outgoingLight.rgb = saturate(albedo / density);
-            diffuseColor.a = saturate(density * opacity);
+            outgoingLight.rgb = baseColor.rgb * saturate(albedo / density);
+            diffuseColor.a = saturate(density) * opacity;
 
             if (density == 0.) {
               discard;
@@ -490,9 +497,11 @@ export class VolumeToFog extends Three.Group {
             target.z += step.z;
           }
 
-          data[x + y * resolution + z * resolutionPow2] = grid.getValue(target) ? 255.0 : 0.0;
-          // data[x + y * resolution + z * resolutionPow2] = Math.random() * 255.0;
-          // data[x + y * resolution + z * resolutionPow2] = 255.0;
+          const noiseSeed = MathUtils.clamp(255.0 * (noise || 0.0), 0.0, 255.0);
+
+          data[x + y * resolution + z * resolutionPow2] = grid.getValue(target)
+            ? 255.0 - noiseSeed + Math.random() * noiseSeed
+            : 0.0;
 
           convertedVoxels++;
 
