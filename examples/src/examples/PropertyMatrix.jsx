@@ -1,8 +1,8 @@
 import { Html } from "@react-three/drei";
 import { useEffect, useState } from "react";
 import styled from "styled-components";
-import { loadVDB } from "../../../src/openvdb";
-import { Bunny } from "../utils/Bunny";
+import { VDBLoader } from "../../../src/openvdb/three";
+import { VDBPreview } from "../utils/VDBPreview";
 import { DebugLight } from "../utils/DebugLight";
 
 const GroupLabel = styled(Html)`
@@ -24,9 +24,9 @@ export const PropertyMatrix = () => {
   const [vdbSource, setVdbSource] = useState(null);
 
   useEffect(() => {
-    loadVDB(`./assets/bunny_cloud.vdb`).then(vdb => {
+    new VDBLoader().load('./assets/bunny_cloud.vdb', (vdb) => {
       setVdbSource(vdb);
-    }).catch(() => {
+    }, null, () => {
       alert('Could not load the VDB file.');
     });
   }, []);
@@ -49,10 +49,10 @@ export const PropertyMatrix = () => {
       { steps: 200 },
     ],
     'Noise (CPU)': [
-      { noise: 10 },
-      { noise: 50 },
-      { noise: 100 },
-      { noise: 200 },
+      { noise: 0.1 },
+      { noise: 0.25 },
+      { noise: 0.5 },
+      { noise: 1.0 },
     ],
     'Absorbance': [
       { absorbance: 0.01 },
@@ -86,7 +86,7 @@ export const PropertyMatrix = () => {
           </GroupLabel>
           <DebugLight color={0xff00ff} position={[ 90.0, 40.0, 0.0 ]} movementDirection="linear" />
           {presets.map((preset, presetIndex) => (
-            <Bunny key={`group_${groupId}_${presetIndex}`} vdbSource={vdbSource} color={0xffffff} position={[ presetIndex * 60.0, 0.0, 0.0 ]} resolution={100} {...preset} />
+            <VDBPreview key={`group_${groupId}_${presetIndex}`} vdbSource={vdbSource} color={0xffffff} position={[ presetIndex * 60.0, 0.0, 0.0 ]} resolution={100} {...preset} />
           ))}
         </group>
       ))}

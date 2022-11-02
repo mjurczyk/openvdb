@@ -1,10 +1,9 @@
 import { TransformControls } from "@react-three/drei";
 import { useEffect, useState } from "react";
-import { loadVDB } from "../../../src/openvdb";
-import { Bunny } from "../utils/Bunny";
+import { VDBPreview } from "../utils/VDBPreview";
 import { DebugLight } from "../utils/DebugLight";
-import GUI from 'lil-gui';
 import { gui } from "../Gui";
+import { VDBLoader } from "../../../src/openvdb/three";
 
 export const Transforms = () => {
   const [vdbSource, setVdbSource] = useState(null);
@@ -19,9 +18,9 @@ export const Transforms = () => {
       setTransformMode(mode);
     });
 
-    loadVDB(`./assets/bunny_cloud.vdb`).then(vdb => {
+    new VDBLoader().load('./assets/bunny_cloud.vdb', (vdb) => {
       setVdbSource(vdb);
-    }).catch(() => {
+    }, null, () => {
       alert('Could not load the VDB file.');
     });
   }, []);
@@ -36,7 +35,7 @@ export const Transforms = () => {
       <directionalLight position={[ -1.0, -1.0, 0.0 ]} color={0x00ffff} intensity={1.} />
       <DebugLight color={0xff00ff} position={[ 90.0, 40.0, 0.0 ]} />
       <TransformControls mode={transformMode}>
-        <Bunny
+        <VDBPreview
           vdbSource={vdbSource}
           color={0xffffff}
           resolution={100}

@@ -499,9 +499,8 @@ export class VolumeToFog extends Three.Group {
 
           const noiseSeed = MathUtils.clamp(255.0 * (noise || 0.0), 0.0, 255.0);
 
-          data[x + y * resolution + z * resolutionPow2] = grid.getValue(target)
-            ? 255.0 - noiseSeed + Math.random() * noiseSeed
-            : 0.0;
+          data[x + y * resolution + z * resolutionPow2] =
+            grid.getValue(target) * (255.0 - noiseSeed + Math.random() * noiseSeed);
 
           convertedVoxels++;
 

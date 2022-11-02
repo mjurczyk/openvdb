@@ -19,7 +19,7 @@ const PopUpBox = styled(Html)`
   }
 `;
 
-export const Bunny = (props) => {
+export const VDBPreview = (props) => {
   const { vdbSource, renderType, resolution, steps, absorbance, opacity, noise, color } = props;
   const [popUpText, setPopUpText] = useState(null);
   const [output, setOutput] = useState(new Three.Object3D());
@@ -32,6 +32,7 @@ export const Bunny = (props) => {
       return;
     }
 
+    // NOTE Load proper rendering type of the VDB
     if (renderType === 'boundingBox') {
       output = new VolumeToBbox(vdbSource);
     } else {
@@ -50,6 +51,7 @@ export const Bunny = (props) => {
       });
     }
 
+    // NOTE Center the VDB on y-axis according to its BBOX
     const sampleGrid = vdbSource.grids[Object.keys(vdbSource.grids)[0]];
     const worldBbox = new Three.Box3();
     worldBbox.set(...sampleGrid.getPreciseWorldBbox());

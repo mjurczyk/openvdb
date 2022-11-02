@@ -1,16 +1,14 @@
-import { TransformControls } from "@react-three/drei";
 import { useEffect, useState } from "react";
-import { loadVDB } from "../../../src/openvdb";
-import { Bunny } from "../utils/Bunny";
-import { DebugLight } from "../utils/DebugLight";
+import { VDBLoader } from "../../../src/openvdb/three";
+import { VDBPreview } from "../utils/VDBPreview";
 
 export const Bbox = () => {
   const [vdbSource, setVdbSource] = useState(null);
 
   useEffect(() => {
-    loadVDB(`./assets/bunny_cloud.vdb`).then(vdb => {
+    new VDBLoader().load('./assets/bunny_cloud.vdb', (vdb) => {
       setVdbSource(vdb);
-    }).catch(() => {
+    }, null, () => {
       alert('Could not load the VDB file.');
     });
   }, []);
@@ -21,7 +19,7 @@ export const Bbox = () => {
 
   return (
     <>
-      <Bunny
+      <VDBPreview
         vdbSource={vdbSource}
         renderType="boundingBox"
       />

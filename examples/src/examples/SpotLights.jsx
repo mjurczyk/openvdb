@@ -1,17 +1,15 @@
-import * as Three from 'three';
-import { PivotControls, TransformControls } from "@react-three/drei";
-import { useEffect, useRef, useState } from "react";
-import { loadVDB } from "../../../src/openvdb";
-import { Bunny } from "../utils/Bunny";
+import { useEffect, useState } from "react";
+import { VDBPreview } from "../utils/VDBPreview";
 import { DebugLight } from "../utils/DebugLight";
+import { VDBLoader } from '../../../src/openvdb/three';
 
 export const SpotLights = () => {
   const [vdbSource, setVdbSource] = useState(null);
 
   useEffect(() => {
-    loadVDB(`./assets/bunny_cloud.vdb`).then(vdb => {
+    new VDBLoader().load('./assets/bunny_cloud.vdb', (vdb) => {
       setVdbSource(vdb);
-    }).catch(() => {
+    }, null, () => {
       alert('Could not load the VDB file.');
     });
   }, []);
@@ -25,7 +23,7 @@ export const SpotLights = () => {
       <directionalLight position={[ 0.0, 1.0, 0.0 ]} color={0xff0000} intensity={1.} />
       <DebugLight color={0x00ffff} position={[ 30.0, 80.0, 0.0 ]} lightType="spot" />
       <DebugLight color={0xff00ff} position={[ -30.0, 80.0, 0.0 ]} lightType="spot" />
-      <Bunny
+      <VDBPreview
         vdbSource={vdbSource}
         color={0xffffff}
         resolution={100}
