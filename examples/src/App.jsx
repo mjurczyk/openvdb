@@ -13,6 +13,7 @@ import { PropertyMatrix } from './examples/PropertyMatrix';
 import { Transforms } from './examples/Transforms';
 import { gui } from './Gui';
 import { SpotLights } from './examples/SpotLights';
+import { Bbox } from './examples/Bbox';
 
 const DemoWrapper = styled.div`
   position: absolute;
@@ -64,12 +65,13 @@ const DropZone = styled.div`
 `;
 
 export const App = () => {
-  const [demo, setDemo] = useState('transforms');
+  const [demo, setDemo] = useState('bbox');
 
   useEffect(() => {
     gui.controllersRecursive().forEach(controller => controller.destroy());
 
     gui.add({ demo }, 'demo', {
+      'BBOX': 'bbox',
       'Transforms': 'transforms',
       'Spotlights': 'spotLights',
       'Property Matrix': 'propertyMatrix',
@@ -84,6 +86,7 @@ export const App = () => {
         gl.camera.position.z = 250.0;
       }}>
         {({
+          'bbox': <Bbox />,
           'transforms': <Transforms />,
           'propertyMatrix': <PropertyMatrix />,
           'spotLights': <SpotLights />,

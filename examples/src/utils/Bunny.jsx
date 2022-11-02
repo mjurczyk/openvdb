@@ -32,7 +32,7 @@ export const Bunny = (props) => {
       return;
     }
 
-    if (renderType === 'debugBbox') {
+    if (renderType === 'boundingBox') {
       output = new VolumeToBbox(vdbSource);
     } else {
       output = new VolumeToFog(vdbSource, null, {
