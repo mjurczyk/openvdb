@@ -14,11 +14,9 @@ const transformMapType = {
 };
 
 export class GridTransform {
-  readTransform() {
-    const { bufferIterator, version } = GridSharedContext.getContext(this);
-
+  constructor() {
     this.transformMap = {
-      mapType: bufferIterator.readString(),
+      mapType: null,
       translation: new Vector3(),
       scale: new Vector3(),
       voxelSize: new Vector3(),
@@ -26,6 +24,12 @@ export class GridTransform {
       scaleInverseSq: new Vector3(),
       scaleInverseDouble: new Vector3(),
     };
+  }
+
+  readTransform() {
+    const { bufferIterator, version } = GridSharedContext.getContext(this);
+
+    this.transformMap.mapType = bufferIterator.readString();
 
     if (Version.less(version, 219)) {
       unsupported(

@@ -1,19 +1,14 @@
-import * as Three from 'three';
 import styled from 'styled-components';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Canvas, useFrame } from 'react-three-fiber';
-import { Html, OrbitControls, Stats } from '@react-three/drei';
-import GUI from 'lil-gui';
-import { SimpleDropzone } from 'simple-dropzone';
-
-import { loadVDB, VolumeToBbox, VolumeToFog } from '../../src/openvdb/three';
-import { DebugLight } from './utils/DebugLight';
-import { Bunny } from './utils/Bunny';
+import { useEffect, useState } from 'react';
+import { Canvas } from 'react-three-fiber';
+import { OrbitControls, Stats } from '@react-three/drei';
 import { PropertyMatrix } from './examples/PropertyMatrix';
 import { Transforms } from './examples/Transforms';
 import { gui } from './Gui';
 import { SpotLights } from './examples/SpotLights';
 import { Bbox } from './examples/Bbox';
+import { Primitives } from './examples/Primitives';
+import { Lighthouse } from './examples/Lighthouse';
 
 const DemoWrapper = styled.div`
   position: absolute;
@@ -37,44 +32,47 @@ const DemoWrapper = styled.div`
   }
 `;
 
-const DropZone = styled.div`
+const BottomTab = styled.div`
   position: absolute;
-  bottom: 10px;
-  left: 10px;
-  width: 180px;
-  height: 60px;
-  background-color: #372948;
-  border: dashed #FFCACA 2px;
+  display: inline-flex;
+  bottom: 0px;
+  left: 0px;
+  width: calc(100vw - 8px);
+  padding: 6px 4px 2px 4px;
+  font-size: 14px;
+  color: #ffffff;
+  background-color: #1f1f1f;
   z-index: 3;
+  border-top: solid 1px #3f3f3f;
 
-  & > * {
-    position: absolute;
-    display: inline-block;
-    top: 50%;
-    left: 50%;
-    transform: translateX(-50%) translateY(-50%);
-    opacity: 0.5;
-    pointer-events: none;
-    transition: opacity 0.1s ease;
-    white-space: nowrap;
+  a {
+    color: #ffffff;
+    text-decoration: none;
+    opacity: 0.8;
+
+    &:hover {
+      opacity: 1.0;
+    }
   }
 
-  &:hover > * {
-    opacity: 1.0;
+  & > * {
+    margin: 0px 8px;
   }
 `;
 
 export const App = () => {
-  const [demo, setDemo] = useState('bbox');
+  const [demo, setDemo] = useState('lighthouse');
 
   useEffect(() => {
     gui.controllersRecursive().forEach(controller => controller.destroy());
 
     gui.add({ demo }, 'demo', {
+      'Lighthouse': 'lighthouse',
       'BBOX': 'bbox',
+      'Primitives': 'primitives',
       'Transforms': 'transforms',
       'Spotlights': 'spotLights',
-      'Property Matrix': 'propertyMatrix',
+      'Property Matrix (Slow)': 'propertyMatrix',
     }).name('Example').onChange((demo) => {
       setDemo(demo);
     });
@@ -82,11 +80,19 @@ export const App = () => {
 
   return (
     <DemoWrapper>
-      <Canvas flat onCreated={(gl) => {
-        gl.camera.position.z = 250.0;
+      <Canvas
+        flat
+        onCreated={(gl) => {
+        gl.camera.position.z = 500.0;
+
+        gl.camera.far = 10000.0;
+        gl.camera.near = 0.01;
+        gl.camera.updateProjectionMatrix();
       }}>
         {({
+          'lighthouse': <Lighthouse />,
           'bbox': <Bbox />,
+          'primitives': <Primitives />,
           'transforms': <Transforms />,
           'propertyMatrix': <PropertyMatrix />,
           'spotLights': <SpotLights />,
@@ -96,26 +102,29 @@ export const App = () => {
           maxPolarAngle={Math.PI / 2.0 - 0.1}
           maxDistance={475.0}
         />
-        {Array(9).fill(0).map((_, step) => (
-          <mesh rotation={[ -Math.PI / 2.0, 0.0, 0.0 ]} key={step}>
-            <circleGeometry args={[ 500.0 / 8.0 * step, 32 ]} />
-            <meshBasicMaterial wireframe color={0x372948} />
-          </mesh>
-        ))}
-        <mesh rotation={[ -Math.PI / 2.0, 0.0, 0.0 ]} position={[ 0.0, -0.01, 0.0 ]}>
-          <circleGeometry args={[ 500.0, 32 ]} />
-          <meshBasicMaterial color={0x251B37} />
-        </mesh>
-      <mesh>
-        <sphereGeometry args={[ 500.0, 32, 32 ]} />
-        <meshBasicMaterial wireframe color={0x372948} />
-      </mesh>
       </Canvas>
-      {/* <DropZone ref={dropZoneRef}>
+      <BottomTab>
         <div>
-          {dropZoneLoadingState}
+          <a href="https://github.com/mjurczyk/openvdb" target="_blank">
+            Github mjurczyk/openvdb
+          </a>
         </div>
-      </DropZone> */}
+        <div>
+          <a href="https://github.com/mjurczyk/openvdb" target="_blank">
+            Documentation
+          </a>
+        </div>
+        <div>
+          <a href="https://www.openvdb.org/" target="_blank">
+            OpenVDB
+          </a>
+        </div>
+        <div>
+          <a href="https://github.com/mjurczyk/openvdb" target="_blank">
+            <img alt="GitHub Repo stars" src="https://img.shields.io/github/stars/mjurczyk/openvdb?style=social" />
+          </a>
+        </div>
+      </BottomTab>
       <Stats />
     </DemoWrapper>
   );

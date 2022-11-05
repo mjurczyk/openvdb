@@ -3,13 +3,11 @@ import { MathUtils } from 'three';
 import { Bbox } from '../math/bbox';
 import { Vector3 } from '../math/vector';
 
-const sampleColors = [0xff0000, 0x00ff00, 0x0000ff];
-
 export class VolumeToFog extends Three.Group {
   processes = [];
 
   constructor(
-    vdb,
+    source,
     material,
     { resolution, progressive, absorbance, opacity, steps, noise, color },
     onConverted,
@@ -19,7 +17,18 @@ export class VolumeToFog extends Three.Group {
 
     this.frustumCulled = false;
 
-    const grids = Object.values(vdb.grids);
+    let grids;
+
+    if (source instanceof Array) {
+      // NOTE Treat first argument as set of grids
+      grids = source;
+    } else if (typeof source.grids !== 'undefined') {
+      // NOTE Treat first argument as VDB source
+      grids = Object.values(source.grids);
+    } else {
+      // NOTE Hope for the best
+      grids = [source];
+    }
 
     let convertedGrids = 0;
     let convertedVoxels = 0;
@@ -35,6 +44,7 @@ export class VolumeToFog extends Three.Group {
       'MeshLambertMaterial',
       'MeshMatcapMaterial',
       'MeshPhongMaterial',
+      'MeshStandardMaterial',
       'MeshPhysicalMaterial',
       'MeshToonMaterial',
     ].includes(material?.type);
@@ -51,6 +61,8 @@ export class VolumeToFog extends Three.Group {
     if (!material || !isValidMaterial) {
       baseMaterial = new Three.MeshStandardMaterial({
         color: new Three.Color(0xffffff),
+        side: Three.DoubleSide,
+        color: 0x000000,
       });
     } else {
       baseMaterial = material;
@@ -69,12 +81,10 @@ export class VolumeToFog extends Three.Group {
       data3dTexture.unpackAlignment = 1;
       data3dTexture.needsUpdate = true;
 
-      const geometry = new Three.BoxGeometry(1.1, 1.1, 1.1);
+      const geometry = new Three.SphereGeometry(1.0);
 
       const material = baseMaterial.clone();
-      material.side = Three.DoubleSide;
       material.transparent = true;
-      material.color.set(sampleColors[gridIndex]);
       material.opacity = typeof opacity === 'undefined' ? 1.0 : opacity;
 
       material.onBeforeCompile = (shader) => {
@@ -555,6 +565,10 @@ export class VolumeToFog extends Three.Group {
   }
 
   dispose() {
+    if (!this.processes) {
+      return;
+    }
+
     this.processes.forEach((task, taskIndex) => {
       cancelAnimationFrame(task);
       delete this.processes[taskIndex];

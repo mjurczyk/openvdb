@@ -1,7 +1,7 @@
 import * as Three from 'three';
+import * as OpenVDB from '../../../src/openvdb/three';
 import styled from 'styled-components';
 import { useEffect, useState } from "react";
-import { VolumeToBbox, VolumeToFog } from '../../../src/openvdb/three';
 import { Html } from '@react-three/drei';
 
 const PopUpBox = styled(Html)`
@@ -34,9 +34,9 @@ export const VDBPreview = (props) => {
 
     // NOTE Load proper rendering type of the VDB
     if (renderType === 'boundingBox') {
-      output = new VolumeToBbox(vdbSource);
+      output = new OpenVDB.Bbox(vdbSource);
     } else {
-      output = new VolumeToFog(vdbSource, null, {
+      output = new OpenVDB.FogVolume(vdbSource, null, {
         resolution: resolution,
         progressive: false,
         steps: steps,
@@ -80,5 +80,5 @@ export const VDBPreview = (props) => {
           </PopUpBox>
         )}
     </group>
-  )
+  );
 };

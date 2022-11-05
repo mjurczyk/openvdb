@@ -3,7 +3,8 @@ import { useEffect, useState } from "react";
 import { VDBPreview } from "../utils/VDBPreview";
 import { DebugLight } from "../utils/DebugLight";
 import { gui } from "../Gui";
-import { VDBLoader } from "../../../src/openvdb/three";
+import * as OpenVDB from "../../../src/openvdb/three";
+import { DebugScene } from "../utils/DebugScene";
 
 export const Transforms = () => {
   const [vdbSource, setVdbSource] = useState(null);
@@ -18,7 +19,7 @@ export const Transforms = () => {
       setTransformMode(mode);
     });
 
-    new VDBLoader().load('./assets/bunny_cloud.vdb', (vdb) => {
+    new OpenVDB.VDBLoader().load('./assets/bunny_cloud.vdb', (vdb) => {
       setVdbSource(vdb);
     }, null, () => {
       alert('Could not load the VDB file.');
@@ -31,6 +32,7 @@ export const Transforms = () => {
 
   return (
     <>
+      <DebugScene />
       <directionalLight position={[ 0.0, 1.0, 0.0 ]} color={0xff0000} intensity={1.} />
       <directionalLight position={[ -1.0, -1.0, 0.0 ]} color={0x00ffff} intensity={1.} />
       <DebugLight color={0xff00ff} position={[ 90.0, 40.0, 0.0 ]} />

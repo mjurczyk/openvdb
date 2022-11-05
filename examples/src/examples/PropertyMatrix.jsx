@@ -1,9 +1,10 @@
 import { Html } from "@react-three/drei";
 import { useEffect, useState } from "react";
 import styled from "styled-components";
-import { VDBLoader } from "../../../src/openvdb/three";
+import * as OpenVDB from "../../../src/openvdb/three";
 import { VDBPreview } from "../utils/VDBPreview";
 import { DebugLight } from "../utils/DebugLight";
+import { DebugScene } from "../utils/DebugScene";
 
 const GroupLabel = styled(Html)`
   & > div {
@@ -24,7 +25,7 @@ export const PropertyMatrix = () => {
   const [vdbSource, setVdbSource] = useState(null);
 
   useEffect(() => {
-    new VDBLoader().load('./assets/bunny_cloud.vdb', (vdb) => {
+    new OpenVDB.VDBLoader().load('./assets/bunny_cloud.vdb', (vdb) => {
       setVdbSource(vdb);
     }, null, () => {
       alert('Could not load the VDB file.');
@@ -76,6 +77,7 @@ export const PropertyMatrix = () => {
 
   return (
     <>
+      <DebugScene />
       <directionalLight position={[ 0.0, 1.0, 0.0 ]} color={0xffffff} intensity={1.} />
       {Object.entries(bunnyArray).map(([ groupId, presets ], groupIndex) => (
         <group key={groupId} position={[ -90.0, groupIndex * 60.0, 0.0 ]}>
