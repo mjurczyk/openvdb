@@ -1,15 +1,11 @@
 {
   "name": "openvdb",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "This project indirectly ports OpenVDB file format and tools to JavaScript, TypeScript, and Node. Specific 3D library implementations can be found in sub-directories.",
-  "main": "./build/openvdb.js",
+  "main": "./index.js",
   "exports": {
     "./three": "./src/three/*"
   },
-  "files": [
-    "build/openvdb.js",
-    "build/openvdb-three.js"
-  ],
   "directories": {
     "three": "src/three"
   },
@@ -23,7 +19,7 @@
     "fluid"
   ],
   "scripts": {
-    "build": "rollup --config ./rollup.config.js",
+    "build": "rollup --config ./rollup.config.js && cd build && npm pack",
     "build:examples": "cd examples && npm run build",
     "dev": "cd examples && npm run dev"
   },
@@ -38,10 +34,15 @@
     }
   ],
   "license": "MIT",
+  "peerDependencies": {
+    "three": "^0.145.0"
+  },
   "devDependencies": {
     "@lopatnov/rollup-plugin-uglify": "^2.1.5",
     "@rollup/plugin-node-resolve": "^14.1.0",
     "rollup": "^2.79.1",
-    "three": "^0.145.0"
+    "rollup-plugin-copy": "^3.4.0",
+    "rollup-plugin-delete": "^2.0.0",
+    "rollup-plugin-peer-deps-external": "^2.2.4"
   }
 }
