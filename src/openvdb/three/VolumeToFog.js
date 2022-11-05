@@ -60,9 +60,8 @@ export class VolumeToFog extends Three.Group {
 
     if (!material || !isValidMaterial) {
       baseMaterial = new Three.MeshStandardMaterial({
-        color: new Three.Color(0xffffff),
+        color: new Three.Color(0x000000),
         side: Three.DoubleSide,
-        color: 0x000000,
       });
     } else {
       baseMaterial = material;
@@ -186,7 +185,7 @@ export class VolumeToFog extends Three.Group {
               }
             }
 
-            albedo += saturate((volumeSample * pointLight.color * pow(1. / lightDistance, 2.)) * (1. - absorbance));
+            albedo += saturate((volumeSample * pointLight.color * pow(1. / lightDistance, 2.)) * (1. - absorbance)) * (baseColor.rgb * RECIPROCAL_PI);
           }
         `;
 
@@ -223,7 +222,7 @@ export class VolumeToFog extends Three.Group {
             }
 
             // NOTE No idea why 0.01 yet
-            albedo += saturate((volumeSample * directionalLight.color * 0.01) * (1. - absorbance));
+            albedo += saturate((volumeSample * directionalLight.color * 0.01) * (1. - absorbance)) * (baseColor.rgb * RECIPROCAL_PI);
           }
           #pragma unroll_loop_end
         `;
@@ -266,7 +265,7 @@ export class VolumeToFog extends Three.Group {
               }
             }
 
-            albedo += spotAttenuation * saturate((volumeSample * spotLight.color * pow(1. / lightDistance, 2.)) * (1. - absorbance));
+            albedo += spotAttenuation * saturate((volumeSample * spotLight.color * pow(1. / lightDistance, 2.)) * (1. - absorbance)) * (baseColor.rgb * RECIPROCAL_PI);
           }
         `;
 
@@ -310,13 +309,13 @@ export class VolumeToFog extends Three.Group {
 
             vec3 colorMix = mix(hemiLight.skyColor * (1. - absorbanceUp), hemiLight.groundColor * (1. - absorbanceDown), .5) / 2.0;
 
-            albedo += saturate((volumeSample * colorMix));
+            albedo += saturate((volumeSample * colorMix)) * (baseColor.rgb * RECIPROCAL_PI);
           }
           #pragma unroll_loop_end
         `;
 
         const volumeAmbientLight = `
-          albedo += saturate(ambientLightColor * RECIPROCAL_PI);
+          albedo += saturate(ambientLightColor) * (baseColor.rgb * RECIPROCAL_PI);
         `;
 
         shader.fragmentShader = shader.fragmentShader
@@ -440,7 +439,7 @@ export class VolumeToFog extends Three.Group {
 
             density = min(1.0, density);
 
-            outgoingLight.rgb = baseColor.rgb * saturate(albedo / density);
+            outgoingLight.rgb = saturate(albedo / density);
             diffuseColor.a = saturate(density) * opacity;
 
             if (density == 0.) {

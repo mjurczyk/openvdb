@@ -8,15 +8,9 @@ export const print = (...textMap) => {
 };
 
 export const assert = (text, assumed, found) => {
-  console.info(
-    assumed === found ? 'OK\t' : 'NOT\t',
-    '\t',
-    text,
-    'Assumed',
-    { assumed },
-    'equal to',
-    { found }
-  );
+  debugLog(assumed === found ? 'OK\t' : 'NOT\t', '\t', text, 'Assumed', { assumed }, 'equal to', {
+    found,
+  });
 };
 
 // NOTE Replace console.info in code with debugLog
@@ -27,5 +21,5 @@ export const debugLog = (...args) => {
 };
 
 export const unsupported = (description) => {
-  console.warn('Unsupported feature', description);
+  debugLog('Unsupported feature', description);
 };

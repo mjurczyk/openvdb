@@ -4,7 +4,8 @@
   "description": "This project indirectly ports OpenVDB file format and tools to JavaScript, TypeScript, and Node. Specific 3D library implementations can be found in sub-directories.",
   "main": "./index.js",
   "exports": {
-    "./three": "./src/three/*"
+    ".": "./index.js",
+    "./three": "./three/index.js"
   },
   "directories": {
     "three": "src/three"
@@ -23,6 +24,10 @@
     "build:examples": "cd examples && npm run build",
     "dev": "cd examples && npm run dev"
   },
+  "author": {
+    "name": "mjurczyk",
+    "url": "https://discourse.threejs.org/u/mjurczyk"
+  },
   "contributors": [
     {
       "name": "mjurczyk",
@@ -35,7 +40,7 @@
   ],
   "license": "MIT",
   "peerDependencies": {
-    "three": "^0.145.0"
+    "three": "^0.142.0"
   },
   "devDependencies": {
     "@lopatnov/rollup-plugin-uglify": "^2.1.5",
