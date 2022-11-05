@@ -23,6 +23,10 @@ export default [
             src: './package.json',
             dest: './build/',
           },
+          {
+            src: './README.md',
+            dest: './build/',
+          },
         ],
       }),
     ],
