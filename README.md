@@ -98,9 +98,11 @@ export const VDBComponent = () => {
 
 - `loadVDB( url ): Promise<OpenVDB.OpenVDBReader>`
 
-Load OpenVDB file and parse its grids. Grids can be accessed via `.grids` property of the value returned from the Promise.
+Loads OpenVDB file and parses its grids. Grids can be accessed via `.grids` property of the value returned from the Promise.
 
 Each grid has a `.getValue( position: Three.Vector3 ): float` method, which returns a voxel value for the given position. See `src/openvdb/three/VolumeToFog.js` for an example of VDB file parsing.
+
+---
 
 ### VDBLoader
 
