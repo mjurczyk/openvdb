@@ -1,3 +1,5 @@
+<img width="100%" src="https://user-images.githubusercontent.com/9549760/200132454-4774f8ed-f45a-43ab-a435-39c62ebd43df.png" title="OpenVDB - Web implementation of volumetric grids" />
+
 # OpenVDB
 
 This project indirectly ports OpenVDB file format and tools to JavaScript, TypeScript, and Node.
@@ -18,7 +20,7 @@ import * as OpenVDB from 'openvdb';
 
 const vdbReader = await OpenVDB.loadVDB('./assets/bunny.vdb');
 
-vdbReader.grids.forEach((grid) => {
+vdbReader.grids.forEach(function (grid) {
   const voxelValue = grid.getValue({ x: 0.0, y: 0.0, z: 1.0 });
 });
 ```
