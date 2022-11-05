@@ -2,20 +2,22 @@ import { nodeResolve } from '@rollup/plugin-node-resolve';
 import uglify from '@lopatnov/rollup-plugin-uglify';
 
 export default [
-  { // Dist
+  {
+    // Dist
     input: './src/openvdb/index.js',
     output: {
       file: './build/openvdb.js',
-      format: 'esm'
+      format: 'esm',
     },
-    plugins: [nodeResolve(), uglify()]
+    plugins: [nodeResolve(), uglify()],
   },
-  { // NOTE Tools
-    input: './src/openvdb/tools/index.js',
+  {
+    // NOTE Tools
+    input: './src/openvdb/three/index.js',
     output: {
-      file: './build/tools.js',
-      format: 'esm'
+      file: './build/openvdb-three.js',
+      format: 'esm',
     },
-    plugins: [nodeResolve(), uglify()]
-  }
+    plugins: [nodeResolve(), uglify()],
+  },
 ];

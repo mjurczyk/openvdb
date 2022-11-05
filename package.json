@@ -4,15 +4,14 @@
   "description": "This project indirectly ports OpenVDB file format and tools to JavaScript, TypeScript, and Node. Specific 3D library implementations can be found in sub-directories.",
   "main": "./build/openvdb.js",
   "exports": {
-    "./tools": "./src/tools/*"
+    "./three": "./src/three/*"
   },
   "files": [
     "build/openvdb.js",
-    "build/tool.js",
-    "src/tools"
+    "build/openvdb-three.js"
   ],
   "directories": {
-    "tools": "src/tools"
+    "three": "src/three"
   },
   "keywords": [
     "openvdb",

@@ -9,6 +9,7 @@ import { SpotLights } from './examples/SpotLights';
 import { Bbox } from './examples/Bbox';
 import { Primitives } from './examples/Primitives';
 import { Lighthouse } from './examples/Lighthouse';
+import packageInfo from '../../package.json';
 
 const DemoWrapper = styled.div`
   position: absolute;
@@ -110,7 +111,7 @@ export const App = () => {
           </a>
         </div>
         <div>
-          <a href="https://github.com/mjurczyk/openvdb" target="_blank">
+          <a href="https://github.com/mjurczyk/openvdb#usage" target="_blank">
             Documentation
           </a>
         </div>
@@ -123,6 +124,9 @@ export const App = () => {
           <a href="https://github.com/mjurczyk/openvdb" target="_blank">
             <img alt="GitHub Repo stars" src="https://img.shields.io/github/stars/mjurczyk/openvdb?style=social" />
           </a>
+        </div>
+        <div style={{ flexGrow: '1', textAlign: 'right' }}>
+          v{packageInfo.version}
         </div>
       </BottomTab>
       <Stats />

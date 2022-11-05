@@ -72,7 +72,7 @@ export const Lighthouse = () => {
         emissive: 0x115555,
         emissiveIntensity: 10.0,
         displacementMap: water.material.map,
-        displacementScale: -0.5
+        displacementScale: 0.1
       });
 
       setModel(model);
@@ -95,7 +95,7 @@ export const Lighthouse = () => {
     }
 
     if (boat) {
-      boat.position.y = Math.sin(dt / 30.0) * 0.1 + 0.4;
+      boat.position.y = Math.sin(dt / 30.0) * 0.1 + 0.3;
       boat.rotation.y = Math.sin(dt / 50.0) * 0.1 + 1.0;
       boat.rotation.x = Math.sin(dt / 30.0) * 0.2 + Math.PI;
     }

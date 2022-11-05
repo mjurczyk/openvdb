@@ -21,7 +21,8 @@ export const Primitives = () => {
       progressive: true,
       steps: 20,
       absorbance: 0.1,
-      noise: 1.0
+      noise: 1.0,
+      color: 0xff0000
     });
     parametricVolume.scale.setScalar(100.0);
     parametricVolume.position.y += 50.0;
@@ -33,7 +34,8 @@ export const Primitives = () => {
       progressive: true,
       steps: 20,
       absorbance: 0.1,
-      noise: 1.0
+      noise: 1.0,
+      color: 0x00ff00
     });
     cubeVolume.scale.setScalar(100.0);
     cubeVolume.position.x += 150.0;
@@ -46,7 +48,8 @@ export const Primitives = () => {
       progressive: true,
       steps: 20,
       absorbance: 0.1,
-      noise: 1.0
+      noise: 1.0,
+      color: 0x0000ff
     });
     sphereVolume.scale.setScalar(100.0);
     sphereVolume.position.x -= 150.0;
@@ -59,6 +62,7 @@ export const Primitives = () => {
   return (
     <>
       <DebugScene />
+      <directionalLight position={[ 0.0, 1.0, 0.0 ]} color={0xffffff} intensity={1.0} />
       <primitive object={output} />
     </>
   );
