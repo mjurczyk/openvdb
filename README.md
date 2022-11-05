@@ -1,4 +1,6 @@
-<img width="100%" src="https://user-images.githubusercontent.com/9549760/200132454-4774f8ed-f45a-43ab-a435-39c62ebd43df.png" title="OpenVDB - Web implementation of volumetric grids" />
+<a href="https://mjurczyk.github.io/openvdb/" target="_blank">
+  <img width="100%" src="https://user-images.githubusercontent.com/9549760/200132454-4774f8ed-f45a-43ab-a435-39c62ebd43df.png" title="OpenVDB - Web implementation of volumetric grids" />
+</a>
 
 # OpenVDB
 
