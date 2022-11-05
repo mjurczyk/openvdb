@@ -4,15 +4,28 @@ import { Bbox } from '../math/bbox';
 const sampleColors = [0xff0000, 0x00ff00, 0x0000ff];
 
 export class VolumeToBbox extends Three.Group {
-  constructor(vdb) {
+  constructor(source) {
     super();
+
+    let grids;
+
+    if (source instanceof Array) {
+      // NOTE Treat first argument as set of grids
+      grids = source;
+    } else if (typeof source.grids !== 'undefined') {
+      // NOTE Treat first argument as VDB source
+      grids = Object.values(source.grids);
+    } else {
+      // NOTE Hope for the best
+      grids = [source];
+    }
 
     // NOTE Convert each VDB grid to a set of instanced bounding boxes
     // REF Instancing https://github.com/mrdoob/three.js/blob/master/examples/webgl_instancing_dynamic.html#L118
     const mock = new Three.Object3D();
     const bbox = new Bbox();
 
-    Object.values(vdb.grids).forEach((grid, index) => {
+    Object.values(grids).forEach((grid, index) => {
       const instancedMesh = new Three.InstancedMesh(
         new Three.BoxGeometry(1.0, 1.0, 1.0),
         new Three.MeshBasicMaterial({
