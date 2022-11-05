@@ -111,11 +111,6 @@ export const App = () => {
           </a>
         </div>
         <div>
-          <a href="https://github.com/mjurczyk/openvdb" target="_blank">
-            <img alt="GitHub Repo stars" src="https://img.shields.io/github/stars/mjurczyk/openvdb?style=social" />
-          </a>
-        </div>
-        <div>
           <a href="https://github.com/mjurczyk/openvdb#usage" target="_blank">
             Documentation
           </a>
@@ -123,6 +118,11 @@ export const App = () => {
         <div>
           <a href="https://www.openvdb.org/" target="_blank">
             OpenVDB
+          </a>
+        </div>
+        <div>
+          <a href="https://github.com/mjurczyk/openvdb" target="_blank">
+            <img alt="GitHub Repo stars" src="https://img.shields.io/github/stars/mjurczyk/openvdb?style=social" />
           </a>
         </div>
         <div style={{ flexGrow: '1', textAlign: 'right' }}>

@@ -17,11 +17,13 @@ export const Lighthouse = () => {
     depthMaterial.depthTest = false;
     depthMaterial.transparent = true;
     const output = new OpenVDB.FogVolume(primitiveGrid, depthMaterial, {
-      resolution: 10,
+      // NOTE High resolution is not necessary for volumetric fog cubes and can save some performance
+      resolution: 5,
       progressive: true,
-      steps: 50,
+      // NOTE You likely do not want to double the workload on retina displays
+      steps: 100 / window.devicePixelRatio,
       opacity: 0.9,
-      absorbance: 0.2,
+      absorbance: 0.1,
       noise: 0.2,
       color: 0xffffff
     });
@@ -50,6 +52,12 @@ export const Lighthouse = () => {
       lighthouseLight.add(spotLight);
       setLampLight(lighthouseLight);
 
+      const spotLightBeam = new Three.SpotLight(0xffffff, 200.0, 0.0, 0.5, 1.0);
+      spotLightBeam.add(spotLightBeam.target);
+      spotLightBeam.position.set(0.0, 0.0, 0.0);
+      spotLightBeam.target.position.set(0.0, 0.0, 1.0);
+      spotLight.add(spotLightBeam);
+
       lighthouseLightSource.material = lighthouseLightSource.material.clone();
       lighthouseLightSource.material.emissive = new Three.Color(0xffff33);
       lighthouseLightSource.material.emissiveIntensity = 1.0;
@@ -65,11 +73,11 @@ export const Lighthouse = () => {
 
       const water = model.getObjectByName('water');
       water.material = new Three.MeshStandardMaterial({
-        color: 0x111155,
+        color: 0x111188,
         roughness: 1.0,
         metalness: 1.0,
         emissiveMap: water.material.map,
-        emissive: 0x115555,
+        emissive: 0x118888,
         emissiveIntensity: 10.0,
         displacementMap: water.material.map,
         displacementScale: 0.1
