@@ -3,6 +3,7 @@ import { VDBPreview } from "../utils/VDBPreview";
 import { DebugLight } from "../utils/DebugLight";
 import * as OpenVDB from "../../../src/openvdb/three";
 import { DebugScene } from "../utils/DebugScene";
+import { LoadingNote } from "../utils/LoadingNote";
 
 export const SpotLights = () => {
   const [vdbSource, setVdbSource] = useState(null);
@@ -16,7 +17,7 @@ export const SpotLights = () => {
   }, []);
 
   if (!vdbSource) {
-    return null;
+    return <LoadingNote />;
   }
 
   return (

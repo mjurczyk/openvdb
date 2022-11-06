@@ -5,6 +5,7 @@ import { DebugLight } from "../utils/DebugLight";
 import { gui } from "../Gui";
 import * as OpenVDB from "../../../src/openvdb/three";
 import { DebugScene } from "../utils/DebugScene";
+import { LoadingNote } from "../utils/LoadingNote";
 
 export const Transforms = () => {
   const [vdbSource, setVdbSource] = useState(null);
@@ -27,7 +28,7 @@ export const Transforms = () => {
   }, []);
 
   if (!vdbSource) {
-    return null;
+    return <LoadingNote />;
   }
 
   return (

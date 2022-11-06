@@ -5,6 +5,7 @@ import * as OpenVDB from "../../../src/openvdb/three";
 import { VDBPreview } from "../utils/VDBPreview";
 import { DebugLight } from "../utils/DebugLight";
 import { DebugScene } from "../utils/DebugScene";
+import { LoadingNote } from "../utils/LoadingNote";
 
 const GroupLabel = styled(Html)`
   & > div {
@@ -33,7 +34,7 @@ export const PropertyMatrix = () => {
   }, []);
 
   if (!vdbSource) {
-    return null;
+    return <LoadingNote />;
   }
 
   const bunnyArray = {

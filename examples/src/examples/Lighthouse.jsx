@@ -109,6 +109,10 @@ export const Lighthouse = () => {
     }
   });
 
+  if (!model) {
+    return null;
+  }
+
   return (
     <group>
       <primitive object={output} />
