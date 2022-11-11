@@ -35,6 +35,16 @@ export const VDBPreview = (props) => {
     // NOTE Load proper rendering type of the VDB
     if (renderType === 'boundingBox') {
       output = new OpenVDB.Bbox(vdbSource);
+    } else if (renderType === 'levelSet') {
+      output = new OpenVDB.LevelSet(
+        vdbSource,
+        new Three.MeshBasicMaterial({ color: color || 0xff00ff, side: Three.DoubleSide }),
+        // new Three.MeshPhongMaterial({ color: 0xff00ff, side: Three.DoubleSide }),
+        {
+          resolution: resolution,
+          progressive: false
+        }
+      );
     } else {
       output = new OpenVDB.FogVolume(vdbSource, null, {
         resolution: resolution,
