@@ -342,7 +342,7 @@ export class ChildNode {
     }
 
     if (this.isLeaf()) {
-      return this.valueMask.isOn(this.coordToOffset(position));
+      return this.valueMask.isOn(this.coordToOffset(position)) ? 1.0 : 0.0;
     }
 
     const targetChild = this.table[this.coordToOffset(position)];

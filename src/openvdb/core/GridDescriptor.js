@@ -184,10 +184,14 @@ export class GridDescriptor {
   accessor = new Accessor(this);
 
   getValue(position) {
-    return this.accessor.getValue(position);
+    const roundedPosition = position.clone().round();
+
+    return this.accessor.getValue(roundedPosition);
   }
 
   getLeafAt(position) {
-    return this.accessor.getLeafAt(position);
+    const roundedPosition = position.clone().round();
+
+    return this.accessor.getLeafAt(roundedPosition);
   }
 }

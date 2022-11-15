@@ -11,6 +11,7 @@ import { Primitives } from './examples/Primitives';
 import { Lighthouse } from './examples/Lighthouse';
 import packageInfo from '../../package.json';
 import { LevelSetMesh } from './examples/LevelSetMesh';
+import { LevelSetLOD } from './examples/LevelSetLOD';
 
 const DemoWrapper = styled.div`
   position: absolute;
@@ -63,7 +64,7 @@ const BottomTab = styled.div`
 `;
 
 export const App = () => {
-  const [demo, setDemo] = useState('levelSetMesh');
+  const [demo, setDemo] = useState('lighthouse');
 
   useEffect(() => {
     gui.controllersRecursive().forEach(controller => controller.destroy());
@@ -75,6 +76,7 @@ export const App = () => {
       'Transforms': 'transforms',
       'Spotlights': 'spotLights',
       'Level Set Mesh': 'levelSetMesh',
+      'Level Set LOD': 'levelSetLOD',
       'Property Matrix (Slow)': 'propertyMatrix',
     }).name('Example').onChange((demo) => {
       setDemo(demo);
@@ -100,6 +102,7 @@ export const App = () => {
           'propertyMatrix': <PropertyMatrix />,
           'spotLights': <SpotLights />,
           'levelSetMesh': <LevelSetMesh />,
+          'levelSetLOD': <LevelSetLOD />,
         })[demo]}
         <OrbitControls
           makeDefault

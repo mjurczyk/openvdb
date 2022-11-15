@@ -481,9 +481,6 @@ export class VolumeToFog extends Three.Group {
       let y = 0;
       let z = 0;
 
-      target.round();
-      step.round();
-
       function* probeValue() {
         for (let i = 0; i < resolutionPow3; i++) {
           if (z >= resolution) {

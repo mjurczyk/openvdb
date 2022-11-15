@@ -38,8 +38,8 @@ export const VDBPreview = (props) => {
     } else if (renderType === 'levelSet') {
       output = new OpenVDB.LevelSet(
         vdbSource,
-        new Three.MeshBasicMaterial({ color: color || 0xff00ff, side: Three.DoubleSide }),
-        // new Three.MeshPhongMaterial({ color: 0xff00ff, side: Three.DoubleSide }),
+        // new Three.MeshBasicMaterial({ color: color || 0xff00ff, side: Three.DoubleSide }),
+        new Three.MeshPhongMaterial({ color: 0xff00ff, side: Three.DoubleSide }),
         {
           resolution: resolution,
           progressive: false

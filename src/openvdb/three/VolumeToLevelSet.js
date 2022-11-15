@@ -313,9 +313,9 @@ export class VolumeToLevelSet extends Three.Group {
     grids.forEach((grid, gridIndex) => {
       const geometry = new Three.BufferGeometry();
       const vertices = [];
+      const normals = [];
       const colors = [];
 
-      // const levelSet = new Three.Mesh(geometry, material);
       const levelSet = new Three.Mesh(
         geometry,
         // new Three.PointsMaterial({ vertexColors: true, size: 0.05, side: Three.DoubleSide })
@@ -351,9 +351,6 @@ export class VolumeToLevelSet extends Three.Group {
       let x = 0;
       let y = 0;
       let z = 0;
-
-      target.round();
-      step.round();
 
       function* probeValue() {
         for (let i = 0; i < resolutionPow3; i++) {
@@ -466,26 +463,14 @@ export class VolumeToLevelSet extends Three.Group {
                 z - resolution / 2.0 + triangle[2]
               );
               colors.push(color.r, color.g, color.b);
+
+              const normal = new Three.Vector3(
+                Math.random(),
+                Math.random(),
+                Math.random()
+              ).normalize();
+              normals.push(normal.x, normal.y, normal.z);
             });
-
-            if (cubeIndex === 0) {
-              const wire = new Three.Mesh(
-                new Three.BoxGeometry(1.0, 1.0, 1.0),
-                new Three.MeshBasicMaterial({ color: 0xff0000, wireframe: true })
-              );
-              wire.position.set(x - resolution / 2.0, y - resolution / 2.0, z - resolution / 2.0);
-              levelSet.add(wire);
-            }
-          }
-
-          if (progressive) {
-            geometry.needsUpdate = true;
-
-            geometry.setAttribute(
-              'position',
-              new Three.BufferAttribute(new Float32Array(vertices), 3)
-            );
-            geometry.setAttribute('color', new Three.BufferAttribute(new Float32Array(colors), 3));
           }
 
           yield;
@@ -516,14 +501,22 @@ export class VolumeToLevelSet extends Three.Group {
 
             if (convertedGrids === totalGrids) {
               if (!progressive) {
-                levelSet.geometry.setAttribute(
-                  'position',
-                  new Three.BufferAttribute(new Float32Array(vertices), 3)
-                );
-                levelSet.geometry.setAttribute(
-                  'color',
-                  new Three.BufferAttribute(new Float32Array(colors), 3)
-                );
+                const positionAttribute = new Three.BufferAttribute(new Float32Array(vertices), 3);
+                positionAttribute.setUsage(Three.DynamicDrawUsage);
+                levelSet.geometry.setAttribute('position', positionAttribute);
+
+                const normalsAttribute = new Three.BufferAttribute(new Float32Array(normals), 3);
+                normalsAttribute.setUsage(Three.DynamicDrawUsage);
+                levelSet.geometry.setAttribute('normal', normalsAttribute);
+
+                const colorAttribute = new Three.BufferAttribute(new Float32Array(colors), 3);
+                colorAttribute.setUsage(Three.DynamicDrawUsage);
+                levelSet.geometry.setAttribute('color', colorAttribute);
+
+                // this.normalArray = new Float32Array( maxVertexCount * 3 );
+                // const normalAttribute = new BufferAttribute( this.normalArray, 3 );
+                // normalAttribute.setUsage( DynamicDrawUsage );
+                // geometry.setAttribute( 'normal', normalAttribute );
 
                 this.add(levelSet);
               }
