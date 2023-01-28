@@ -5,6 +5,7 @@ import { DebugScene } from "../utils/DebugScene";
 import { VDBPreview } from "../utils/VDBPreview";
 import { useMemo } from "react";
 import { Detailed } from "@react-three/drei";
+import { LoadingNote } from "../utils/LoadingNote";
 
 export const LevelSetLOD = () => {
   const [vdbSource, setVdbSource] = useState(null);
@@ -41,7 +42,7 @@ export const LevelSetLOD = () => {
   });
 
   if (!vdbSource) {
-    return null;
+    return <LoadingNote />;
   }
 
   return (

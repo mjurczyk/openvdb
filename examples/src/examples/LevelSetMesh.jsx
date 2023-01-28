@@ -6,6 +6,7 @@ import { VDBPreview } from "../utils/VDBPreview";
 import { useMemo } from "react";
 import { Detailed } from "@react-three/drei";
 import { DebugLight } from "../utils/DebugLight";
+import { LoadingNote } from "../utils/LoadingNote";
 
 export const LevelSetMesh = () => {
   const [vdbSource, setVdbSource] = useState(null);
@@ -19,7 +20,7 @@ export const LevelSetMesh = () => {
   }, []);
 
   if (!vdbSource) {
-    return null;
+    return <LoadingNote />;
   }
 
   return (

@@ -1,7 +1,7 @@
 import styled from 'styled-components';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState, useContext } from 'react';
 import { Canvas } from 'react-three-fiber';
-import { OrbitControls, Stats } from '@react-three/drei';
+import { OrbitControls, Stats, useContextBridge } from '@react-three/drei';
 import { PropertyMatrix } from './examples/PropertyMatrix';
 import { Transforms } from './examples/Transforms';
 import { gui } from './Gui';
@@ -12,6 +12,38 @@ import { Lighthouse } from './examples/Lighthouse';
 import packageInfo from '../../package.json';
 import { LevelSetMesh } from './examples/LevelSetMesh';
 import { LevelSetLOD } from './examples/LevelSetLOD';
+import { Sandbox } from './examples/Sandbox';
+import { SimpleDropzone } from 'simple-dropzone';
+import { VDBUploadContext } from './utils/VDBUpload';
+import { loadVDB } from '../../src/openvdb';
+
+const DropZone = styled.div`
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 240px;
+  height: 60px;
+  background-color: #1f1f1f;
+  border: solid #3f3f3f 1px;
+  transform: translateX(-50%) translateY(-50%);
+  z-index: 10000;
+
+  & > * {
+    position: absolute;
+    display: inline-block;
+    top: 50%;
+    left: 50%;
+    transform: translateX(-50%) translateY(-50%);
+    opacity: 0.5;
+    pointer-events: none;
+    transition: opacity 0.1s ease;
+    white-space: nowrap;
+  }
+
+  &:hover > * {
+    opacity: 1.0;
+  }
+`;
 
 const DemoWrapper = styled.div`
   position: absolute;
@@ -20,7 +52,7 @@ const DemoWrapper = styled.div`
   width: 100vw;
   height: 100vh;
   background-color: #251B37;
-  color: #FFECEF;
+  color: #ffffff;
   font-family: 'Baloo Tamma 2', Arial, Helvetica, sans-serif;
   line-height: 1.23;
   z-index: 1;
@@ -64,7 +96,11 @@ const BottomTab = styled.div`
 `;
 
 export const App = () => {
+  const ContextBridge = useContextBridge(VDBUploadContext);
+  const vdbUploadContext = useContext(VDBUploadContext);
   const [demo, setDemo] = useState('lighthouse');
+  const dropZoneRef = useRef();
+  const [dropZoneLoadingState, setDropZoneLoadingState] = useState('Drop zipped VDB here');
 
   useEffect(() => {
     gui.controllersRecursive().forEach(controller => controller.destroy());
@@ -77,39 +113,79 @@ export const App = () => {
       'Spotlights': 'spotLights',
       'Level Set Mesh': 'levelSetMesh',
       'Level Set LOD': 'levelSetLOD',
-      'Property Matrix (Slow)': 'propertyMatrix',
+      'Property Matrix': 'propertyMatrix',
+      'Sandbox': 'sandbox',
     }).name('Example').onChange((demo) => {
       setDemo(demo);
     });
   });
 
+  useEffect(() => {
+    if (!dropZoneRef.current) {
+      return;
+    }
+
+    const dropzone = new SimpleDropzone(dropZoneRef.current, document.createElement('input'));
+
+    dropzone.on('drop', ({ files }) => {
+      let file = [...files];
+
+      const fileSource = URL.createObjectURL(file[0][1]);
+
+      setDropZoneLoadingState('Reading VDB');
+
+      loadVDB(fileSource).then(vdb => {
+        setDropZoneLoadingState('Drop zipped VDB here');
+
+        console.info('loaded', fileSource);
+        vdbUploadContext.setVDBFile(vdb);
+      });
+    });
+
+    dropzone.on('dropstart', () => {
+      setDropZoneLoadingState('Loading file');
+    });
+
+    dropzone.on('droperror', ({ message }) => {
+      setDropZoneLoadingState(`Error: ${message}`);
+    });
+  }, [dropZoneRef.current]);
+
   return (
     <DemoWrapper>
-      <Canvas
-        flat
-        onCreated={(gl) => {
-        gl.camera.position.z = 500.0;
+      <DropZone ref={dropZoneRef} style={{ display: vdbUploadContext.showVDBUpload ? '' : 'none' }}>
+        <div>
+          {dropZoneLoadingState}
+        </div>
+      </DropZone>
+      <ContextBridge>
+        <Canvas
+          flat
+          onCreated={(gl) => {
+          gl.camera.position.z = 500.0;
 
-        gl.camera.far = 10000.0;
-        gl.camera.near = 0.01;
-        gl.camera.updateProjectionMatrix();
-      }}>
-        {({
-          'lighthouse': <Lighthouse />,
-          'bbox': <Bbox />,
-          'primitives': <Primitives />,
-          'transforms': <Transforms />,
-          'propertyMatrix': <PropertyMatrix />,
-          'spotLights': <SpotLights />,
-          'levelSetMesh': <LevelSetMesh />,
-          'levelSetLOD': <LevelSetLOD />,
-        })[demo]}
-        <OrbitControls
-          makeDefault
-          maxPolarAngle={Math.PI / 2.0 - 0.1}
-          maxDistance={475.0}
-        />
-      </Canvas>
+          gl.camera.far = 10000.0;
+          gl.camera.near = 0.01;
+          gl.camera.updateProjectionMatrix();
+        }}>
+          {({
+            'lighthouse': <Lighthouse />,
+            'bbox': <Bbox />,
+            'primitives': <Primitives />,
+            'transforms': <Transforms />,
+            'propertyMatrix': <PropertyMatrix />,
+            'spotLights': <SpotLights />,
+            'levelSetMesh': <LevelSetMesh />,
+            'levelSetLOD': <LevelSetLOD />,
+            'sandbox': <Sandbox />,
+          })[demo]}
+          <OrbitControls
+            makeDefault
+            maxPolarAngle={Math.PI / 2.0 - 0.1}
+            maxDistance={475.0}
+          />
+        </Canvas>
+      </ContextBridge>
       <BottomTab>
         <div>
           <a href="https://github.com/mjurczyk/openvdb" target="_blank">

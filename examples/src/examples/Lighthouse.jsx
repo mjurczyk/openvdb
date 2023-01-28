@@ -114,9 +114,9 @@ export const Lighthouse = () => {
   }
 
   return (
-    <group>
+    <>
       <primitive object={output} />
       <primitive object={model} />
-    </group>
+    </>
   );
 };
