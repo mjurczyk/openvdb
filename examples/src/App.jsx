@@ -98,7 +98,7 @@ const BottomTab = styled.div`
 export const App = () => {
   const ContextBridge = useContextBridge(VDBUploadContext);
   const vdbUploadContext = useContext(VDBUploadContext);
-  const [demo, setDemo] = useState('lighthouse');
+  const [demo, setDemo] = useState('shuttle');
   const dropZoneRef = useRef();
   const [dropZoneLoadingState, setDropZoneLoadingState] = useState('Drop zipped VDB here');
 
@@ -106,7 +106,8 @@ export const App = () => {
     gui.controllersRecursive().forEach(controller => controller.destroy());
 
     gui.add({ demo }, 'demo', {
-      'Lighthouse': 'lighthouse',
+      '(0.1.4) Shuttle': 'shuttle',
+      '(0.1.3) Lighthouse': 'lighthouse',
       'BBOX': 'bbox',
       'Primitives': 'primitives',
       'Transforms': 'transforms',
@@ -114,7 +115,6 @@ export const App = () => {
       'Level Set Mesh': 'levelSetMesh',
       'Level Set LOD': 'levelSetLOD',
       'Property Matrix': 'propertyMatrix',
-      'Sandbox': 'sandbox',
     }).name('Example').onChange((demo) => {
       setDemo(demo);
     });
@@ -169,6 +169,7 @@ export const App = () => {
           gl.camera.updateProjectionMatrix();
         }}>
           {({
+            'shuttle': <Sandbox />,
             'lighthouse': <Lighthouse />,
             'bbox': <Bbox />,
             'primitives': <Primitives />,
@@ -177,7 +178,6 @@ export const App = () => {
             'spotLights': <SpotLights />,
             'levelSetMesh': <LevelSetMesh />,
             'levelSetLOD': <LevelSetLOD />,
-            'sandbox': <Sandbox />,
           })[demo]}
           <OrbitControls
             makeDefault

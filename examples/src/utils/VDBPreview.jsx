@@ -20,7 +20,7 @@ const PopUpBox = styled(Html)`
 `;
 
 export const VDBPreview = (props) => {
-  const { vdbSource, renderType, resolution, steps, absorbance, opacity, noise, color } = props;
+  const { vdbSource, renderType, resolution, steps, absorbance, opacity, noise, color, progressive } = props;
   const [popUpText, setPopUpText] = useState(null);
   const [output, setOutput] = useState(new Three.Object3D());
 
@@ -42,18 +42,19 @@ export const VDBPreview = (props) => {
         new Three.MeshPhongMaterial({ color: 0xff00ff, side: Three.DoubleSide }),
         {
           resolution: resolution,
-          progressive: false
+          progressive: progressive
         }
       );
     } else {
       output = new OpenVDB.FogVolume(vdbSource, null, {
         resolution: resolution,
-        progressive: false,
+        progressive: progressive,
         steps: steps,
         opacity: opacity,
         absorbance: absorbance,
         noise: noise,
-        color: color
+        color: color,
+        emissiveGrid: vdbSource.grids?.temperature
       }, () => {
         setPopUpText(null);
       }, ({ convertedVoxels, totalVoxels }) => {

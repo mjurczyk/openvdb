@@ -9,7 +9,16 @@ export class VolumeToFog extends Three.Group {
   constructor(
     source,
     material,
-    { resolution, progressive, absorbance, opacity, steps, noise, color },
+    {
+      resolution,
+      progressive,
+      absorbance,
+      opacity,
+      steps,
+      noise,
+      color,
+      emissiveGrid
+    },
     onConverted,
     onProgress
   ) {
@@ -29,12 +38,6 @@ export class VolumeToFog extends Three.Group {
       // NOTE Hope for the best
       grids = [source];
     }
-
-    let convertedGrids = 0;
-    let convertedVoxels = 0;
-
-    const totalGrids = grids.length;
-    const totalVoxels = totalGrids * Math.pow(resolution, 3);
 
     // NOTE Material
 
@@ -69,16 +72,48 @@ export class VolumeToFog extends Three.Group {
 
     baseMaterial.customProgramCacheKey = () => Math.random();
 
+    // NOTE Shader properties (grids influencing color output)
+
+    let emissiveTexture3D, probeEmissiveValue;
+
+    if (emissiveGrid) {
+      grids = grids.filter(match => match !== emissiveGrid);
+
+      const emissiveData = new Uint8Array(Math.pow(resolution, 3));
+      emissiveTexture3D = new Three.Data3DTexture(emissiveData, resolution, resolution, resolution);
+      emissiveTexture3D.format = Three.RedFormat;
+      emissiveTexture3D.minFilter = Three.LinearFilter;
+      emissiveTexture3D.magFilter = Three.LinearFilter;
+      emissiveTexture3D.unpackAlignment = 1;
+      emissiveTexture3D.needsUpdate = true;
+
+      probeEmissiveValue = (index, target, x, y, z) => {
+        const xr = x / resolution;
+        const yr = y / resolution;
+        const zr = z / resolution;
+
+        emissiveData[index] = emissiveGrid.getValue(target) * (yr + .5) * 100.;
+        
+        // emissiveData[index] = (1. - yr + .3) * ((1. - Math.abs((xr + 0.5) - 1.0)) * (1. - Math.abs((zr + 0.5) - 1.0))) * 100.;
+      };
+    }
+
     // NOTE Parse grids
+
+    let convertedGrids = 0;
+    let convertedVoxels = 0;
+
+    const totalGrids = grids.length;
+    const totalVoxels = totalGrids * Math.pow(resolution, 3);
 
     grids.forEach((grid, gridIndex) => {
       const data = new Uint8Array(Math.pow(resolution, 3));
-      const data3dTexture = new Three.Data3DTexture(data, resolution, resolution, resolution);
-      data3dTexture.format = Three.RedFormat;
-      data3dTexture.minFilter = Three.LinearFilter;
-      data3dTexture.magFilter = Three.LinearFilter;
-      data3dTexture.unpackAlignment = 1;
-      data3dTexture.needsUpdate = true;
+      const volumeTexture3D = new Three.Data3DTexture(data, resolution, resolution, resolution);
+      volumeTexture3D.format = Three.RedFormat;
+      volumeTexture3D.minFilter = Three.LinearFilter;
+      volumeTexture3D.magFilter = Three.LinearFilter;
+      volumeTexture3D.unpackAlignment = 1;
+      volumeTexture3D.needsUpdate = true;
 
       const geometry = new Three.SphereGeometry(1.0);
 
@@ -88,7 +123,8 @@ export class VolumeToFog extends Three.Group {
 
       material.onBeforeCompile = (shader) => {
         shader.uniforms.baseColor = { value: new Three.Color(color || 0x000000) };
-        shader.uniforms.volumeMap = { value: data3dTexture };
+        shader.uniforms.volumeMap = { value: volumeTexture3D };
+        shader.uniforms.emissiveMap = { value: emissiveTexture3D }
         shader.uniforms.opacity = { value: material.opacity };
         shader.uniforms.steps = { value: typeof steps === 'undefined' ? 100 : steps };
         shader.uniforms.absorbanceFactor = {
@@ -99,13 +135,7 @@ export class VolumeToFog extends Three.Group {
 
         const shaderVaryings = `
            varying mat4 mA;
-           varying mat4 mB;
-           varying mat4 mC;
            varying mat4 mD;
-           varying mat4 mE;
-           varying mat4 mF;
-           varying mat4 mG;
-           varying mat3 mH;
            varying mat3 mI;
         `;
 
@@ -131,13 +161,7 @@ export class VolumeToFog extends Three.Group {
           vDirection = position - vOrigin;
 
           mA = modelMatrix;
-          mB = inverse(modelMatrix);
-          mC = modelViewMatrix;
           mD = inverse(modelViewMatrix);
-          mE = projectionMatrix;
-          mF = viewMatrix;
-          mG = inverse(viewMatrix);
-          mH = normalMatrix;
           mI = inverse(normalMatrix);
         `
           );
@@ -185,7 +209,7 @@ export class VolumeToFog extends Three.Group {
               }
             }
 
-            albedo += saturate((volumeSample * pointLight.color * pow(1. / lightDistance, 2.)) * (1. - absorbance)) * (baseColor.rgb * RECIPROCAL_PI);
+            albedo += ((volumeSample * pointLight.color * pow(1. / lightDistance, 2.)) * (1. - absorbance)) * (baseColor.rgb * RECIPROCAL_PI);
           }
         `;
 
@@ -222,7 +246,7 @@ export class VolumeToFog extends Three.Group {
             }
 
             // NOTE No idea why 0.01 yet
-            albedo += saturate((volumeSample * directionalLight.color * 0.01) * (1. - absorbance)) * (baseColor.rgb * RECIPROCAL_PI);
+            albedo += ((volumeSample * directionalLight.color * 0.01) * (1. - absorbance)) * (baseColor.rgb * RECIPROCAL_PI);
           }
           #pragma unroll_loop_end
         `;
@@ -265,7 +289,7 @@ export class VolumeToFog extends Three.Group {
               }
             }
 
-            albedo += spotAttenuation * saturate((volumeSample * spotLight.color * pow(1. / lightDistance, 2.)) * (1. - absorbance)) * (baseColor.rgb * RECIPROCAL_PI);
+            albedo += spotAttenuation * ((volumeSample * spotLight.color * pow(1. / lightDistance, 2.)) * (1. - absorbance)) * (baseColor.rgb * RECIPROCAL_PI);
           }
         `;
 
@@ -309,13 +333,13 @@ export class VolumeToFog extends Three.Group {
 
             vec3 colorMix = mix(hemiLight.skyColor * (1. - absorbanceUp), hemiLight.groundColor * (1. - absorbanceDown), .5) / 2.0;
 
-            albedo += saturate((volumeSample * colorMix)) * (baseColor.rgb * RECIPROCAL_PI);
+            albedo += ((volumeSample * colorMix)) * (baseColor.rgb * RECIPROCAL_PI);
           }
           #pragma unroll_loop_end
         `;
 
         const volumeAmbientLight = `
-          albedo += saturate(ambientLightColor) * (baseColor.rgb * RECIPROCAL_PI);
+          albedo += (ambientLightColor) * (baseColor.rgb * RECIPROCAL_PI);
         `;
 
         shader.fragmentShader = shader.fragmentShader
@@ -329,6 +353,8 @@ export class VolumeToFog extends Three.Group {
           in vec3 vDirection;
 
           uniform sampler3D volumeMap;
+          uniform sampler3D emissiveMap;
+
           uniform float steps;
           uniform float absorbanceFactor;
           uniform vec3 baseColor;
@@ -366,6 +392,18 @@ export class VolumeToFog extends Three.Group {
             );
           }
 
+          vec3 radiation = vec3(0.);
+          vec3 getBlackBodyRadiation(float temperature) {
+            // NOTE Blackbody radiation source - https://www.shadertoy.com/view/4tdGWM
+            float temperatureScaled = clamp(temperature * 16000., 0., 16000.);
+
+            radiation.r += (10. / temperature) * 1. / (exp(19E3 * 1. / temperatureScaled) - 1.);
+            radiation.g += (10. / temperature) * 3.375 / (exp(19E3 * 1.5 / temperatureScaled) - 1.);
+            radiation.b += (10. / temperature) * 8. / (exp(19E3 * 2. / temperatureScaled) - 1.);
+
+            return (radiation / max(radiation.r,max(radiation.g,radiation.b))) * radiation;
+          }
+
           #include <common>
         `
           )
@@ -392,24 +430,24 @@ export class VolumeToFog extends Three.Group {
             vec3 vPoint = vOrigin + vBounds.x * vRayDirection;
             vec3 vPointStep = 1.0 / abs(vRayDirection);
 
-            float delta = min(vPointStep.x, min(vPointStep.y, vPointStep.z)) / mix(steps, resolution, absorbanceFactor);
+            float delta = min(vPointStep.x, min(vPointStep.y, vPointStep.z)) / steps;
             vec3 vDirectionDeltaStep = vRayDirection * delta;
 
             float density = 0.0;
             vec3 albedo = vec3(0.);
+            vec3 emissive = vec3(0.);
 
             ${volumeLightsConfig}
 
             for (float i = vBounds.x; i < vBounds.y; i += delta) {
               float volumeSample = texture(volumeMap, vPoint + VOLUME_BBOX_SPAN).r;
               density += (volumeSample / 512.) * 100.0;
-
-              if (density > exp(-1. + 1. / absorbanceFactor)) {
-                break;
-              }
-
-              if (volumeSample > 0.) {
+              
+              if (volumeSample > 0. && density <= exp(-1. + 1. / absorbanceFactor)) {
+                float emissiveSample = texture(emissiveMap, vPoint + VOLUME_BBOX_SPAN).r;
+                
                 volumeSample *= exp(-1. + absorbanceFactor);
+                emissive = max(emissive, vec3(emissiveSample));
 
                 ${volumeAmbientLight}
 
@@ -439,8 +477,8 @@ export class VolumeToFog extends Three.Group {
 
             density = min(1.0, density);
 
-            outgoingLight.rgb = saturate(albedo / density);
-            diffuseColor.a = saturate(density) * opacity;
+            outgoingLight.rgb = saturate(albedo + saturate(getBlackBodyRadiation(emissive.r)));
+            diffuseColor.a = density * opacity;
 
             if (density == 0.) {
               discard;
@@ -484,6 +522,9 @@ export class VolumeToFog extends Three.Group {
       function* probeValue() {
         for (let i = 0; i < resolutionPow3; i++) {
           if (z >= resolution) {
+            probeEmissiveValue = null;
+            emissiveTexture3D.needsUpdate = true;
+
             return;
           }
 
@@ -507,14 +548,19 @@ export class VolumeToFog extends Three.Group {
           }
 
           const noiseSeed = MathUtils.clamp(255.0 * (noise || 0.0), 0.0, 255.0);
+          const index = x + y * resolution + z * resolutionPow2;
 
-          data[x + y * resolution + z * resolutionPow2] =
-            grid.getValue(target) * (255.0 - noiseSeed + Math.random() * noiseSeed);
+          data[index] = grid.getValue(target) * (255.0 - noiseSeed + Math.random() * noiseSeed);
+          probeEmissiveValue && probeEmissiveValue(index, target, x, y, z);
 
           convertedVoxels++;
 
           if (progressive) {
-            data3dTexture.needsUpdate = true;
+            volumeTexture3D.needsUpdate = true;
+
+            if (emissiveTexture3D) {
+              emissiveTexture3D.needsUpdate = true;
+            }
           }
 
           yield;
