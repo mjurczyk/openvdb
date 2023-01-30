@@ -16,6 +16,7 @@ import { Sandbox } from './examples/Sandbox';
 import { SimpleDropzone } from 'simple-dropzone';
 import { VDBUploadContext } from './utils/VDBUpload';
 import { loadVDB } from '../../src/openvdb';
+import { Temperature } from './examples/Temperature';
 
 const DropZone = styled.div`
   position: absolute;
@@ -112,6 +113,7 @@ export const App = () => {
       'Primitives': 'primitives',
       'Transforms': 'transforms',
       'Spotlights': 'spotLights',
+      'Temperature': 'temperature',
       'Level Set Mesh': 'levelSetMesh',
       'Level Set LOD': 'levelSetLOD',
       'Property Matrix': 'propertyMatrix',
@@ -174,6 +176,7 @@ export const App = () => {
             'bbox': <Bbox />,
             'primitives': <Primitives />,
             'transforms': <Transforms />,
+            'temperature': <Temperature />,
             'propertyMatrix': <PropertyMatrix />,
             'spotLights': <SpotLights />,
             'levelSetMesh': <LevelSetMesh />,

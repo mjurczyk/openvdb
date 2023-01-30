@@ -92,9 +92,9 @@ export class VolumeToFog extends Three.Group {
         const yr = y / resolution;
         const zr = z / resolution;
 
-        emissiveData[index] = emissiveGrid.getValue(target) * (yr + .5) * 100.;
+        // emissiveData[index] = emissiveGrid.getValue(target) * 255.;
         
-        // emissiveData[index] = (1. - yr + .3) * ((1. - Math.abs((xr + 0.5) - 1.0)) * (1. - Math.abs((zr + 0.5) - 1.0))) * 100.;
+        emissiveData[index] = (1. - yr + .3) * ((1. - Math.abs((xr + 0.5) - 1.0)) * (1. - Math.abs((zr + 0.5) - 1.0))) * 100.;
       };
     }
 
@@ -124,7 +124,7 @@ export class VolumeToFog extends Three.Group {
       material.onBeforeCompile = (shader) => {
         shader.uniforms.baseColor = { value: new Three.Color(color || 0x000000) };
         shader.uniforms.volumeMap = { value: volumeTexture3D };
-        shader.uniforms.emissiveMap = { value: emissiveTexture3D }
+        shader.uniforms.emissiveMap = { value: emissiveTexture3D };
         shader.uniforms.opacity = { value: material.opacity };
         shader.uniforms.steps = { value: typeof steps === 'undefined' ? 100 : steps };
         shader.uniforms.absorbanceFactor = {
@@ -132,6 +132,11 @@ export class VolumeToFog extends Three.Group {
         };
         shader.uniforms.resolution = { value: resolution };
         shader.isVolumetricFogMaterial = true;
+
+        const shaderProperties = `
+          #define VOLUME_BBOX_SPAN 0.5
+          ${emissiveTexture3D ? '#define USE_EMISSIVE_GRID' : ''}
+        `;
 
         const shaderVaryings = `
            varying mat4 mA;
@@ -360,9 +365,8 @@ export class VolumeToFog extends Three.Group {
           uniform vec3 baseColor;
           uniform float resolution;
 
+          ${shaderProperties}
           ${shaderVaryings}
-
-          #define VOLUME_BBOX_SPAN 0.5
 
           bool isOutsideVolume(vec3 source) {
             return (
@@ -394,14 +398,22 @@ export class VolumeToFog extends Three.Group {
 
           vec3 radiation = vec3(0.);
           vec3 getBlackBodyRadiation(float temperature) {
+            if (temperature == 0.) {
+              return vec3(0.);
+            }
+
+            #ifndef USE_EMISSIVE_GRID
+              return vec3(0.);
+            #endif
+
             // NOTE Blackbody radiation source - https://www.shadertoy.com/view/4tdGWM
-            float temperatureScaled = clamp(temperature * 16000., 0., 16000.);
+            float temperatureScaled = temperature * 16000.;
 
-            radiation.r += (10. / temperature) * 1. / (exp(19E3 * 1. / temperatureScaled) - 1.);
-            radiation.g += (10. / temperature) * 3.375 / (exp(19E3 * 1.5 / temperatureScaled) - 1.);
-            radiation.b += (10. / temperature) * 8. / (exp(19E3 * 2. / temperatureScaled) - 1.);
+            radiation.r += 1. / (exp(19E3 * 1. / temperatureScaled) - 1.);
+            radiation.g += 3.375 / (exp(19E3 * 1.5 / temperatureScaled) - 1.);
+            radiation.b += 8. / (exp(19E3 * 2. / temperatureScaled) - 1.);
 
-            return (radiation / max(radiation.r,max(radiation.g,radiation.b))) * radiation;
+            return (radiation / max(radiation.r,max(radiation.g,radiation.b)));
           }
 
           #include <common>
@@ -441,13 +453,17 @@ export class VolumeToFog extends Three.Group {
 
             for (float i = vBounds.x; i < vBounds.y; i += delta) {
               float volumeSample = texture(volumeMap, vPoint + VOLUME_BBOX_SPAN).r;
-              density += (volumeSample / 512.) * 100.0;
               
+              density += volumeSample * (1. / sqrt(steps));
+
               if (volumeSample > 0. && density <= exp(-1. + 1. / absorbanceFactor)) {
-                float emissiveSample = texture(emissiveMap, vPoint + VOLUME_BBOX_SPAN).r;
-                
+
+                #ifdef USE_EMISSIVE_GRID
+                  float emissiveSample = texture(emissiveMap, vPoint + VOLUME_BBOX_SPAN).r;
+                  emissive = max(emissive, vec3(emissiveSample));
+                #endif
+               
                 volumeSample *= exp(-1. + absorbanceFactor);
-                emissive = max(emissive, vec3(emissiveSample));
 
                 ${volumeAmbientLight}
 
@@ -475,10 +491,12 @@ export class VolumeToFog extends Three.Group {
               vPoint += vDirectionDeltaStep;
             }
 
-            density = min(1.0, density);
+            density = clamp(density, 0.0, 1.0);
+            emissive = getBlackBodyRadiation(emissive.r);
 
-            outgoingLight.rgb = saturate(albedo + saturate(getBlackBodyRadiation(emissive.r)));
-            diffuseColor.a = density * opacity;
+            outgoingLight.rgb = max(albedo, emissive);
+            // NOTE This is not physically correct - multiply by exp(-1. + absorbanceFactor) to "fake" Beer's law
+            diffuseColor.a = min(1.0, density * exp(-1. + absorbanceFactor)) * opacity;
 
             if (density == 0.) {
               discard;

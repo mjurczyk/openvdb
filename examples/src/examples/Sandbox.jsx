@@ -37,9 +37,10 @@ export const Sandbox = () => {
         <group>
           <VDBPreview
             vdbSource={vdbFile}
-            resolution={200}
+            resolution={100}
+            steps={500}
             color={0xffffff}
-            absorbance={1.}
+            absorbance={1.0}
             progressive
           />
           <primitive

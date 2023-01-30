@@ -16,12 +16,12 @@ export const Primitives = () => {
 
       return position.length() < 0.65 && y + 0.5 + Math.sin(x * 50.0) * 0.5 * Math.sin(z * 50.0) * 0.5 < 0.5
     });
+
     const parametricVolume = new OpenVDB.FogVolume(parametricPrimitive, null, {
       resolution: 100,
       progressive: true,
-      steps: 20,
+      steps: 100,
       absorbance: 0.1,
-      noise: 1.0,
       color: 0xff0000
     });
     parametricVolume.scale.setScalar(100.0);
@@ -32,9 +32,8 @@ export const Primitives = () => {
     const cubeVolume = new OpenVDB.FogVolume(cubePrimitive, null, {
       resolution: 100,
       progressive: true,
-      steps: 20,
+      steps: 100,
       absorbance: 0.1,
-      noise: 1.0,
       color: 0x00ff00
     });
     cubeVolume.scale.setScalar(100.0);
@@ -46,9 +45,8 @@ export const Primitives = () => {
     const sphereVolume = new OpenVDB.FogVolume(spherePrimitive, null, {
       resolution: 100,
       progressive: true,
-      steps: 20,
-      absorbance: 0.1,
-      noise: 1.0,
+      steps: 200,
+      absorbance: 1.0,
       color: 0x0000ff
     });
     sphereVolume.scale.setScalar(100.0);
