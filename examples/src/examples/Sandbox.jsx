@@ -30,6 +30,11 @@ export const Sandbox = () => {
     return null;
   }
 
+  if (vdbFile.grids.flame) {
+    vdbFile.grids.temperature = vdbFile.grids.flame;
+    delete vdbFile.grids.flame;
+  }
+
   return (
     <>
       <DebugScene />

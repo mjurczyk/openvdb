@@ -1,5 +1,6 @@
 import * as Three from 'three';
 import { MathUtils } from 'three';
+import { GridDescriptor } from '../core/GridDescriptor';
 import { Bbox } from '../math/bbox';
 import { Vector3 } from '../math/vector';
 
@@ -92,9 +93,9 @@ export class VolumeToFog extends Three.Group {
         const yr = y / resolution;
         const zr = z / resolution;
 
-        // emissiveData[index] = emissiveGrid.getValue(target) * 255.;
+        emissiveData[index] = emissiveGrid.getValue(target) * 255.;
         
-        emissiveData[index] = (1. - yr + .3) * ((1. - Math.abs((xr + 0.5) - 1.0)) * (1. - Math.abs((zr + 0.5) - 1.0))) * 100.;
+        // emissiveData[index] = (1. - yr + .3) * ((1. - Math.abs((xr + 0.5) - 1.0)) * (1. - Math.abs((zr + 0.5) - 1.0))) * 100.;
       };
     }
 
@@ -107,6 +108,12 @@ export class VolumeToFog extends Three.Group {
     const totalVoxels = totalGrids * Math.pow(resolution, 3);
 
     grids.forEach((grid, gridIndex) => {
+      if (!(grid instanceof GridDescriptor)) {
+        return;
+      }
+
+      console.info({grid, emissiveGrid});
+
       const data = new Uint8Array(Math.pow(resolution, 3));
       const volumeTexture3D = new Three.Data3DTexture(data, resolution, resolution, resolution);
       volumeTexture3D.format = Three.RedFormat;
