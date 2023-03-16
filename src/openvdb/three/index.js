@@ -3,7 +3,8 @@ import { VolumeToBbox } from './VolumeToBbox';
 import { VolumeToFog } from './VolumeToFog';
 import { VolumeToLevelSet } from './VolumeToLevelSet';
 import { VolumeToPoints } from './VolumeToPoints';
-import { ParametricVolume, CubeVolume, SphereVolume } from '../utils/primitives';
+import { ParametricVolume, CubeVolume, SphereVolume, CloudVolume } from '../utils/primitives';
+import { perlin3Noise, simplex3Noise } from '../math/noise';
 
 export {
   VDBLoader,
@@ -14,4 +15,7 @@ export {
   ParametricVolume,
   CubeVolume,
   SphereVolume,
+  CloudVolume,
+  perlin3Noise,
+  simplex3Noise,
 };

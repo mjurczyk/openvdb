@@ -11,7 +11,8 @@ export const Temperature = () => {
 
     for (let i = 0; i < 5.0; i++) {
       const temperaturePrimitive = new OpenVDB.ParametricVolume((position) => {
-        return (position.length() * 2.0) * (i / 5.0);
+
+        return ((new Three.Vector2(position.x, position.y).length()) + 0.5) * (i / 5.0);
       });
 
       const spherePrimitive = new OpenVDB.SphereVolume();

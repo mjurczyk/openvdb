@@ -18,13 +18,11 @@ export const Lighthouse = () => {
     depthMaterial.transparent = true;
     const output = new OpenVDB.FogVolume(primitiveGrid, depthMaterial, {
       // NOTE High resolution is not necessary for volumetric fog cubes and can save some performance
-      resolution: 5,
+      resolution: 10,
       progressive: true,
       // NOTE You likely do not want to double the workload on retina displays
-      steps: 100 / window.devicePixelRatio,
-      opacity: 0.9,
-      absorbance: 0.1,
-      noise: 0.2,
+      steps: 30 / window.devicePixelRatio,
+      absorbance: 0.5,
       color: 0xffffff
     });
     output.scale.setScalar(1100.0);

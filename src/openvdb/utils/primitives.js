@@ -5,8 +5,9 @@ import { floatType } from '../math/memory';
 import { GridDescriptor } from '../core/GridDescriptor';
 import { Vector3 } from '../math/vector';
 import { GridTransform } from '../core/GridTransform';
+import { perlin3Noise, simplex3Noise } from '../math/noise';
 
-export class CubeVolume {
+export class CubeVolume extends GridDescriptor {
   static halfFloatGridPrefix = GridDescriptor.halfFloatGridPrefix;
 
   saveAsHalfFloat = false;
@@ -17,6 +18,8 @@ export class CubeVolume {
   gridType;
 
   constructor() {
+    super();
+
     // NOTE Primitives don't need to use OpenVDBReader - just "read grid" right away
     this.readGrid();
   }
@@ -78,7 +81,7 @@ export class CubeVolume {
   }
 }
 
-export class SphereVolume {
+export class SphereVolume extends GridDescriptor {
   static halfFloatGridPrefix = GridDescriptor.halfFloatGridPrefix;
 
   saveAsHalfFloat = false;
@@ -89,6 +92,8 @@ export class SphereVolume {
   gridType;
 
   constructor() {
+    super();
+
     // NOTE Primitives don't need to use OpenVDBReader - just "read grid" right away
     this.readGrid();
   }
@@ -150,7 +155,7 @@ export class SphereVolume {
   }
 }
 
-export class ParametricVolume {
+export class ParametricVolume extends GridDescriptor {
   static halfFloatGridPrefix = GridDescriptor.halfFloatGridPrefix;
 
   saveAsHalfFloat = false;
@@ -163,6 +168,8 @@ export class ParametricVolume {
   valueFunction;
 
   constructor(valueFunction) {
+    super();
+
     // NOTE Primitives don't need to use OpenVDBReader - just "read grid" right away
     this.readGrid();
     this.valueFunction = valueFunction;
@@ -174,7 +181,7 @@ export class ParametricVolume {
   }
 
   readGridHeader() {
-    this.uniqueName = `CubeVolume#${Math.random()}`;
+    this.uniqueName = `ParametricVolume#${Math.random()}`;
     this.gridName = this.uniqueName.split('#')[0];
     this.gridType = 'fog volume';
   }
@@ -218,6 +225,93 @@ export class ParametricVolume {
   getValue(position) {
     // NOTE Cube by default has all leaves enabled
     return this.valueFunction(position);
+  }
+
+  getLeafAt(position) {
+    return null;
+  }
+}
+
+export class CloudVolume extends GridDescriptor {
+  static halfFloatGridPrefix = GridDescriptor.halfFloatGridPrefix;
+
+  saveAsHalfFloat = false;
+  leavesCount = 0;
+
+  uniqueName;
+  gridName;
+  gridType;
+
+  constructor() {
+    super();
+
+    // NOTE Primitives don't need to use OpenVDBReader - just "read grid" right away
+    this.readGrid();
+  }
+
+  readGrid() {
+    this.readGridHeader();
+    this.readGridTransform();
+  }
+
+  readGridHeader() {
+    this.uniqueName = `CloudVolume#${Math.random()}`;
+    this.gridName = this.uniqueName.split('#')[0];
+    this.gridType = 'fog volume';
+  }
+
+  readCompression() {
+    /* NOTE Unnecessary */
+  }
+
+  readMetadata() {
+    /* NOTE Unnecessary */
+  }
+
+  getGridValueType() {
+    return floatType;
+  }
+
+  getGridClass() {
+    return 'fog volume';
+  }
+
+  readGridTransform() {
+    this.transform = new GridTransform();
+  }
+
+  readTopology() {
+    /* NOTE Unnecessary */
+  }
+
+  getWorldBbox() {
+    return this.getLocalBbox();
+  }
+
+  getLocalBbox() {
+    return [new Vector3(-0.5, -0.5, -0.5), new Vector3(0.5, 0.5, 0.5)];
+  }
+
+  getPreciseWorldBbox() {
+    return this.getWorldBbox();
+  }
+
+  getValue(position) {
+    const scaledNoise = (scale, noiseSource) => {
+      const scaledX = (position.x * scale) % scale;
+      const scaledY = (position.y * scale) % scale;
+      const scaledZ = (position.z * scale) % scale;
+
+      const dx = Math.abs(scaledX - 0.5);
+      const dy = Math.abs(scaledY - 0.5);
+      const dz = Math.abs(scaledZ - 0.5);
+    
+      return noiseSource(dx, dy, dz);
+    }
+
+    return (scaledNoise(2.0, perlin3Noise)) *
+      scaledNoise(3.0, perlin3Noise) *
+      scaledNoise(5.0 * 1.0 / (position.y - 0.5), perlin3Noise);
   }
 
   getLeafAt(position) {

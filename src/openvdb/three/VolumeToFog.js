@@ -112,8 +112,6 @@ export class VolumeToFog extends Three.Group {
         return;
       }
 
-      console.info({grid, emissiveGrid});
-
       const data = new Uint8Array(Math.pow(resolution, 3));
       const volumeTexture3D = new Three.Data3DTexture(data, resolution, resolution, resolution);
       volumeTexture3D.format = Three.RedFormat;
@@ -449,7 +447,7 @@ export class VolumeToFog extends Three.Group {
             vec3 vPoint = vOrigin + vBounds.x * vRayDirection;
             vec3 vPointStep = 1.0 / abs(vRayDirection);
 
-            float delta = min(vPointStep.x, min(vPointStep.y, vPointStep.z)) / steps;
+            float delta = min(vPointStep.x, min(vPointStep.y, vPointStep.z)) / mix(steps, resolution, absorbanceFactor);
             vec3 vDirectionDeltaStep = vRayDirection * delta;
 
             float density = 0.0;

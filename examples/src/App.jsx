@@ -17,6 +17,7 @@ import { SimpleDropzone } from 'simple-dropzone';
 import { VDBUploadContext } from './utils/VDBUpload';
 import { loadVDB } from '../../src/openvdb';
 import { Temperature } from './examples/Temperature';
+import { Clouds } from './examples/Clouds';
 
 const DropZone = styled.div`
   position: absolute;
@@ -111,6 +112,7 @@ export const App = () => {
       '(0.1.3) Lighthouse': 'lighthouse',
       'BBOX': 'bbox',
       'Primitives': 'primitives',
+      'Clouds': 'clouds',
       'Transforms': 'transforms',
       'Spotlights': 'spotLights',
       'Temperature': 'temperature',
@@ -175,6 +177,7 @@ export const App = () => {
             'lighthouse': <Lighthouse />,
             'bbox': <Bbox />,
             'primitives': <Primitives />,
+            'clouds': <Clouds />,
             'transforms': <Transforms />,
             'temperature': <Temperature />,
             'propertyMatrix': <PropertyMatrix />,
