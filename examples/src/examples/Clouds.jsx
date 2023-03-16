@@ -1,9 +1,6 @@
 import { useEffect, useState } from "react";
-import { useFrame } from "react-three-fiber";
 import * as Three from 'three';
 import * as OpenVDB from "../../../src/openvdb/three";
-import { DebugLight } from "../utils/DebugLight";
-import { DebugScene } from "../utils/DebugScene";
 
 export const Clouds = () => {
   const [output, setOutput] = useState(new Three.Object3D());

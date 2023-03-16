@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState, useContext, Suspense } from "react";
-import { DebugScene } from "../utils/DebugScene";
 import { VDBPreview } from "../utils/VDBPreview";
 import { VDBUploadContext } from "../utils/VDBUpload";
 import { useLoader } from '@react-three/fiber';
@@ -37,7 +36,6 @@ export const Sandbox = () => {
 
   return (
     <>
-      <DebugScene />
       <Suspense fallback={null}>
         <group>
           <VDBPreview

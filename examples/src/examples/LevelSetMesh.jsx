@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import * as Three from 'three';
 import * as OpenVDB from "../../../src/openvdb/three";
-import { DebugScene } from "../utils/DebugScene";
 import { VDBPreview } from "../utils/VDBPreview";
 import { useMemo } from "react";
 import { Detailed } from "@react-three/drei";
@@ -25,7 +24,6 @@ export const LevelSetMesh = () => {
 
   return (
     <>
-      <DebugScene />
       <DebugLight color={0xff00ff} position={[ 60.0, 20.0, 0.0 ]} />
       <VDBPreview
         vdbSource={vdbSource}

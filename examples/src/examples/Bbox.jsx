@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import * as OpenVDB from "../../../src/openvdb/three";
-import { DebugScene } from "../utils/DebugScene";
 import { LoadingNote } from "../utils/LoadingNote";
 import { VDBPreview } from "../utils/VDBPreview";
 
@@ -21,7 +20,6 @@ export const Bbox = () => {
 
   return (
     <>
-      <DebugScene />
       <VDBPreview
         vdbSource={vdbSource}
         renderType="boundingBox"

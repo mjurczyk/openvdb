@@ -4,7 +4,6 @@ import { VDBPreview } from "../utils/VDBPreview";
 import { DebugLight } from "../utils/DebugLight";
 import { gui } from "../Gui";
 import * as OpenVDB from "../../../src/openvdb/three";
-import { DebugScene } from "../utils/DebugScene";
 import { LoadingNote } from "../utils/LoadingNote";
 
 export const Transforms = () => {
@@ -33,7 +32,6 @@ export const Transforms = () => {
 
   return (
     <>
-      <DebugScene />
       <directionalLight position={[ 0.0, 1.0, 0.0 ]} color={0xff0000} intensity={1.} />
       <directionalLight position={[ -1.0, -1.0, 0.0 ]} color={0x00ffff} intensity={1.} />
       <DebugLight color={0xff00ff} position={[ 90.0, 40.0, 0.0 ]} />

@@ -4,7 +4,6 @@ import styled from "styled-components";
 import * as OpenVDB from "../../../src/openvdb/three";
 import { VDBPreview } from "../utils/VDBPreview";
 import { DebugLight } from "../utils/DebugLight";
-import { DebugScene } from "../utils/DebugScene";
 import { LoadingNote } from "../utils/LoadingNote";
 
 const GroupLabel = styled(Html)`
@@ -78,7 +77,6 @@ export const PropertyMatrix = () => {
 
   return (
     <>
-      <DebugScene />
       <directionalLight position={[ 0.0, 1.0, 0.0 ]} color={0xffffff} intensity={1.} />
       {Object.entries(bunnyArray).map(([ groupId, presets ], groupIndex) => (
         <group key={groupId} position={[ -90.0, groupIndex * 60.0, 0.0 ]}>

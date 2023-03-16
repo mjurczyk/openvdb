@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import * as Three from 'three';
 import * as OpenVDB from "../../../src/openvdb/three";
-import { DebugScene } from "../utils/DebugScene";
 
 export const Temperature = () => {
   const [output, setOutput] = useState(new Three.Object3D());
@@ -35,7 +34,6 @@ export const Temperature = () => {
 
   return (
     <>
-      <DebugScene />
       <directionalLight position={[ 0.0, 1.0, 0.0 ]} color={0xffffff} intensity={1.0} />
       <primitive object={output} />
     </>

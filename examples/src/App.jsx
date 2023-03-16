@@ -1,3 +1,4 @@
+import * as Three from 'three';
 import styled from 'styled-components';
 import { useEffect, useRef, useState, useContext } from 'react';
 import { Canvas } from 'react-three-fiber';
@@ -18,6 +19,7 @@ import { VDBUploadContext } from './utils/VDBUpload';
 import { loadVDB } from '../../src/openvdb';
 import { Temperature } from './examples/Temperature';
 import { Clouds } from './examples/Clouds';
+import { loaders } from './utils/sharable';
 
 const DropZone = styled.div`
   position: absolute;
@@ -165,13 +167,30 @@ export const App = () => {
       <ContextBridge>
         <Canvas
           flat
+          dpr={1.0}
           onCreated={(gl) => {
-          gl.camera.position.z = 500.0;
+            gl.camera.position.z = 500.0;
 
-          gl.camera.far = 10000.0;
-          gl.camera.near = 0.01;
-          gl.camera.updateProjectionMatrix();
-        }}>
+            gl.camera.far = 10000.0;
+            gl.camera.near = 0.01;
+            gl.camera.updateProjectionMatrix();
+
+            gl.scene.background = new Three.Color(0x598eff);
+
+            // loaders.rgbe.load('./assets/blue-sky-2-HDR.hdr', hdri => {
+            //   hdri.mapping = Three.EquirectangularReflectionMapping;
+
+            //   gl.scene.environment = hdri;
+            // });
+
+            // loaders.texture.load('./assets/blue-sky-2-SD.jpg', texture => {
+            //   texture.encoding = Three.sRGBEncoding;
+            //   texture.mapping = Three.EquirectangularRefractionMapping;
+
+            //   gl.scene.background = texture;
+            // });
+          }}
+        >
           {({
             'shuttle': <Sandbox />,
             'lighthouse': <Lighthouse />,
@@ -185,11 +204,7 @@ export const App = () => {
             'levelSetMesh': <LevelSetMesh />,
             'levelSetLOD': <LevelSetLOD />,
           })[demo]}
-          <OrbitControls
-            makeDefault
-            maxPolarAngle={Math.PI / 2.0 - 0.1}
-            maxDistance={475.0}
-          />
+          <OrbitControls />
         </Canvas>
       </ContextBridge>
       <BottomTab>

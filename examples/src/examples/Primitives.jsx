@@ -2,8 +2,6 @@ import { useEffect, useState } from "react";
 import { useFrame } from "react-three-fiber";
 import * as Three from 'three';
 import * as OpenVDB from "../../../src/openvdb/three";
-import { DebugLight } from "../utils/DebugLight";
-import { DebugScene } from "../utils/DebugScene";
 
 export const Primitives = () => {
   const [output, setOutput] = useState(new Three.Object3D());
@@ -59,7 +57,6 @@ export const Primitives = () => {
 
   return (
     <>
-      <DebugScene />
       <directionalLight position={[ 0.0, 1.0, 0.0 ]} color={0xffffff} intensity={1.0} />
       <primitive object={output} />
     </>

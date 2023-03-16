@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import * as Three from 'three';
 import * as OpenVDB from "../../../src/openvdb/three";
-import { DebugScene } from "../utils/DebugScene";
 import { VDBPreview } from "../utils/VDBPreview";
 import { useMemo } from "react";
 import { Detailed } from "@react-three/drei";
@@ -47,7 +46,6 @@ export const LevelSetLOD = () => {
 
   return (
     <>
-      <DebugScene />
       <directionalLight position={[ 0.0, 1.0, 0.0 ]} color={0xffffff} intensity={1.} />
       {Array(10).fill(0).map((_, x) => {
         return (

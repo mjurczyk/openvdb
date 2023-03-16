@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { VDBPreview } from "../utils/VDBPreview";
 import { DebugLight } from "../utils/DebugLight";
 import * as OpenVDB from "../../../src/openvdb/three";
-import { DebugScene } from "../utils/DebugScene";
 import { LoadingNote } from "../utils/LoadingNote";
 
 export const SpotLights = () => {
@@ -22,7 +21,6 @@ export const SpotLights = () => {
 
   return (
     <>
-      <DebugScene />
       <directionalLight position={[ 0.0, 1.0, 0.0 ]} color={0xff0000} intensity={0.5} />
       <DebugLight color={0x00ffff} position={[ 30.0, 80.0, 0.0 ]} lightType="spot" intensity={5.0} />
       <DebugLight color={0xff00ff} position={[ -30.0, 80.0, 0.0 ]} lightType="spot" intensity={5.0} />
