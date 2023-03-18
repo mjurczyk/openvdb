@@ -13,7 +13,7 @@
     "@types/react": "^18.0.17",
     "@types/react-dom": "^18.0.6",
     "@vitejs/plugin-react": "^2.1.0",
-    "lil-gui": "^0.17.0",
+    "lil-gui": "^0.18.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-three-fiber": "^6.0.13",

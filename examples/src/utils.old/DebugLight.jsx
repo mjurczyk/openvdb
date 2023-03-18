@@ -1,11 +1,16 @@
+import * as Three from 'three';
 import { useRef } from "react";
-import { useFrame } from "react-three-fiber";
+import { useFrame, useThree } from "react-three-fiber";
+
+const SHOW_HELPERS = false;
 
 export const DebugLight = (props) => {
   const { lightType, movementDirection } = props;
 
+  const { scene } = useThree();
   const lightRef = useRef();
   const pivotRef = useRef();
+  const helper = useRef();
 
   let dt = 0;
 
@@ -16,6 +21,11 @@ export const DebugLight = (props) => {
       return;
     }
 
+    if (SHOW_HELPERS && !helper.current) {
+      helper.current = new Three.SpotLightHelper(lightRef.current);
+      scene.add(helper.current);
+    }
+
     if (!lightRef.current.userData.originalPosition) {
       lightRef.current.userData.originalPosition = lightRef.current.position.clone();
       lightRef.current.userData.seed = 1.0;
@@ -24,7 +34,7 @@ export const DebugLight = (props) => {
     if (movementDirection === 'linear') {
       lightRef.current.position.x = lightRef.current.userData.originalPosition.x + Math.sin(lightRef.current.userData.seed + dt) * 120.0;
     } else {
-      pivotRef.current.rotateY(0.01);
+      pivotRef.current.rotateY(0.005);
       lightRef.current.position.z = lightRef.current.userData.originalPosition.z + Math.sin(lightRef.current.userData.seed - dt) * 10.0;
     }
   });
@@ -32,7 +42,7 @@ export const DebugLight = (props) => {
   if (lightType === 'spot') {
     return (
       <group ref={pivotRef}>
-        <spotLight color={props.color} angle={0.2} penumbra={0.6} ref={lightRef} {...props}>
+        <spotLight color={props.color} angle={0.5} penumbra={0.6} ref={lightRef} {...props}>
           <mesh>
             <sphereGeometry args={[ 1.0, 32, 32]} />
             <meshBasicMaterial color={props.color} />

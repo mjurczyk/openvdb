@@ -40,7 +40,7 @@ export const Sandbox = () => {
         <group>
           <VDBPreview
             vdbSource={vdbFile}
-            resolution={256}
+            resolution={75}
             steps={500}
             color={0xffffff}
             absorbance={1.0}
@@ -54,12 +54,12 @@ export const Sandbox = () => {
           >
             <pointLight
               color={0xffffcc}
-              intensity={10.}
+              intensity={1.}
               position={[ 0.0, -10.0, -20.0 ]}
             />
             <pointLight
-              color={0xffffcc}
-              intensity={10.}
+              color={0xffcccc}
+              intensity={2.}
               position={[ 0.0, -10.0, 20.0 ]}
             />
           </primitive>

@@ -128,7 +128,7 @@ export class Mask {
   }
 
   isOn(offset) {
-    return this.onIndexCache[offset];
+    return !!this.onIndexCache[offset];
   }
 
   isOff(offset) {
