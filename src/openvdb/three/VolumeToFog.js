@@ -7,8 +7,7 @@ import { VolumeBasicMaterial } from './VolumeBasicMaterial';
 
 export class VolumeToFog extends Three.Group {
   processes = [];
-  material = null;
-  geometry = null;
+  materials = [];
 
   constructor(
     source,
@@ -77,7 +76,7 @@ export class VolumeToFog extends Three.Group {
     const totalGrids = grids.length;
     const totalVoxels = totalGrids * Math.pow(resolution, 3);
 
-    grids.forEach((grid, gridIndex) => {
+    grids.reverse().forEach((grid, gridIndex) => {
       if (!(grid instanceof GridDescriptor)) {
         return;
       }
@@ -90,8 +89,8 @@ export class VolumeToFog extends Three.Group {
       volumeTexture3D.unpackAlignment = 1;
       volumeTexture3D.needsUpdate = true;
 
-      this.geometry = new Three.SphereGeometry(1.0);
-      this.material = new VolumeBasicMaterial({
+      const geometry = new Three.SphereGeometry(1.0);
+      const material = new VolumeBasicMaterial({
         emissiveMap3D: emissiveTexture3D,
         densityMap3D: volumeTexture3D,
         resolution,
@@ -102,8 +101,10 @@ export class VolumeToFog extends Three.Group {
         scatterColor,
       });
 
-      const fog = new Three.Mesh(this.geometry, this.material);
+      const fog = new Three.Mesh(geometry, material);
       fog.frustumCulled = false;
+
+      this.materials.push(material);
 
       const resolutionInv = 1.0 / resolution;
       const resolutionPow2 = Math.pow(resolution, 2);

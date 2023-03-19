@@ -1,10 +1,7 @@
 import * as Three from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
-import { exampleClouds } from './examples/clouds';
-import { showGui } from './utils/gui';
 import Stats from 'stats.js'
-
-import { loaders } from './utils/resources';
+import { exampleVDB } from './examples/vdb';
 
 export const camera = new Three.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.01, 10000.0);
 export const scene = new Three.Scene();
@@ -45,4 +42,4 @@ const animate = () => {
 
 init();
 animate();
-exampleClouds({ scene });
+exampleVDB({ scene });

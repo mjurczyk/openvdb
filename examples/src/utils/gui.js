@@ -2,11 +2,12 @@ import GUI from "lil-gui";
 import { exampleBbox } from "../examples/bbox";
 import { exampleBunny } from "../examples/bunny";
 import { exampleClouds } from "../examples/clouds";
+import { exampleVDB } from "../examples/vdb";
 import { scene } from "../main";
 
 export let gui = new GUI();
 
-let activeDemo = 'clouds';
+let activeDemo = 'vdb';
 
 const guiBaseFields = () => [
   {
@@ -19,6 +20,7 @@ const guiBaseFields = () => [
           'Bunny': 'bunny',
           'Clouds': 'clouds',
           'Bbox': 'bbox',
+          'Custom VDB': 'vdb',
         },
         defaultValue: activeDemo,
         onChange: (value) => {
@@ -46,6 +48,8 @@ const guiBaseFields = () => [
               return exampleBunny({ scene });
             case 'clouds':
               return exampleClouds({ scene });
+            case 'vdb':
+              return exampleVDB({ scene });
           }
         }
       }

@@ -55,6 +55,14 @@ export const exampleClouds = ({ scene }) => {
             }
           },
           {
+            id: 'backgroundColor',
+            name: 'Background Color',
+            defaultValue: '#598eff',
+            onChange: (value) => {
+              scene.background.set(value);
+            }
+          },
+          {
             id: 'lightIntensity',
             name: 'Light Intensity',
             defaultValue: 1.0,

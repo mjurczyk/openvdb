@@ -12,10 +12,24 @@
         width: 100vw;
         height: 100vh;
       }
+
+      #dropzone {
+        position: absolute;
+        bottom: 10px;
+        right: 10px;
+        background-color: #111111;
+        border-radius: 4px;
+        color: #cccccc;
+        z-index: 1;
+        padding: 10px;
+        cursor: pointer;
+        user-select: none;
+      }
     </style>
   </head>
   <body>
     <div id="root"></div>
+    <div id="dropzone"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

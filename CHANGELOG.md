@@ -11,6 +11,8 @@ Core:
 - Rename `color` -> `baseColor`
 - Add texture tiling and wrapping
 - Remove second (material) argument from `FogVolume` constructor (assume `VolumeBasicMaterial`)
+- Set default volume color to `#ffffff`
+- Set default volume scatter color to `#000000`
 
 Examples:
 
@@ -18,6 +20,7 @@ Examples:
 - Add `bbox` example
 - Add `bunny` example with various light configurations
 - Add `clouds` example with generative clouds
+- Add `vdb` example for custom drag-and-drop VDB preview
 
 # v0.1.3
 

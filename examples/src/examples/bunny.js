@@ -118,6 +118,14 @@ export const exampleBunny = ({ scene }) => {
             }
           },
           {
+            id: 'backgroundColor',
+            name: 'Background Color',
+            defaultValue: '#598eff',
+            onChange: (value) => {
+              scene.background.set(value);
+            }
+          },
+          {
             id: 'lightSetup',
             name: 'Lights',
             defaultValue: 'hemi',

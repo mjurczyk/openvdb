@@ -191,17 +191,17 @@ Based on files hosted on [https://www.openvdb.org/download/](https://www.openvdb
 | buddha.vdb           | ✅ Yes     |                                                               |
 | bunny.vdb            | ✅ Yes     |                                                               |
 | bunny_cloud.vdb      | ✅ Yes     |                                                               |
-| crawler.vdb          | ❓ Partial | Loads ok, fails to render (Three.js) due to memory limits     |
+| crawler.vdb          | ❓ Partial | Exceeds memory limits                                         |
 | cube.vdb             | ✅ Yes     |                                                               |
 | dragon.vdb           | ✅ Yes     |                                                               |
-| emu.vdb              | ❓ Partial | Loads ok, fails to render (Three.js) due to memory limits     |
-| explosion.vdb        | ❓ Partial | Loads ok, fails to render due to offsets, lacks color support |
-| fire.vdb             | ❓ Partial | Loads ok, fails to render due to offsets, lacks color support |
+| emu.vdb              | ✅ Yes     |                                                               |
+| explosion.vdb        | ✅ Yes     |                                                               |
+| fire.vdb             | ✅ Yes     |                                                               |
 | icosahedron.vdb      | ✅ Yes     |                                                               |
-| iss.vdb              | ❓ Partial | Loads ok, fails to render (Three.js) due to memory limits     |
-| smoke1.vdb           | ❓ Partial | Loads ok, fails to render due to offsets, lacks color support |
-| smoke2.vdb           | ❓ Partial | Loads ok, fails to render due to offsets, lacks color support |
-| space.vdb            | ❓ Partial | Loads ok, fails to render (Three.js) due to memory limits     |
+| iss.vdb              | ✅ Yes     |                                                               |
+| smoke1.vdb           | ✅ Yes     |                                                               |
+| smoke2.vdb           | ✅ Yes     |                                                               |
+| space.vdb            | ❓ Partial | Exceeds memory limits                                         |
 | sphere.vdb           | ✅ Yes     |                                                               |
 | torus.vdb            | ✅ Yes     |                                                               |
 | torus_knot.vdb       | ✅ Yes     |                                                               |

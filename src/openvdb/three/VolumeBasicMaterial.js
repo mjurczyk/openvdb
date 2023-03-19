@@ -2,8 +2,8 @@ import * as Three from 'three';
 
 export class VolumeBasicMaterial extends Three.MeshPhongMaterial {
   _uniforms = {
-    baseColor: { value: new Three.Color() },
-    scatterColor: { value: new Three.Color() },
+    baseColor: { value: new Three.Color(0xffffff) },
+    scatterColor: { value: new Three.Color(0x000000) },
     densityMap3D: { value: null },
     emissiveMap3D: { value: null },
     steps: { value: 100 },
@@ -401,7 +401,7 @@ export class VolumeBasicMaterial extends Three.MeshPhongMaterial {
           #endif
 
           // NOTE Blackbody radiation source - https://www.shadertoy.com/view/4tdGWM
-          float temperatureScaled = temperature * 16000.;
+          float temperatureScaled = temperature * 1000.;
 
           radiation.r += 1. / (exp(19E3 * 1. / temperatureScaled) - 1.);
           radiation.g += 3.375 / (exp(19E3 * 1.5 / temperatureScaled) - 1.);
@@ -434,6 +434,7 @@ export class VolumeBasicMaterial extends Three.MeshPhongMaterial {
           return uv;
         }
 
+        // NOTE GLSL Noise source - https://gist.github.com/patriciogonzalezvivo/670c22f3966e662d2f83
         vec4 permute(vec4 x){return mod(((x*34.0)+1.0)*x, 289.0);}
         vec4 taylorInvSqrt(vec4 r){return 1.79284291400159 - 0.85373472095314 * r;}
 
@@ -441,30 +442,24 @@ export class VolumeBasicMaterial extends Three.MeshPhongMaterial {
           const vec2  C = vec2(1.0/6.0, 1.0/3.0) ;
           const vec4  D = vec4(0.0, 0.5, 1.0, 2.0);
 
-        // First corner
           vec3 i  = floor(v + dot(v, C.yyy) );
           vec3 x0 =   v - i + dot(i, C.xxx) ;
 
-        // Other corners
           vec3 g = step(x0.yzx, x0.xyz);
           vec3 l = 1.0 - g;
           vec3 i1 = min( g.xyz, l.zxy );
           vec3 i2 = max( g.xyz, l.zxy );
 
-          //  x0 = x0 - 0. + 0.0 * C 
           vec3 x1 = x0 - i1 + 1.0 * C.xxx;
           vec3 x2 = x0 - i2 + 2.0 * C.xxx;
           vec3 x3 = x0 - 1. + 3.0 * C.xxx;
 
-        // Permutations
           i = mod(i, 289.0 ); 
           vec4 p = permute( permute( permute( 
                     i.z + vec4(0.0, i1.z, i2.z, 1.0 ))
                   + i.y + vec4(0.0, i1.y, i2.y, 1.0 )) 
                   + i.x + vec4(0.0, i1.x, i2.x, 1.0 ));
 
-        // Gradients
-        // ( N*N points uniformly over a square, mapped onto an octahedron.)
           float n_ = 1.0/7.0; // N=7
           vec3  ns = n_ * D.wyz - D.xzx;
 
@@ -492,14 +487,12 @@ export class VolumeBasicMaterial extends Three.MeshPhongMaterial {
           vec3 p2 = vec3(a1.xy,h.z);
           vec3 p3 = vec3(a1.zw,h.w);
 
-        //Normalise gradients
           vec4 norm = taylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2, p2), dot(p3,p3)));
           p0 *= norm.x;
           p1 *= norm.y;
           p2 *= norm.z;
           p3 *= norm.w;
 
-        // Mix final noise value
           vec4 m = max(0.6 - vec4(dot(x0,x0), dot(x1,x1), dot(x2,x2), dot(x3,x3)), 0.0);
           m = m * m;
           return 42.0 * dot( m*m, vec4( dot(p0,x0), dot(p1,x1), 
@@ -621,6 +614,11 @@ export class VolumeBasicMaterial extends Three.MeshPhongMaterial {
               density += volumeSample * eDensityAbsorbance;
               smoothness += volumeSample * eInverseDensityScale;
 
+              #ifdef USE_EMISSIVE_GRID
+                emissiveSample = texture(emissiveMap3D, mapTextureSample(vPoint)).r;
+                emissive = max(emissive, density * vec3(emissiveSample));
+              #endif
+
               if (density < 1.) {
                 lastNonSolidPoint = vPoint;
               }
@@ -628,11 +626,6 @@ export class VolumeBasicMaterial extends Three.MeshPhongMaterial {
               if (density >= 1. && smoothness >= densityScale) {
                 break;
               }
-
-              #ifdef USE_EMISSIVE_GRID
-                emissiveSample = texture(emissiveMap3D, mapTextureSample(vPoint)).r;
-                emissive = max(emissive, vec3(emissiveSample));
-              #endif
 
               vPoint += vDirectionDeltaStep;
             }
@@ -665,11 +658,12 @@ export class VolumeBasicMaterial extends Three.MeshPhongMaterial {
             }
 
             emissive = getBlackBodyRadiation(emissive.r);
+            albedo += emissive;
 
             float smoothnessBlend = smoothstep(0.0, 1.0, smoothness);
             float opacityNoise = noiseScale > 0. ? smoothness + (abs(fbm(mapTextureSample(vPoint))) * noiseScale + (1. - noiseScale)) : smoothness + 1.;
 
-            outgoingLight.rgb = max(scatterColor, max(albedo, emissive));
+            outgoingLight.rgb = max(scatterColor, albedo);
             diffuseColor.a = smoothnessBlend * saturate(density * opacity) * opacityNoise;
 
             if (density <= 0.) {
