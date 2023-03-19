@@ -15,18 +15,6 @@ Keep in mind that, due to memory-access and multithreading limitations of JS, th
 
 ## Usage
 
-### Without library:
-
-```js
-import * as OpenVDB from 'openvdb';
-
-const vdbReader = await OpenVDB.loadVDB('./assets/bunny.vdb');
-
-vdbReader.grids.forEach(function (grid) {
-  const voxelValue = grid.getValue({ x: 0.0, y: 0.0, z: 1.0 });
-});
-```
-
 ### With `three.js`:
 
 ```js
@@ -37,12 +25,12 @@ const scene = new Three.Scene();
 
 // NOTE To load an existing VDB model - use VDBLoader:
 new OpenVDB.VDBLoader().load('./assets/bunny.vdb', function (vdb) {
-  const fogVolume = new OpenVDB.FogVolume(vdb, null, {
+  const fogVolume = new OpenVDB.FogVolume(vdb, {
     resolution: 100,
     progressive: true,
     steps: 20,
     absorbance: 1.0,
-    color: 0xff00ff,
+    baseColor: 0xff00ff,
   });
 
   scene.add(fogVolume);
@@ -50,12 +38,12 @@ new OpenVDB.VDBLoader().load('./assets/bunny.vdb', function (vdb) {
 
 // NOTE To create a primitive volumetric shape - use volume converters directly:
 const primitiveVolume = new OpenVDB.SphereVolume();
-const fogPrimitive = new OpenVDB.FogVolume(primitiveVolume, null, {
+const fogPrimitive = new OpenVDB.FogVolume(primitiveVolume, {
   resolution: 50,
   progressive: false,
   steps: 50,
   absorbance: 0.5,
-  color: 0xff00ff,
+  baseColor: 0xff00ff,
 });
 
 scene.add(fogPrimitive);
@@ -72,12 +60,12 @@ export const VDBComponent = () => {
 
   useEffect(() => {
     new OpenVDB.VDBLoader().load('./assets/bunny.vdb', function (vdb) {
-      const fogVolume = new OpenVDB.FogVolume(vdb, null, {
+      const fogVolume = new OpenVDB.FogVolume(vdb, {
         resolution: 100,
         progressive: true,
         steps: 20,
         absorbance: 1.0,
-        color: 0xff00ff,
+        baseColor: 0xff00ff,
       });
 
       setModel(fogVolume);
@@ -90,6 +78,18 @@ export const VDBComponent = () => {
 
   return <primitive object={model} />;
 };
+```
+
+### Without library:
+
+```js
+import * as OpenVDB from 'openvdb';
+
+const vdbReader = await OpenVDB.loadVDB('./assets/bunny.vdb');
+
+vdbReader.grids.forEach(function (grid) {
+  const voxelValue = grid.getValue({ x: 0.0, y: 0.0, z: 1.0 });
+});
 ```
 
 ## Docs
@@ -124,9 +124,9 @@ Converts given `OpenVDBReader` to `Three.Object3D`. Resulting object consists of
 
 ### VolumeToFog
 
-- `VolumeToFog( vdb: OpenVDB.OpenVDBReader | OpenVDB.GridDescriptor | Array<OpenVDB.GridDescriptor>, materialOverride: Optional<Three.Material>, { resolution, steps, progressive, absorbance, opacity, noise, color }, onConverted: () => void, onProgress: ({ convertedVoxels, totalVoxels, convertedGrids, totalGrids }) => void ): Three.Object3D`
+- `VolumeToFog( vdb: OpenVDB.OpenVDBReader | OpenVDB.GridDescriptor | Array<OpenVDB.GridDescriptor>, { resolution, steps, progressive, absorbance, opacity, noise, baseColor }, onConverted: () => void, onProgress: ({ convertedVoxels, totalVoxels, convertedGrids, totalGrids }) => void ): Three.Object3D`
 
-Converts given `OpenVDBReader` to a volumetric `Three.Object3D`. Optional `materialOverride` can be used as a base for that volumetric object (shader of the material will be partially overriden.) `onConverted` and `onProgress` are called as the VDB is converted to a fog. Most importantly:
+Converts given `OpenVDBReader` to a volumetric `Three.Object3D`. `onConverted` and `onProgress` are called as the VDB is converted to a fog. Most importantly:
 
 `resolution: number` - (required) resolution of the resulting 3D texture. Keep in mind this will be risen to the power of 3 - so resolution 200 results in 8 million voxels.
 `steps: number` - (default: 100) detail of the resulting fog volume. High amount of steps combined with large amount of lights in the scene may decrease performance significantly.
@@ -134,7 +134,7 @@ Converts given `OpenVDBReader` to a volumetric `Three.Object3D`. Optional `mater
 `absorbance: number` - (default: `1.0`) `1.0` means fog absorbs all the light going through it, lower values all light to partially traverse through the fog.
 `opacity: number` - alpha opacity of the fog (doesn't affect light calculations.)
 `noise: number` - between `0.0` and `1.0`, amount of CPU-generated noise within the fog volume, adds a bit of randomness to the result.
-`color: Three.Color | string | number` - (default: `0x000000`) albedo color of the fog volume.
+`baseColor: Three.Color | string | number` - (default: `0x000000`) albedo color of the fog volume.
 
 ⚠️ Note - fog volumes currently react to all lights in the scene. Keep this in mind as light calculations within the volume are done using quite expensive raymarching. If fog volume covers a significant part of the viewport, consider decreasing `steps` parameter, or the overall amount of lights.
 
@@ -164,6 +164,15 @@ Generates a 1x1x1 volumetric sphere.
 
 ---
 
+### CloudVolume
+
+
+- `CloudVolume( { height: number, density: number } ): OpenVDB.GridDescriptor`
+
+Generates a 1x1x1 volumetric clouds based on noise inputs.
+
+---
+
 ### ParametricVolume
 
 - `ParametricVolume( valueFunction(position: Three.Vector3) => number ): OpenVDB.GridDescriptor`
@@ -182,17 +191,17 @@ Based on files hosted on [https://www.openvdb.org/download/](https://www.openvdb
 | buddha.vdb           | ✅ Yes     |                                                               |
 | bunny.vdb            | ✅ Yes     |                                                               |
 | bunny_cloud.vdb      | ✅ Yes     |                                                               |
-| crawler.vdb          | ❓ Partial | Loads ok, fails to render (Three.js) due to memory limits     |
+| crawler.vdb          | ❓ Partial | Exceeds memory limits                                         |
 | cube.vdb             | ✅ Yes     |                                                               |
 | dragon.vdb           | ✅ Yes     |                                                               |
-| emu.vdb              | ❓ Partial | Loads ok, fails to render (Three.js) due to memory limits     |
-| explosion.vdb        | ❓ Partial | Loads ok, fails to render due to offsets, lacks color support |
-| fire.vdb             | ❓ Partial | Loads ok, fails to render due to offsets, lacks color support |
+| emu.vdb              | ✅ Yes     |                                                               |
+| explosion.vdb        | ✅ Yes     |                                                               |
+| fire.vdb             | ✅ Yes     |                                                               |
 | icosahedron.vdb      | ✅ Yes     |                                                               |
-| iss.vdb              | ❓ Partial | Loads ok, fails to render (Three.js) due to memory limits     |
-| smoke1.vdb           | ❓ Partial | Loads ok, fails to render due to offsets, lacks color support |
-| smoke2.vdb           | ❓ Partial | Loads ok, fails to render due to offsets, lacks color support |
-| space.vdb            | ❓ Partial | Loads ok, fails to render (Three.js) due to memory limits     |
+| iss.vdb              | ✅ Yes     |                                                               |
+| smoke1.vdb           | ✅ Yes     |                                                               |
+| smoke2.vdb           | ✅ Yes     |                                                               |
+| space.vdb            | ❓ Partial | Exceeds memory limits                                         |
 | sphere.vdb           | ✅ Yes     |                                                               |
 | torus.vdb            | ✅ Yes     |                                                               |
 | torus_knot.vdb       | ✅ Yes     |                                                               |
