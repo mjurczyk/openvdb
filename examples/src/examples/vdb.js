@@ -1,12 +1,11 @@
 import * as Three from 'three';
 import * as OpenVDB from '../../../src/openvdb/three';
-import { gui, setGuiFields } from '../utils/gui';
+import { setGuiFields, dropTarget } from '../utils/gui';
 import { loadAndCacheVDB } from '../utils/resources';
 import { SimpleDropzone } from 'simple-dropzone';
 
 let fogVolume, targetScene;
 
-const dropTarget = document.querySelector('#dropzone');
 const dropzone = new SimpleDropzone(dropTarget, document.createElement('input'));
 
 dropTarget.innerHTML = '[Drop .VDB / .ZIP here]';

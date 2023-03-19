@@ -5,6 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>OpenVDB</title>
     <style>
+      body {
+        font-family: 'Baloo Tamma 2', Arial, Helvetica, sans-serif;
+        line-height: 1.23;
+      }
+
       canvas {
         position: absolute;
         top: 0;
@@ -15,8 +20,8 @@
 
       #dropzone {
         position: absolute;
-        bottom: 10px;
-        right: 10px;
+        bottom: 40px;
+        right: 5px;
         background-color: #111111;
         border-radius: 4px;
         color: #cccccc;
@@ -25,11 +30,64 @@
         cursor: pointer;
         user-select: none;
       }
+      
+      .bottom-tab {
+        position: absolute;
+        display: inline-flex;
+        bottom: 0px;
+        left: 0px;
+        width: calc(100vw - 8px);
+        padding: 6px 4px 2px 4px;
+        font-size: 14px;
+        color: #ffffff;
+        background-color: #1f1f1f;
+        z-index: 3;
+        border-top: solid 1px #3f3f3f;
+      }
+
+      .bottom-tab a {
+        color: #ffffff;
+        text-decoration: none;
+        opacity: 0.8;
+      }
+
+      .bottom-tab a:hover {
+        opacity: 1.0;
+      }
+
+      .bottom-tab > * {
+        margin: 0px 8px;
+      }
     </style>
   </head>
   <body>
     <div id="root"></div>
     <div id="dropzone"></div>
+    <div class="bottom-tab">
+      <div>
+        <a href="https://github.com/mjurczyk/openvdb" target="_blank">
+          Github mjurczyk/openvdb
+        </a>
+      </div>
+      <div>
+        <a href="https://github.com/mjurczyk/openvdb#usage" target="_blank">
+          Documentation
+        </a>
+      </div>
+      <div>
+        <a href="https://www.openvdb.org/" target="_blank">
+          OpenVDB
+        </a>
+      </div>
+      <div>
+        <a href="https://github.com/mjurczyk/openvdb" target="_blank">
+          <img alt="GitHub Repo stars" src="https://img.shields.io/github/stars/mjurczyk/openvdb?style=social" />
+        </a>
+      </div>
+      <div class="package-version" style="flex-grow: 1; text-align: right;">
+        v{packageInfo.version}
+      </div>
+    </div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

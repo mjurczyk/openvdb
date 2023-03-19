@@ -4,7 +4,7 @@ import { gui, setGuiFields } from '../utils/gui';
 import { loadAndCacheVDB } from '../utils/resources';
 
 export const exampleBbox = ({ scene }) => {
-  loadAndCacheVDB('./assets/bunny_cloud.vdb').then(vdb => {
+  loadAndCacheVDB('bunny_cloud.vdb', './assets/bunny_cloud.vdb').then(vdb => {
     const fogVolume = new OpenVDB.Bbox(vdb);
 
     // NOTE Center fog volume

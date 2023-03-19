@@ -2,10 +2,13 @@ import * as Three from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 import Stats from 'stats.js'
 import { exampleVDB } from './examples/vdb';
+import packageInfo from '../../package.json';
 
 export const camera = new Three.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.01, 10000.0);
 export const scene = new Three.Scene();
 export const renderer = new Three.WebGLRenderer({ antialias: true });
+
+document.querySelector('.package-version').innerHTML = `v${packageInfo.version}`;
 
 const stats = new Stats();
 document.body.appendChild(stats.dom);

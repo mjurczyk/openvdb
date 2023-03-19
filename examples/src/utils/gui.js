@@ -6,6 +6,7 @@ import { exampleVDB } from "../examples/vdb";
 import { scene } from "../main";
 
 export let gui = new GUI();
+export const dropTarget = document.querySelector('#dropzone');
 
 let activeDemo = 'vdb';
 
@@ -40,6 +41,8 @@ const guiBaseFields = () => [
             }
           });
           scene.children = [];
+
+          dropTarget.style.display = value === 'vdb' ? '' : 'none';
 
           switch (value) {
             case 'bbox':

@@ -4,7 +4,7 @@ import { gui, setGuiFields } from '../utils/gui';
 import { loadAndCacheVDB } from '../utils/resources';
 
 export const exampleBunny = ({ scene }) => {
-  loadAndCacheVDB('./assets/bunny_cloud.vdb').then(vdb => {
+  loadAndCacheVDB('bunny_cloud.vdb', './assets/bunny_cloud.vdb').then(vdb => {
     const debugMesh = new Three.Mesh(
       new Three.SphereGeometry(20.0, 32.0, 32.0),
       new Three.MeshPhongMaterial({ color: 0xffffff })
