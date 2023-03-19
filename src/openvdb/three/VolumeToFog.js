@@ -20,7 +20,8 @@ export class VolumeToFog extends Three.Group {
       steps,
       noise,
       color,
-      emissiveGrid
+      emissiveGrid,
+      scatterColor,
     },
     onConverted,
     onProgress
@@ -41,38 +42,6 @@ export class VolumeToFog extends Three.Group {
       // NOTE Hope for the best
       grids = [source];
     }
-
-    // NOTE Material
-
-    // const isValidMaterial = [
-    //   'MeshBasicMaterial',
-    //   'MeshLambertMaterial',
-    //   'MeshMatcapMaterial',
-    //   'MeshPhongMaterial',
-    //   'MeshStandardMaterial',
-    //   'MeshPhysicalMaterial',
-    //   'MeshToonMaterial',
-    // ].includes(material?.type);
-
-    // if (material && !isValidMaterial) {
-    //   console.warn(
-    //     'VolumeToFog',
-    //     'unsupported material type for volume',
-    //     material.type,
-    //     'use MeshBasicMaterial, MeshLambertMaterial, MeshMatcapMaterial, MeshPhongMaterial, MeshPhysicalMaterial, or MeshToonMaterial'
-    //   );
-    // }
-
-    // if (!material || !isValidMaterial) {
-    //   baseMaterial = new Three.MeshStandardMaterial({
-    //     color: new Three.Color(0x000000),
-    //     side: Three.DoubleSide,
-    //   });
-    // } else {
-    //   baseMaterial = material;
-    // }
-
-    // baseMaterial.customProgramCacheKey = () => Math.random();
 
     // NOTE Shader properties (grids influencing color output)
 
@@ -123,16 +92,15 @@ export class VolumeToFog extends Three.Group {
 
       this.geometry = new Three.SphereGeometry(1.0);
       this.material = new VolumeBasicMaterial({
-        emissiveMap: emissiveTexture3D,
-        volumeMap: volumeTexture3D,
+        emissiveMap3D: emissiveTexture3D,
+        densityMap3D: volumeTexture3D,
         resolution,
         absorbance,
         opacity,
         steps,
         color,
+        scatterColor,
       });
-
-      // const material = baseMaterial.clone();
 
       const fog = new Three.Mesh(this.geometry, this.material);
       fog.frustumCulled = false;

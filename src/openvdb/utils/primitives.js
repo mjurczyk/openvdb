@@ -5,7 +5,7 @@ import { floatType } from '../math/memory';
 import { GridDescriptor } from '../core/GridDescriptor';
 import { Vector3 } from '../math/vector';
 import { GridTransform } from '../core/GridTransform';
-import { perlin3Noise, simplex3Noise } from '../math/noise';
+import { perlin3Noise, worley3Noise } from '../math/noise';
 
 export class CubeVolume extends GridDescriptor {
   static halfFloatGridPrefix = GridDescriptor.halfFloatGridPrefix;
@@ -242,8 +242,17 @@ export class CloudVolume extends GridDescriptor {
   gridName;
   gridType;
 
-  constructor() {
+  height = 1.0;
+  density = 0.01;
+
+  constructor({
+    height,
+    density
+  } = {}) {
     super();
+
+    this.height = height || 1.0;
+    this.density = density || 0.01;
 
     // NOTE Primitives don't need to use OpenVDBReader - just "read grid" right away
     this.readGrid();
@@ -296,7 +305,9 @@ export class CloudVolume extends GridDescriptor {
     return this.getWorldBbox();
   }
 
-  getValue(position) {
+  getValue(xyz) {
+    const position = new Vector3(xyz.x + 0.5, xyz.y + 0.5, xyz.z + 0.5);
+
     const scaledNoise = (scale, noiseSource) => {
       const scaledX = (position.x * scale) % scale;
       const scaledY = (position.y * scale) % scale;
@@ -307,11 +318,17 @@ export class CloudVolume extends GridDescriptor {
       const dz = Math.abs(scaledZ - 0.5);
     
       return noiseSource(dx, dy, dz);
+    };
+    
+    if (position.y < this.height) {
+      const yOffset = this.height - position.y;
+
+      const noise = scaledNoise(20.0, worley3Noise) + scaledNoise(100.0, worley3Noise) * 0.25 + scaledNoise(10.0, perlin3Noise);
+
+      return noise < this.density ? (0.5 * yOffset + scaledNoise(100.0, perlin3Noise) + scaledNoise(100.0, worley3Noise)) : 0.0;
     }
 
-    return (scaledNoise(2.0, perlin3Noise)) *
-      scaledNoise(3.0, perlin3Noise) *
-      scaledNoise(5.0 * 1.0 / (position.y - 0.5), perlin3Noise);
+    return 0.0;
   }
 
   getLeafAt(position) {

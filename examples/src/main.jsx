@@ -1,20 +1,36 @@
 import * as Three from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
-import './utils/gui';
+import { exampleClouds } from './examples/clouds';
+import { showGui } from './utils/gui';
+import Stats from 'stats.js'
 
-import { exampleBbox } from './examples/bbox';
-import { exampleSpotlights } from './examples/spotlights';
+import { loaders } from './utils/resources';
 
-let camera, scene, renderer;
+export const camera = new Three.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.01, 10000.0);
+export const scene = new Three.Scene();
+export const renderer = new Three.WebGLRenderer({ antialias: true });
+
+const stats = new Stats();
+document.body.appendChild(stats.dom);
 
 const init = () => {
-  camera = new Three.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.01, 10000.0);
   camera.position.set(-100.0, 80.0, 80.0);
 
-  scene = new Three.Scene();
   scene.background = new Three.Color(0x598eff);
 
-  renderer = new Three.WebGLRenderer({ antialias: true });
+  loaders.rgbe.load('./assets/blue-sky-2-HDR.hdr', hdri => {
+    hdri.mapping = Three.EquirectangularReflectionMapping;
+
+    scene.environment = hdri;
+  });
+
+  loaders.texture.load('./assets/blue-sky-2-SD.jpg', texture => {
+    texture.encoding = Three.sRGBEncoding;
+    texture.mapping = Three.EquirectangularRefractionMapping;
+
+    scene.background = texture;
+  });
+
   renderer.outputEncoding = Three.sRGBEncoding;
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.shadowMap.enabled = true;
@@ -33,10 +49,13 @@ const init = () => {
 const animate = () => {
   requestAnimationFrame(animate);
 
+  stats.begin();
+  
   renderer.render(scene, camera); 
+
+  stats.end();
 };
 
 init();
-// exampleBbox({ scene });
-exampleSpotlights({ scene });
 animate();
+exampleClouds({ scene });

@@ -1,3 +1,5 @@
+import * as Three from 'three';
+import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader';
 import * as OpenVDB from '../../../src/openvdb/three';
 
 export const vdbList = {};
@@ -20,4 +22,9 @@ export const loadAndCacheVDB = async (name, file) => {
   }
 
   return vdbList[file].vdb;
+};
+
+export const loaders = {
+  texture: new Three.TextureLoader(),
+  rgbe: new RGBELoader()
 };

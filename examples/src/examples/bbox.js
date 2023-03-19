@@ -5,8 +5,17 @@ import { loadAndCacheVDB } from '../utils/resources';
 
 export const exampleBbox = ({ scene }) => {
   loadAndCacheVDB('./assets/bunny_cloud.vdb').then(vdb => {
-    const bbox = new OpenVDB.Bbox(vdb);
-    scene.add(bbox);
+    const fogVolume = new OpenVDB.Bbox(vdb);
+
+    // NOTE Center fog volume
+    const sampleGrid = vdb.grids[Object.keys(vdb.grids)[0]];
+    const worldBbox = new Three.Box3();
+    worldBbox.set(...sampleGrid.getPreciseWorldBbox());
+    const worldOffset = new Three.Vector3();
+    worldBbox.getSize(worldOffset).multiplyScalar(0.5);
+    fogVolume.position.y -= worldOffset.y;
+
+    scene.add(fogVolume);
 
     setGuiFields([
       {

@@ -1,8 +1,14 @@
 import GUI from "lil-gui";
+import { exampleBbox } from "../examples/bbox";
+import { exampleBunny } from "../examples/bunny";
+import { exampleClouds } from "../examples/clouds";
+import { scene } from "../main";
 
 export let gui = new GUI();
 
-const guiBaseFields = [
+let activeDemo = 'clouds';
+
+const guiBaseFields = () => [
   {
     folder: 'General',
     children: [
@@ -10,19 +16,40 @@ const guiBaseFields = [
         id: 'demo',
         name: 'Example',
         options: {
-          '(0.1.4) Shuttle': 'shuttle',
-          '(0.1.3) Lighthouse': 'lighthouse',
-          'BBOX': 'bbox',
-          'Primitives': 'primitives',
+          'Bunny': 'bunny',
           'Clouds': 'clouds',
-          'Transforms': 'transforms',
-          'Spotlights': 'spotLights',
-          'Temperature': 'temperature',
-          'Level Set Mesh': 'levelSetMesh',
-          'Level Set LOD': 'levelSetLOD',
-          'Property Matrix': 'propertyMatrix',
+          'Bbox': 'bbox',
         },
-        defaultValue: 'bbox'
+        defaultValue: activeDemo,
+        onChange: (value) => {
+          if (value === activeDemo) {
+            return;
+          }
+
+          activeDemo = value;
+
+          scene.traverse(child => {
+            if (child.material) {
+              child.material.dispose();
+            }
+
+            if (child.geometry) {
+              child.geometry.dispose();
+            }
+          });
+          scene.children = [];
+
+          console.info(value, scene);
+
+          switch (value) {
+            case 'bbox':
+              return exampleBbox({ scene });
+            case 'bunny':
+              return exampleBunny({ scene });
+            case 'clouds':
+              return exampleClouds({ scene });
+          }
+        }
       }
     ]
   }
@@ -77,8 +104,6 @@ export const showGui = () => {
     });
   };
 
-  traverse(gui, guiBaseFields);
+  traverse(gui, guiBaseFields());
   traverse(gui, guiExtendedFields);
 };
-
-showGui();
