@@ -201,7 +201,7 @@ export const exampleBunny = ({ scene }) => {
             name: 'Fog Color',
             defaultValue: '#ffffff',
             onChange: (value) => {
-              fogVolume.material.baseColor = value;
+              fogVolume.materials.forEach(material => material.baseColor = value);
               debugMesh.material.color.set(value);
             }
           },
@@ -210,7 +210,7 @@ export const exampleBunny = ({ scene }) => {
             name: 'Scatter Color',
             defaultValue: '#000000',
             onChange: (value) => {
-              fogVolume.material.scatterColor = value;
+              fogVolume.materials.forEach(material => material.scatterColor = value);
             }
           },
           {
@@ -220,7 +220,7 @@ export const exampleBunny = ({ scene }) => {
             min: 0.0,
             max: 1.0,
             onChange: (value) => {
-              fogVolume.material.absorbance = value;
+              fogVolume.materials.forEach(material => material.absorbance = value);
             }
           },
           {
@@ -230,7 +230,7 @@ export const exampleBunny = ({ scene }) => {
             min: 0.0,
             max: 1.0,
             onChange: (value) => {
-              fogVolume.material.densityScale = value;
+              fogVolume.materials.forEach(material => material.densityScale = value);
             }
           },
           {
@@ -240,7 +240,7 @@ export const exampleBunny = ({ scene }) => {
             min: 0.0,
             max: 1.0,
             onChange: (value) => {
-              fogVolume.material.noiseScale = value;
+              fogVolume.materials.forEach(material => material.noiseScale = value);
             }
           },
           {
@@ -250,7 +250,7 @@ export const exampleBunny = ({ scene }) => {
             min: 0.0,
             max: 1.0,
             onChange: (value) => {
-              fogVolume.material.opacity = value;
+              fogVolume.materials.forEach(material => material.opacity = value);
             }
           },
           {
@@ -260,7 +260,7 @@ export const exampleBunny = ({ scene }) => {
             min: 10.0,
             max: 1000.0,
             onChange: (value) => {
-              fogVolume.material.steps = value;
+              fogVolume.materials.forEach(material => material.steps = value);
             }
           }
         ]

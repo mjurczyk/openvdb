@@ -48,14 +48,15 @@ dropzone.on('drop', ({ files }) => {
 dropzone.on('dropstart', () => {
   if (fogVolume) {
     fogVolume.parent.remove(fogVolume);
-
     fogVolume.geometry.dispose();
 
-    fogVolume.material.densityMap3D.dispose();
-    if (fogVolume.material.emissiveMap3D) fogVolume.material.emissiveMap3D.dispose();
+    fogVolume.materials.forEach(material => {
+      material.densityMap3D.dispose();
+
+      if (material.emissiveMap3D) material.emissiveMap3D.dispose();
+    });
 
     fogVolume.dispose();
-
     fogVolume = null;
   }
 

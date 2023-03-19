@@ -87,7 +87,7 @@ export const exampleClouds = ({ scene }) => {
               'Three.MirroredRepeatWrapping': Three.MirroredRepeatWrapping,
             },
             onChange: (value) => {
-              fogVolume.material.wrap3D = value;
+              fogVolume.materials.forEach(material => material.wrap3D = value);
             }
           },
           {
@@ -95,7 +95,7 @@ export const exampleClouds = ({ scene }) => {
             name: 'Fog Color',
             defaultValue: '#ffffff',
             onChange: (value) => {
-              fogVolume.material.baseColor = value;
+              fogVolume.materials.forEach(material => material.baseColor = value);
               debugMesh.material.color.set(value);
             }
           },
@@ -104,7 +104,7 @@ export const exampleClouds = ({ scene }) => {
             name: 'Scatter Color',
             defaultValue: `#${scene.background.getHexString ? scene.background.getHexString() : '888888'}`,
             onChange: (value) => {
-              fogVolume.material.scatterColor = value;
+              fogVolume.materials.forEach(material => material.scatterColor = value);
             }
           },
           {
@@ -114,7 +114,7 @@ export const exampleClouds = ({ scene }) => {
             min: 0.0,
             max: 1.0,
             onChange: (value) => {
-              fogVolume.material.absorbance = value;
+              fogVolume.materials.forEach(material => material.absorbance = value);
             }
           },
           {
@@ -124,7 +124,7 @@ export const exampleClouds = ({ scene }) => {
             min: 0.0,
             max: 1.0,
             onChange: (value) => {
-              fogVolume.material.densityScale = value;
+              fogVolume.materials.forEach(material => material.densityScale = value);
             }
           },
           {
@@ -134,7 +134,7 @@ export const exampleClouds = ({ scene }) => {
             min: 0.0,
             max: 1.0,
             onChange: (value) => {
-              fogVolume.material.noiseScale = value;
+              fogVolume.materials.forEach(material => material.noiseScale = value);
             }
           },
           {
@@ -144,7 +144,7 @@ export const exampleClouds = ({ scene }) => {
             min: 0.0,
             max: 1.0,
             onChange: (value) => {
-              fogVolume.material.opacity = value;
+              fogVolume.materials.forEach(material => material.opacity = value);
             }
           },
           {
@@ -154,7 +154,7 @@ export const exampleClouds = ({ scene }) => {
             min: 10.0,
             max: 1000.0,
             onChange: (value) => {
-              fogVolume.material.steps = value;
+              fogVolume.materials.forEach(material => material.steps = value);
             }
           }
         ]
