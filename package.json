@@ -1,6 +1,6 @@
 {
   "name": "openvdb",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "This project indirectly ports OpenVDB file format and tools to JavaScript, TypeScript, and Node. Specific 3D library implementations can be found in sub-directories.",
   "main": "./index.js",
   "exports": {

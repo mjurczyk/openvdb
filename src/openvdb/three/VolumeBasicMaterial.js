@@ -623,7 +623,7 @@ export class VolumeBasicMaterial extends Three.MeshPhongMaterial {
                 lastNonSolidPoint = vPoint;
               }
 
-              if (density >= 1. && smoothness >= densityScale) {
+              if (density >= 1. && smoothness >= 1.) {
                 break;
               }
 
