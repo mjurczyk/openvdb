@@ -163,7 +163,7 @@ export class VolumeBasicMaterial extends Three.MeshPhongMaterial {
         );
 
       const volumeLightsConfig = `
-        float lightMarchLimit = 100.;
+        float lightMarchLimit = resolution + 2.;
         int iLightMarchLimit = int(lightMarchLimit);
 
         vec3 vUnit = (mModelMatrix * vec4(1., 0., 0., 0.)).xyz;
