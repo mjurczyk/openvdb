@@ -1,4 +1,25 @@
-# v0.1.3 (proposal)
+# v0.1.4
+
+Core:
+
+- Add temperature / emissive texture support
+- Fix volume banding
+- Remodel light calculations
+- Add support for following material properties: `emissiveMap3D`, `offset3D`, `wrap3D`, `densityScale`, `noiseScale`
+- Add Clouds primitive as an example of generative clouds
+- Rename `volumeMap` -> `densityMap3D`
+- Rename `color` -> `baseColor`
+- Add texture tiling and wrapping
+- Remove second (material) argument from `FogVolume` constructor (assume `VolumeBasicMaterial`)
+
+Examples:
+
+- Move examples from `react-three-fiber` to vanilla `three`
+- Add `bbox` example
+- Add `bunny` example with various light configurations
+- Add `clouds` example with generative clouds
+
+# v0.1.3
 
 Core:
 

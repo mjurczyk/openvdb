@@ -19,7 +19,6 @@ import { VDBUploadContext } from './utils/VDBUpload';
 import { loadVDB } from '../../src/openvdb';
 import { Temperature } from './examples/Temperature';
 import { Clouds } from './examples/Clouds';
-import { loaders } from './utils/sharable';
 
 const DropZone = styled.div`
   position: absolute;

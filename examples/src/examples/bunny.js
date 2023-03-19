@@ -21,7 +21,7 @@ export const exampleBunny = ({ scene }) => {
     const fogVolume = new OpenVDB.FogVolume(vdb, {
       resolution: 100,
       steps: 50,
-      color: 0xffffff,
+      baseColor: 0xffffff,
       absorbance: 1.0,
       progressive: true
     });

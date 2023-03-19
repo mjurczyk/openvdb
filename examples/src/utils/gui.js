@@ -39,8 +39,6 @@ const guiBaseFields = () => [
           });
           scene.children = [];
 
-          console.info(value, scene);
-
           switch (value) {
             case 'bbox':
               return exampleBbox({ scene });

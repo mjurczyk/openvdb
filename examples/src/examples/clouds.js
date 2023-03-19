@@ -26,7 +26,7 @@ export const exampleClouds = ({ scene }) => {
       progressive: true,
       steps: 500,
       absorbance: 0.5,
-      color: 0xaaaaaa
+      baseColor: 0xaaaaaa
     });
     fogVolume.scale.setScalar(1000.0);
     fogVolume.position.y += 300.0;

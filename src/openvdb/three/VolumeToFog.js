@@ -19,7 +19,7 @@ export class VolumeToFog extends Three.Group {
       opacity,
       steps,
       noise,
-      color,
+      baseColor,
       emissiveGrid,
       scatterColor,
     },
@@ -98,7 +98,7 @@ export class VolumeToFog extends Three.Group {
         absorbance,
         opacity,
         steps,
-        color,
+        baseColor,
         scatterColor,
       });
 

@@ -19,8 +19,16 @@ export class VolumeBasicMaterial extends Three.MeshPhongMaterial {
     this._uniforms.baseColor.value.set(value);
   }
 
+  get baseColor() {
+    return this._uniforms.baseColor.value;
+  }
+
   set scatterColor(value) {
     this._uniforms.scatterColor.value.set(value);
+  }
+
+  get scatterColor() {
+    return this._uniforms.scatterColor.value;
   }
 
   set densityMap3D(value) {
@@ -108,7 +116,7 @@ export class VolumeBasicMaterial extends Three.MeshPhongMaterial {
 
     Object.keys(this._uniforms).forEach(key => {
       if (props[key]) {
-        this._uniforms[key].value = props[key];
+        this[key] = props[key];
 
         if (props[key] instanceof Three.Texture) {
           props[key].offset3D = this._uniforms.offset3D.value;

@@ -18,19 +18,6 @@ const init = () => {
 
   scene.background = new Three.Color(0x598eff);
 
-  loaders.rgbe.load('./assets/blue-sky-2-HDR.hdr', hdri => {
-    hdri.mapping = Three.EquirectangularReflectionMapping;
-
-    scene.environment = hdri;
-  });
-
-  loaders.texture.load('./assets/blue-sky-2-SD.jpg', texture => {
-    texture.encoding = Three.sRGBEncoding;
-    texture.mapping = Three.EquirectangularRefractionMapping;
-
-    scene.background = texture;
-  });
-
   renderer.outputEncoding = Three.sRGBEncoding;
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.shadowMap.enabled = true;
