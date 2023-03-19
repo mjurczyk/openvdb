@@ -22,7 +22,8 @@
   "scripts": {
     "build": "rollup --config ./rollup.config.js && cd build && npm pack",
     "build:examples": "cd examples && npm run build",
-    "dev": "cd examples && npm run dev"
+    "dev": "cd examples && npm run dev",
+    "publish": "npm run build && cd ./build && npm publish"
   },
   "author": {
     "name": "mjurczyk",
