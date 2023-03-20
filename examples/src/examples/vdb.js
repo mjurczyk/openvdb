@@ -46,7 +46,7 @@ dropzone.on('drop', ({ files }) => {
 
 dropzone.on('dropstart', () => {
   if (fogVolume) {
-    fogVolume.parent.remove(fogVolume);
+    if (fogVolume.parent) fogVolume.parent.remove(fogVolume);
     fogVolume.geometry.dispose();
 
     fogVolume.materials.forEach(material => {
