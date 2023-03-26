@@ -11,21 +11,18 @@ export class VolumeToFog extends Three.Group {
 
   constructor(
     source,
-    {
-      resolution,
-      progressive,
-      absorbance,
-      opacity,
-      steps,
-      noise,
-      baseColor,
-      emissiveGrid,
-      scatterColor,
-    },
+    materialProps,
     onConverted,
     onProgress
   ) {
     super();
+
+    const {
+      resolution,
+      progressive,
+      noise,
+      emissiveGrid,
+    } = materialProps;
 
     this.frustumCulled = false;
 
@@ -91,14 +88,9 @@ export class VolumeToFog extends Three.Group {
 
       const geometry = new Three.SphereGeometry(1.0);
       const material = new VolumeBasicMaterial({
+        ...materialProps,
         emissiveMap3D: emissiveTexture3D,
         densityMap3D: volumeTexture3D,
-        resolution,
-        absorbance,
-        opacity,
-        steps,
-        baseColor,
-        scatterColor,
       });
 
       const fog = new Three.Mesh(geometry, material);
@@ -135,6 +127,22 @@ export class VolumeToFog extends Three.Group {
 
       function* probeValue() {
         for (let i = 0; i < resolutionPow3; i++) {
+          const noiseSeed = MathUtils.clamp(255.0 * (noise || 0.0), 0.0, 255.0);
+          const index = x + y * resolution + z * resolutionPow2;
+
+          data[index] = grid.getValue(target) * (255.0 - noiseSeed + Math.random() * noiseSeed);
+          probeEmissiveValue && probeEmissiveValue(index, target, x, y, z);
+
+          convertedVoxels++;
+
+          if (progressive) {
+            volumeTexture3D.needsUpdate = true;
+
+            if (emissiveTexture3D) {
+              emissiveTexture3D.needsUpdate = true;
+            }
+          }
+
           if (z >= resolution) {
             probeEmissiveValue = null;
             emissiveTexture3D.needsUpdate = true;
@@ -159,22 +167,6 @@ export class VolumeToFog extends Three.Group {
 
             z++;
             target.z += step.z;
-          }
-
-          const noiseSeed = MathUtils.clamp(255.0 * (noise || 0.0), 0.0, 255.0);
-          const index = x + y * resolution + z * resolutionPow2;
-
-          data[index] = grid.getValue(target) * (255.0 - noiseSeed + Math.random() * noiseSeed);
-          probeEmissiveValue && probeEmissiveValue(index, target, x, y, z);
-
-          convertedVoxels++;
-
-          if (progressive) {
-            volumeTexture3D.needsUpdate = true;
-
-            if (emissiveTexture3D) {
-              emissiveTexture3D.needsUpdate = true;
-            }
           }
 
           yield;
