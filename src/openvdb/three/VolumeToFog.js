@@ -255,7 +255,6 @@ export class VolumeToFog extends Three.Group {
       }
 
       for (let i = 0; i <= resolutionSteps.length; i++) {
-        console.info('convert', resolutionSteps[i], resolutionSteps);
         await convertResolution(resolutionSteps[i]);
       }
     });
