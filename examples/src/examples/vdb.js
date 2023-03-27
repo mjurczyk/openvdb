@@ -22,8 +22,8 @@ dropzone.on('drop', ({ files }) => {
     dropTarget.innerHTML = '[Drop .VDB / .ZIP here]';
 
     fogVolume = new OpenVDB.FogVolume(vdb, {
-      resolution: 200,
-      steps: 50,
+      resolution: 300,
+      steps: 1000,
       baseColor: 0xffffff,
       absorbance: 1.0,
       progressive: true,

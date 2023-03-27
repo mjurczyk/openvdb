@@ -55,13 +55,7 @@ export class VolumeToFog extends Three.Group {
       emissiveTexture3D.needsUpdate = true;
 
       probeEmissiveValue = (index, target, x, y, z) => {
-        const xr = x / resolution;
-        const yr = y / resolution;
-        const zr = z / resolution;
-
         emissiveData[index] = emissiveGrid.getValue(target) * 255.;
-        
-        // emissiveData[index] = (1. - yr + .3) * ((1. - Math.abs((xr + 0.5) - 1.0)) * (1. - Math.abs((zr + 0.5) - 1.0))) * 100.;
       };
     }
 
@@ -73,7 +67,7 @@ export class VolumeToFog extends Three.Group {
     const totalGrids = grids.length;
     const totalVoxels = totalGrids * Math.pow(resolution, 3);
 
-    grids.reverse().forEach((grid, gridIndex) => {
+    grids.reverse().forEach(async (grid, gridIndex) => {
       if (!(grid instanceof GridDescriptor)) {
         return;
       }
@@ -98,119 +92,171 @@ export class VolumeToFog extends Three.Group {
 
       this.materials.push(material);
 
-      const resolutionInv = 1.0 / resolution;
-      const resolutionPow2 = Math.pow(resolution, 2);
-      const resolutionPow3 = Math.pow(resolution, 3);
+      let resolutionSteps = [];
 
-      const target = new Vector3(0.0, 0.0, 0.0);
-      const size = new Vector3(0.0, 0.0, 0.0);
-      const step = new Vector3(0.0, 0.0, 0.0);
-      const bbox = new Bbox();
+      if (progressive) {
+        resolutionSteps = [resolution];
 
-      bbox.set(...grid.getPreciseWorldBbox());
-      bbox.getCenter(fog.position);
-      bbox.getSize(fog.scale);
-
-      bbox.getCenter(target);
-      bbox.getSize(size);
-
-      step.copy(size).multiplyScalar(resolutionInv);
-      grid.transform.applyInverseTransformMap(step);
-
-      target.sub(size.clone().multiplyScalar(0.5));
-      grid.transform.applyInverseTransformMap(target);
-      target.add(step.clone().multiplyScalar(0.5));
-
-      let x = 0;
-      let y = 0;
-      let z = 0;
-
-      function* probeValue() {
-        for (let i = 0; i < resolutionPow3; i++) {
-          const noiseSeed = MathUtils.clamp(255.0 * (noise || 0.0), 0.0, 255.0);
-          const index = x + y * resolution + z * resolutionPow2;
-
-          data[index] = grid.getValue(target) * (255.0 - noiseSeed + Math.random() * noiseSeed);
-          probeEmissiveValue && probeEmissiveValue(index, target, x, y, z);
-
-          convertedVoxels++;
-
-          if (progressive) {
-            volumeTexture3D.needsUpdate = true;
-
-            if (emissiveTexture3D) {
-              emissiveTexture3D.needsUpdate = true;
-            }
-          }
-
-          if (z >= resolution) {
-            probeEmissiveValue = null;
-            emissiveTexture3D.needsUpdate = true;
-
-            return;
-          }
-
-          x++;
-          target.x += step.x;
-
-          if (x >= resolution) {
-            x = 0;
-            target.x -= step.x * resolution;
-
-            y++;
-            target.y += step.y;
-          }
-
-          if (y >= resolution) {
-            y = 0;
-            target.y -= step.y * resolution;
-
-            z++;
-            target.z += step.z;
-          }
-
-          yield;
+        while (resolutionSteps[resolutionSteps.length - 1] > 10) {
+          resolutionSteps.push(resolution / (resolutionSteps.length + 1));
         }
+
+        resolutionSteps = resolutionSteps.filter(value => ~~value === value);
+        resolutionSteps.reverse();
+      } else {
+        resolutionSteps = [resolution];
       }
 
-      let probe = probeValue();
+      const baseResolution = resolution;
+      const baseResolutionPow2 = Math.pow(baseResolution, 2);
+      const baseResolutionPow3 = Math.pow(baseResolution, 3);
 
-      const onAnimationFrame = () => {
-        // NOTE Unblocking conversion
-        // REF https://github.com/gkjohnson/three-mesh-bvh/blob/master/example/voxelize.js#L326
-        if (probe) {
-          this.processes[gridIndex] = requestAnimationFrame(onAnimationFrame);
+      const convertResolution = (resolution) => new Promise((resolve) => {
+        const resolutionScale = resolution / (resolutionSteps[resolutionSteps.length - 1]);
+        const resolutionScaleInv = 1.0 / resolutionScale;
+        const resolutionScaleInvPow2 = Math.pow(resolutionScaleInv, 2);
+        const resolutionScaleInvPow3 = Math.pow(resolutionScaleInv, 3);
+
+        const resolutionInv = 1.0 / resolution;
+        const resolutionPow2 = Math.pow(resolution, 2);
+        const resolutionPow3 = Math.pow(resolution, 3);
+
+        const target = new Vector3(0.0, 0.0, 0.0);
+        const size = new Vector3(0.0, 0.0, 0.0);
+        const step = new Vector3(0.0, 0.0, 0.0);
+        const bbox = new Bbox();
+
+        bbox.set(...grid.getPreciseWorldBbox());
+        bbox.getCenter(fog.position);
+        bbox.getSize(fog.scale);
+
+        bbox.getCenter(target);
+        bbox.getSize(size);
+
+        step.copy(size).multiplyScalar(resolutionInv);
+        grid.transform.applyInverseTransformMap(step);
+
+        target.sub(size.clone().multiplyScalar(0.5));
+        grid.transform.applyInverseTransformMap(target);
+        target.add(step.clone().multiplyScalar(0.5));
+
+        let x = 0;
+        let y = 0;
+        let z = 0;
+
+        function* probeValue() {
+          for (let i = 0; i < resolutionPow3; i++) {
+            const noiseSeed = MathUtils.clamp(255.0 * (noise || 0.0), 0.0, 255.0);
+
+            if (resolutionScaleInv !== 1.0) {
+              const value = grid.getValue(target);
+              const index = Math.round(x * resolutionScaleInv) +
+                  Math.round(y * resolutionScaleInvPow2) * resolution +
+                  Math.round(z * resolutionScaleInvPow3) * resolutionPow2;
+
+              for (let sx = 0; sx < resolutionScaleInv; sx++) {
+                for (let sy = 0; sy < resolutionScaleInv; sy++) {
+                  for (let sz = 0; sz < resolutionScaleInv; sz++) {
+                    data[index + sx + sy * baseResolution + sz * baseResolutionPow2] = value * (255.0 - noiseSeed + Math.random() * noiseSeed);;
+                  }
+                }
+              }
+            } else {
+              const index = Math.round(x * resolutionScaleInv) +
+                  Math.round(y * resolutionScaleInvPow2) * resolution +
+                  Math.round(z * resolutionScaleInvPow3) * resolutionPow2;
+
+              data[index * resolutionScaleInv] = grid.getValue(target) * (255.0 - noiseSeed + Math.random() * noiseSeed);
+            }
+
+            probeEmissiveValue && probeEmissiveValue(index, target, x, y, z);
+
+            convertedVoxels++;
+
+            if (progressive) {
+              volumeTexture3D.needsUpdate = true;
+
+              if (emissiveTexture3D) {
+                emissiveTexture3D.needsUpdate = true;
+              }
+            }
+
+            if (z >= resolution) {
+              probeEmissiveValue = null;
+              emissiveTexture3D.needsUpdate = true;
+
+              return;
+            }
+
+            x++;
+            target.x += step.x;
+
+            if (x >= resolution) {
+              x = 0;
+              target.x -= step.x * resolution;
+
+              y++;
+              target.y += step.y;
+            }
+
+            if (y >= resolution) {
+              y = 0;
+              target.y -= step.y * resolution;
+
+              z++;
+              target.z += step.z;
+            }
+
+            yield;
+          }
         }
 
-        let startTime = window.performance.now();
-        while (window.performance.now() - startTime < 16 && probe) {
-          const { done } = probe.next();
+        let probe = probeValue();
 
-          if (onProgress) {
-            onProgress({ convertedVoxels, totalVoxels, convertedGrids, totalGrids });
+        const onAnimationFrame = () => {
+          // NOTE Unblocking conversion
+          // REF https://github.com/gkjohnson/three-mesh-bvh/blob/master/example/voxelize.js#L326
+          if (probe) {
+            this.processes[gridIndex] = requestAnimationFrame(onAnimationFrame);
           }
 
-          if (done) {
-            convertedGrids++;
-            probe = null;
-            delete this.processes[gridIndex];
+          let startTime = window.performance.now();
+          while (window.performance.now() - startTime < 16 && probe) {
+            const { done } = probe.next();
 
-            if (convertedGrids === totalGrids) {
-              if (!progressive) {
-                this.add(fog);
-              }
+            if (onProgress) {
+              onProgress({ convertedVoxels, totalVoxels, convertedGrids, totalGrids });
+            }
 
-              if (onConverted) {
-                onConverted();
+            if (done) {
+              convertedGrids++;
+              probe = null;
+              delete this.processes[gridIndex];
+
+              resolve();
+
+              if (convertedGrids === totalGrids) {
+                if (!progressive) {
+                  this.add(fog);
+                }
+
+                if (onConverted) {
+                  onConverted();
+                }
               }
             }
           }
-        }
-      };
-      onAnimationFrame();
+        };
+        onAnimationFrame();
+      });
 
       if (progressive) {
         this.add(fog);
+      }
+
+      for (let i = 0; i <= resolutionSteps.length; i++) {
+        console.info('convert', resolutionSteps[i], resolutionSteps);
+        await convertResolution(resolutionSteps[i]);
       }
     });
   }
