@@ -149,7 +149,7 @@ export class VolumeToFog extends Three.Group {
             const noiseSeed = MathUtils.clamp(255.0 * (noise || 0.0), 0.0, 255.0);
 
             if (resolutionScaleInv !== 1.0) {
-              const value = grid.getValue(target);
+              const value = grid.getValue(target) * 255.0;
               const index = Math.round(x * resolutionScaleInv) +
                   Math.round(y * resolutionScaleInvPow2) * resolution +
                   Math.round(z * resolutionScaleInvPow3) * resolutionPow2;
