@@ -161,15 +161,16 @@ export class VolumeToFog extends Three.Group {
                   }
                 }
               }
+              
             } else {
               const index = Math.round(x * resolutionScaleInv) +
                   Math.round(y * resolutionScaleInvPow2) * resolution +
                   Math.round(z * resolutionScaleInvPow3) * resolutionPow2;
 
               data[index * resolutionScaleInv] = grid.getValue(target) * (255.0 - noiseSeed + Math.random() * noiseSeed);
-            }
 
-            probeEmissiveValue && probeEmissiveValue(index, target, x, y, z);
+              probeEmissiveValue && probeEmissiveValue(index, target, x, y, z);
+            }
 
             convertedVoxels++;
 
