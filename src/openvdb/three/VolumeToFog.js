@@ -54,8 +54,8 @@ export class VolumeToFog extends Three.Group {
       emissiveTexture3D.unpackAlignment = 1;
       emissiveTexture3D.needsUpdate = true;
 
-      probeEmissiveValue = (index, target, x, y, z) => {
-        emissiveData[index] = emissiveGrid.getValue(target) * 255.;
+      probeEmissiveValue = (index, target, override) => {
+        return emissiveData[index] = typeof override !== 'undefined' ? override : emissiveGrid.getValue(target) * 255.;
       };
     }
 
@@ -153,15 +153,21 @@ export class VolumeToFog extends Three.Group {
               const index = Math.round(x * resolutionScaleInv) +
                   Math.round(y * resolutionScaleInvPow2) * resolution +
                   Math.round(z * resolutionScaleInvPow3) * resolutionPow2;
+              const emissiveValue = probeEmissiveValue && probeEmissiveValue(index, target);
 
               for (let sx = 0; sx < resolutionScaleInv; sx++) {
                 for (let sy = 0; sy < resolutionScaleInv; sy++) {
                   for (let sz = 0; sz < resolutionScaleInv; sz++) {
-                    data[index + sx + sy * baseResolution + sz * baseResolutionPow2] = value * (255.0 - noiseSeed + Math.random() * noiseSeed);;
+                    data[index + sx + sy * baseResolution + sz * baseResolutionPow2] = value;
+
+                    probeEmissiveValue && probeEmissiveValue(
+                      index + sx + sy * baseResolution + sz * baseResolutionPow2,
+                      null,
+                      emissiveValue
+                    );
                   }
                 }
               }
-              
             } else {
               const index = Math.round(x * resolutionScaleInv) +
                   Math.round(y * resolutionScaleInvPow2) * resolution +
@@ -169,7 +175,7 @@ export class VolumeToFog extends Three.Group {
 
               data[index * resolutionScaleInv] = grid.getValue(target) * (255.0 - noiseSeed + Math.random() * noiseSeed);
 
-              probeEmissiveValue && probeEmissiveValue(index, target, x, y, z);
+              probeEmissiveValue && probeEmissiveValue(index, target);
             }
 
             convertedVoxels++;
