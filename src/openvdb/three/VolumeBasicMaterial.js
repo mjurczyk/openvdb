@@ -74,11 +74,11 @@ export class VolumeBasicMaterial extends Three.MeshPhongMaterial {
   }
 
   set offset3D(value) {
-    this._uniforms.resolution.value = value;
+    this._uniforms.offset3D.value.copy(value);
   }
 
   get offset3D() {
-    return this._uniforms.resolution.value;
+    return this._uniforms.offset3D.value;
   }
 
   set wrap3D(value) {
