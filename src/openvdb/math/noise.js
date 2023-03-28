@@ -279,6 +279,7 @@ const perlin3Noise = (x, y, z) => {
 };
 
 // Worley noise (based on: https://github.com/Erkaman/glsl-worley/blob/master/worley3D.glsl)
+//  https://github.com/jackunion/tooloud/blob/master/src/Worley.js
 
 class Worley {
   constructor(seed = 3000) {
