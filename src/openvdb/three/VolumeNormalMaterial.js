@@ -1,6 +1,6 @@
 import * as Three from 'three';
 
-export class VolumeBasicMaterial extends Three.MeshPhongMaterial {
+export class VolumeNormalMaterial extends Three.MeshPhongMaterial {
   _uniforms = {
     baseColor: { value: new Three.Color(0xffffff) },
     scatterColor: { value: new Three.Color(0x000000) },
@@ -635,35 +635,13 @@ export class VolumeBasicMaterial extends Three.MeshPhongMaterial {
 
             vPoint = lastNonSolidPoint;
 
-            if (density > 0.) {
-
-              ${volumeAmbientLight}
-
-              #if NUM_HEMI_LIGHTS > 0
-                ${volumeHemiLights}
-              #endif
-
-              #if NUM_POINT_LIGHTS > 0
-                ${volumePointLights}
-              #endif
-
-              #if NUM_DIR_LIGHTS > 0
-                ${volumeDirLights}
-              #endif
-
-              #if NUM_SPOT_LIGHTS > 0
-                ${volumeSpotLights}
-              #endif
-
-            }
-
             emissive = getBlackBodyRadiation(emissive.r);
             albedo += emissive;
 
             float smoothnessBlend = smoothstep(0.0, 1.0, smoothness);
             float opacityNoise = noiseScale > 0. ? smoothness + (abs(fbm(mapTextureSample(vPoint))) * noiseScale + (1. - noiseScale)) : smoothness + 1.;
 
-            outgoingLight.rgb = max(scatterColor, albedo);
+            outgoingLight.rgb = vPoint.xyz;
             diffuseColor.a = smoothnessBlend * saturate(density * opacity) * opacityNoise;
 
             if (density <= 0.) {
