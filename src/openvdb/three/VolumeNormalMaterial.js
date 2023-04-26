@@ -1,4 +1,5 @@
 import * as Three from 'three';
+import { getUuid } from '../utils/uuid';
 
 export class VolumeNormalMaterial extends Three.MeshPhongMaterial {
   _uniforms = {
@@ -112,7 +113,7 @@ export class VolumeNormalMaterial extends Three.MeshPhongMaterial {
     this.depthWrite = false;
     this.depthTest = true;
     this.transparent = true;
-    this.customProgramCacheKey = () => Math.random();
+    this.customProgramCacheKey = () => getUuid();
 
     Object.keys(this._uniforms).forEach(key => {
       if (props[key]) {

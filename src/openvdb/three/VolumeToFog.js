@@ -4,6 +4,7 @@ import { GridDescriptor } from '../core/GridDescriptor';
 import { Bbox } from '../math/bbox';
 import { Vector3 } from '../math/vector';
 import { VolumeBasicMaterial } from './VolumeBasicMaterial';
+import { perlin3Noise, worley3Noise } from '../math/noise';
 
 export class VolumeToFog extends Three.Group {
   processes = [];
@@ -144,38 +145,30 @@ export class VolumeToFog extends Three.Group {
         let y = 0;
         let z = 0;
 
-        function* probeValue() {
+        function* probeValue() {         
+          const targetOrigin = target.clone();
+
+          // NOTE Fill values
+          
           for (let i = 0; i < resolutionPow3; i++) {
-            const noiseSeed = MathUtils.clamp(255.0 * (noise || 0.0), 0.0, 255.0);
+            const value = grid.getValue(target);
+            const baseIndex = Math.round(x * resolutionScaleInv) + Math.round(y * resolutionScaleInvPow2) * resolution + Math.round(z * resolutionScaleInvPow3) * resolutionPow2;
+            const emissiveValue = probeEmissiveValue && probeEmissiveValue(index, target);
 
-            if (resolutionScaleInv !== 1.0) {
-              const value = grid.getValue(target) * 255.0;
-              const index = Math.round(x * resolutionScaleInv) +
-                  Math.round(y * resolutionScaleInvPow2) * resolution +
-                  Math.round(z * resolutionScaleInvPow3) * resolutionPow2;
-              const emissiveValue = probeEmissiveValue && probeEmissiveValue(index, target);
+            for (let sx = 0.0; sx < resolutionScaleInv; sx++) {
+              for (let sy = 0.0; sy < resolutionScaleInv; sy++) {
+                for (let sz = 0.0; sz < resolutionScaleInv; sz++) {
+                  const targetIndex = baseIndex + sx + sy * baseResolution + sz * baseResolutionPow2;
 
-              for (let sx = 0; sx < resolutionScaleInv; sx++) {
-                for (let sy = 0; sy < resolutionScaleInv; sy++) {
-                  for (let sz = 0; sz < resolutionScaleInv; sz++) {
-                    data[index + sx + sy * baseResolution + sz * baseResolutionPow2] = value;
+                  data[targetIndex] = value * 255.;
 
-                    probeEmissiveValue && probeEmissiveValue(
-                      index + sx + sy * baseResolution + sz * baseResolutionPow2,
-                      null,
-                      emissiveValue
-                    );
-                  }
+                  probeEmissiveValue && probeEmissiveValue(
+                    index + sx + sy * baseResolution + sz * baseResolutionPow2,
+                    null,
+                    emissiveValue
+                  );
                 }
               }
-            } else {
-              const index = Math.round(x * resolutionScaleInv) +
-                  Math.round(y * resolutionScaleInvPow2) * resolution +
-                  Math.round(z * resolutionScaleInvPow3) * resolutionPow2;
-
-              data[index * resolutionScaleInv] = grid.getValue(target) * (255.0 - noiseSeed + Math.random() * noiseSeed);
-
-              probeEmissiveValue && probeEmissiveValue(index, target);
             }
 
             convertedVoxels++;
@@ -189,10 +182,9 @@ export class VolumeToFog extends Three.Group {
             }
 
             if (z >= resolution) {
-              probeEmissiveValue = null;
               emissiveTexture3D.needsUpdate = true;
 
-              return;
+              break;
             }
 
             x++;
@@ -216,6 +208,131 @@ export class VolumeToFog extends Three.Group {
 
             yield;
           }
+
+          x = 0.0;
+          y = 0.0;
+          z = 0.0;
+          target.copy(targetOrigin);
+
+          // const dataBlend = data.slice(0);
+
+          // // NOTE Interpolate edges
+
+          // for (let i = 0; i < resolutionPow3; i++) {
+          //   const value = grid.getValue(target) * 255.;
+          //   const baseIndex = Math.round(x * resolutionScaleInv) + Math.round(y * resolutionScaleInvPow2) * resolution + Math.round(z * resolutionScaleInvPow3) * resolutionPow2;
+          //   // const emissiveValue = probeEmissiveValue && probeEmissiveValue(index, target);
+
+          //   const neighbours = {
+          //     top: Math.round(x * resolutionScaleInv) + Math.round((y - 1) * resolutionScaleInvPow2) * resolution + Math.round(z * resolutionScaleInvPow3) * resolutionPow2,
+          //     bottom: Math.round(x * resolutionScaleInv) + Math.round((y + 1) * resolutionScaleInvPow2) * resolution + Math.round(z * resolutionScaleInvPow3) * resolutionPow2,
+
+          //     left: Math.round((x - 1) * resolutionScaleInv) + Math.round(y * resolutionScaleInvPow2) * resolution + Math.round(z * resolutionScaleInvPow3) * resolutionPow2,
+          //     right: Math.round((x + 1) * resolutionScaleInv) + Math.round(y * resolutionScaleInvPow2) * resolution + Math.round(z * resolutionScaleInvPow3) * resolutionPow2,
+
+          //     front: Math.round(x * resolutionScaleInv) + Math.round(y * resolutionScaleInvPow2) * resolution + Math.round((z - 1) * resolutionScaleInvPow3) * resolutionPow2,
+          //     back: Math.round(x * resolutionScaleInv) + Math.round(y * resolutionScaleInvPow2) * resolution + Math.round((z + 1) * resolutionScaleInvPow3) * resolutionPow2,
+          //   };
+
+          //   for (let sx = 0.0; sx < resolutionScaleInv; sx++) {
+          //     for (let sy = 0.0; sy < resolutionScaleInv; sy++) {
+          //       for (let sz = 0.0; sz < resolutionScaleInv; sz++) {
+          //         const targetIndex = baseIndex + sx + sy * baseResolution + sz * baseResolutionPow2;
+
+          //         if (value) {
+          //           continue;
+          //         }
+
+          //         // const noise = Math.random();
+          //         const noise = (worley3Noise(sx, sy, sz) * 0.5 + 0.5);
+
+          //         if (
+          //           dataBlend[neighbours.top] 
+          //         ) {
+          //           if (dataBlend[neighbours.left] && resolutionScaleInv - sx > sy) {
+          //             data[targetIndex] += noise * dataBlend[neighbours.left];
+          //           }
+
+          //           if (dataBlend[neighbours.right] && sx > sy) {
+          //             data[targetIndex] += noise * dataBlend[neighbours.right];
+          //           }
+
+          //           if (dataBlend[neighbours.front] && resolutionScaleInv - sz > sy) {
+          //             data[targetIndex] += noise * dataBlend[neighbours.front];
+          //           }
+
+          //           if (dataBlend[neighbours.back] && sz > sy) {
+          //             data[targetIndex] += noise * dataBlend[neighbours.back];
+          //           }
+          //         }
+
+
+          //         // if (
+          //         //   dataBlend[neighbours.bottom] 
+          //         // ) {
+          //         //   if (dataBlend[neighbours.left] && resolutionScaleInv - sx < sy) {
+          //         //     data[targetIndex] += noise * dataBlend[neighbours.left];
+          //         //   }
+
+          //         //   if (dataBlend[neighbours.right] && sx < sy) {
+          //         //     data[targetIndex] += noise * dataBlend[neighbours.right];
+          //         //   }
+
+          //         //   if (dataBlend[neighbours.front] && resolutionScaleInv - sz < sy) {
+          //         //     data[targetIndex] += noise * dataBlend[neighbours.front];
+          //         //   }
+
+          //         //   if (dataBlend[neighbours.back] && sz < sy) {
+          //         //     data[targetIndex] += noise * dataBlend[neighbours.back];
+          //         //   }
+          //         // }
+
+          //         // probeEmissiveValue && probeEmissiveValue(
+          //         //   index + sx + sy * baseResolution + sz * baseResolutionPow2,
+          //         //   null,
+          //         //   emissiveValue
+          //         // );
+          //       }
+          //     }
+          //   }
+
+          //   convertedVoxels++;
+
+          //   if (progressive) {
+          //     volumeTexture3D.needsUpdate = true;
+
+          //     if (emissiveTexture3D) {
+          //       emissiveTexture3D.needsUpdate = true;
+          //     }
+          //   }
+
+          //   if (z >= resolution) {
+          //     emissiveTexture3D.needsUpdate = true;
+
+          //     break;
+          //   }
+
+          //   x++;
+          //   target.x += step.x;
+
+          //   if (x >= resolution) {
+          //     x = 0;
+          //     target.x -= step.x * resolution;
+
+          //     y++;
+          //     target.y += step.y;
+          //   }
+
+          //   if (y >= resolution) {
+          //     y = 0;
+          //     target.y -= step.y * resolution;
+
+          //     z++;
+          //     target.z += step.z;
+          //   }
+
+          //   yield;
+          // }
         }
 
         let probe = probeValue();

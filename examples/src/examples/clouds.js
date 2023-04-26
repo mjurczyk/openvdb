@@ -151,7 +151,7 @@ export const exampleClouds = ({ scene }) => {
         {
           id: 'steps',
           name: 'Steps',
-          defaultValue: 400.0,
+          defaultValue: 100.0,
           min: 10.0,
           max: 1000.0,
           onChange: (value) => {

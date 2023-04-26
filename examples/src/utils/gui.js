@@ -2,6 +2,7 @@ import GUI from "lil-gui";
 import { exampleBbox } from "../examples/bbox";
 import { exampleBunny } from "../examples/bunny";
 import { exampleClouds } from "../examples/clouds";
+import { exampleGLTF } from "../examples/gltf";
 import { exampleVDB } from "../examples/vdb";
 import { scene } from "../main";
 
@@ -9,6 +10,10 @@ export let gui = new GUI();
 export const dropTarget = document.querySelector('#dropzone');
 
 let activeDemo = 'vdb';
+
+export const setActiveDemo = (id) => {
+  activeDemo = id;
+};
 
 const guiBaseFields = () => [
   {
@@ -21,6 +26,7 @@ const guiBaseFields = () => [
           'Bunny': 'bunny',
           'Clouds': 'clouds',
           'Bbox': 'bbox',
+          'GLTF to Volume': 'gltf',
           'Custom VDB': 'vdb',
         },
         defaultValue: activeDemo,
@@ -53,6 +59,8 @@ const guiBaseFields = () => [
               return exampleClouds({ scene });
             case 'vdb':
               return exampleVDB({ scene });
+            case 'gltf':
+              return exampleGLTF({ scene });
           }
         }
       }

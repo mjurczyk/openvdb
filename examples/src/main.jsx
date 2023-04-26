@@ -3,6 +3,8 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 import Stats from 'stats.js'
 import { exampleVDB } from './examples/vdb';
 import packageInfo from '../../package.json';
+import { setActiveDemo } from './utils/gui';
+import { exampleGLTF } from './examples/gltf';
 
 export const camera = new Three.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.01, 10000.0);
 export const scene = new Three.Scene();
@@ -43,6 +45,9 @@ const animate = () => {
   stats.end();
 };
 
+setActiveDemo('gltf');
+
 init();
 animate();
-exampleVDB({ scene });
+exampleGLTF({ scene });
+// exampleVDB({ scene });

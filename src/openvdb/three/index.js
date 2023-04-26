@@ -3,7 +3,7 @@ import { VolumeToBbox } from './VolumeToBbox';
 import { VolumeToFog } from './VolumeToFog';
 import { VolumeToLevelSet } from './VolumeToLevelSet';
 import { VolumeToPoints } from './VolumeToPoints';
-import { ParametricVolume, CubeVolume, SphereVolume, CloudVolume } from '../utils/primitives';
+import { ParametricVolume, CubeVolume, SphereVolume, CloudVolume, MeshVolume } from '../utils/primitives';
 import { perlin3Noise, simplex3Noise, worley3Noise } from '../math/noise';
 import { VolumeBasicMaterial } from './VolumeBasicMaterial';
 import { VolumeNormalMaterial } from './VolumeNormalMaterial';
@@ -23,6 +23,7 @@ export {
   CubeVolume,
   SphereVolume,
   CloudVolume,
+  MeshVolume,
 
   // NOTE Materials
   VolumeBasicMaterial,

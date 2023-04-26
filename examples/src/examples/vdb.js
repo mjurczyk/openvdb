@@ -22,7 +22,7 @@ dropzone.on('drop', ({ files }) => {
     dropTarget.innerHTML = '[Drop .VDB / .ZIP here]';
 
     fogVolume = new OpenVDB.FogVolume(vdb, {
-      resolution: 200,
+      resolution: 100,
       steps: 1000,
       baseColor: 0xffffff,
       absorbance: 1.0,
@@ -322,7 +322,7 @@ export const exampleVDB = ({ scene }) => {
         {
           id: 'steps',
           name: 'Steps',
-          defaultValue: 400.0,
+          defaultValue: 100.0,
           min: 10.0,
           max: 1000.0,
           onChange: (value) => {

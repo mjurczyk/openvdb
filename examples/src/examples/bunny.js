@@ -20,7 +20,7 @@ export const exampleBunny = ({ scene }) => {
 
     const fogVolume = new OpenVDB.FogVolume(vdb, {
       resolution: 100,
-      steps: 400,
+      steps: 10000,
       baseColor: 0xffffff,
       absorbance: 1.0,
       progressive: true
@@ -256,9 +256,9 @@ export const exampleBunny = ({ scene }) => {
           {
             id: 'steps',
             name: 'Steps',
-            defaultValue: 400.0,
+            defaultValue: 100.0,
             min: 10.0,
-            max: 2000.0,
+            max: 1000.0,
             onChange: (value) => {
               fogVolume.materials.forEach(material => material.steps = value);
             }
