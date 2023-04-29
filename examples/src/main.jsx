@@ -5,6 +5,8 @@ import { exampleVDB } from './examples/vdb';
 import packageInfo from '../../package.json';
 import { setActiveDemo } from './utils/gui';
 import { exampleGLTF } from './examples/gltf';
+import { exampleBunny } from './examples/bunny';
+import { exampleClouds } from './examples/clouds';
 
 export const camera = new Three.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.01, 10000.0);
 export const scene = new Three.Scene();
@@ -45,9 +47,8 @@ const animate = () => {
   stats.end();
 };
 
-setActiveDemo('gltf');
+setActiveDemo('clouds');
 
 init();
 animate();
-exampleGLTF({ scene });
-// exampleVDB({ scene });
+exampleClouds({ scene });

@@ -1,7 +1,8 @@
 import * as Three from 'three';
 import * as OpenVDB from '../../../src/openvdb/three';
 import { gui, setGuiFields } from '../utils/gui';
-import { loadAndCacheVDB } from '../utils/resources';
+import { loadAndCacheVDB, loaders } from '../utils/resources';
+import { lights } from '../../../src/openvdb/utils/lights';
 
 export const exampleClouds = ({ scene }) => {
   const debugMesh = new Three.Mesh(
@@ -25,7 +26,9 @@ export const exampleClouds = ({ scene }) => {
     progressive: true,
     steps: 500,
     absorbance: 0.5,
-    baseColor: 0xaaaaaa
+    baseColor: 0xaaaaaa,
+    radius: 1.,
+    lights: lights.useEnvironment
   });
   fogVolume.scale.setScalar(1000.0);
   fogVolume.position.y += 300.0;
@@ -56,14 +59,6 @@ export const exampleClouds = ({ scene }) => {
           }
         },
         {
-          id: 'backgroundColor',
-          name: 'Background Color',
-          defaultValue: '#598eff',
-          onChange: (value) => {
-            scene.background.set(value);
-          }
-        },
-        {
           id: 'lightIntensity',
           name: 'Light Intensity',
           defaultValue: 1.0,
@@ -72,7 +67,29 @@ export const exampleClouds = ({ scene }) => {
           onChange: (value) => {
             light.intensity = value;
           }
-        }
+        },
+        {
+          id: 'environment',
+          name: 'EnvMap',
+          defaultValue: 'uv-1',
+          options: {
+            'Fiery Sky': 'fiery-sky-1',
+            'Magic Forest': 'magic-forest-5',
+            'UV': 'uv-1'
+          },
+          onChange: (value) => {
+            loaders.rgbe.load(`./assets/${value}-HDR.hdr`, env => {
+              env.mapping = Three.EquirectangularReflectionMapping;
+              scene.environment = env;
+            });
+          
+            loaders.texture.load(`./assets/${value}-8K.jpg`, env => {
+              env.mapping = Three.EquirectangularRefractionMapping;
+              env.encoding = Three.sRGBEncoding;
+              scene.background = env;
+            });
+          }
+        },
       ]
     },
     {
@@ -103,7 +120,7 @@ export const exampleClouds = ({ scene }) => {
         {
           id: 'scatterColor',
           name: 'Scatter Color',
-          defaultValue: `#${scene.background.getHexString ? scene.background.getHexString() : '888888'}`,
+          defaultValue: `#000000`,
           onChange: (value) => {
             fogVolume.materials.forEach(material => material.scatterColor = value);
           }
@@ -129,16 +146,6 @@ export const exampleClouds = ({ scene }) => {
           }
         },
         {
-          id: 'noise',
-          name: 'Noise',
-          defaultValue: 0.5,
-          min: 0.0,
-          max: 1.0,
-          onChange: (value) => {
-            fogVolume.materials.forEach(material => material.noiseScale = value);
-          }
-        },
-        {
           id: 'opacity',
           name: 'Opacity',
           defaultValue: 1.0,
@@ -151,7 +158,7 @@ export const exampleClouds = ({ scene }) => {
         {
           id: 'steps',
           name: 'Steps',
-          defaultValue: 100.0,
+          defaultValue: 1000.0,
           min: 10.0,
           max: 1000.0,
           onChange: (value) => {

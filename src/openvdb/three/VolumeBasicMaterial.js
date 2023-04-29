@@ -1,19 +1,32 @@
 import * as Three from 'three';
 import { getUuid } from '../utils/uuid';
+import { lights } from '../utils/lights';
 
-export class VolumeBasicMaterial extends Three.MeshPhongMaterial {
+export class VolumeBasicMaterial extends Three.MeshStandardMaterial {
+  name = 'VolumeBasicMaterial';
+  isVolumetricFogMaterial = true;
+  customProgramCacheKey = () => getUuid(this);
+
   _uniforms = {
     baseColor: { value: new Three.Color(0xffffff) },
     scatterColor: { value: new Three.Color(0x000000) },
     densityMap3D: { value: null },
     emissiveMap3D: { value: null },
+    baseColorMap3D: { value: null },
     steps: { value: 100 },
     absorbance: { value: 1.0 },
     densityScale: { value: 1.0 },
     resolution: { value: 100 },
     offset3D: { value: new Three.Vector3(0.0, 0.0, 0.0) },
     wrap3D: { value: Three.ClampToEdgeWrapping },
-    noiseScale: { value: 0.5 },
+    lights: { value:
+      lights.useAmbientLights |
+      lights.useDirectionalLights |
+      lights.usePointLights |
+      lights.useSpotLights |
+      lights.useHemisphereLights |
+      lights.useEnvironment
+    },
   };
 
   set baseColor(value) {
@@ -44,10 +57,23 @@ export class VolumeBasicMaterial extends Three.MeshPhongMaterial {
   set emissiveMap3D(value) {
     this._uniforms.emissiveMap3D.value = value;
     value.offset3D = this._uniforms.offset3D.value;
+
+    this.needsUpdate = true;
   }
 
   get emissiveMap3D() {
     return this._uniforms.emissiveMap3D.value;
+  }
+
+  set baseColorMap3D(value) {
+    this._uniforms.baseColorMap3D.value = value;
+    value.offset3D = this._uniforms.offset3D.value;
+
+    this.needsUpdate = true;
+  }
+
+  get baseColorMap3D() {
+    return this._uniforms.baseColorMap3D.value;
   }
 
   set steps(value) {
@@ -84,6 +110,8 @@ export class VolumeBasicMaterial extends Three.MeshPhongMaterial {
 
   set wrap3D(value) {
     this._uniforms.wrap3D.value = value;
+
+    this.needsUpdate = true;
   }
 
   get wrap3D() {
@@ -98,12 +126,98 @@ export class VolumeBasicMaterial extends Three.MeshPhongMaterial {
     return this._uniforms.densityScale.value;
   }
 
-  set noiseScale(value) {
-    this._uniforms.noiseScale.value = value;
+  set lights(value) {
+    this._uniforms.lights.value = value;
+
+    this.needsUpdate = true;
   }
 
-  get noiseScale() {
-    return this._uniforms.noiseScale.value;
+  get lights() {
+    return this._uniforms.lights.value;
+  }
+
+  set useAmbientLights(value = true) {
+    if (value) {
+      this._uniforms.lights.value |= lights.useAmbientLights;
+    } else {
+      this._uniforms.lights.value &= ~lights.useAmbientLights;
+    }
+
+    this.needsUpdate = true;
+  }
+
+  get useAmbientLights() {
+    return (this._uniforms.lights.value & lights.useAmbientLights) !== 0;
+  }
+
+  set useDirectionalLights(value = true) {
+    if (value) {
+      this._uniforms.lights.value |= lights.useDirectionalLights;
+    } else {
+      this._uniforms.lights.value &= ~lights.useDirectionalLights;
+    }
+
+    this.needsUpdate = true;
+  }
+
+  get useDirectionalLights() {
+    return (this._uniforms.lights.value & lights.useDirectionalLights) !== 0;
+  }
+
+  set usePointLights(value = true) {
+    if (value) {
+      this._uniforms.lights.value |= lights.usePointLights;
+    } else {
+      this._uniforms.lights.value &= ~lights.usePointLights;
+    }
+
+    this.needsUpdate = true;
+  }
+
+  get usePointLights() {
+    return (this._uniforms.lights.value & lights.usePointLights) !== 0;
+  }
+
+  set useHemisphereLights(value = true) {
+    if (value) {
+      this._uniforms.lights.value |= lights.useHemisphereLights;
+    } else {
+      this._uniforms.lights.value &= ~lights.useHemisphereLights;
+    }
+
+    this.needsUpdate = true;
+  }
+
+  get useHemisphereLights() {
+    return (this._uniforms.lights.value & lights.useHemisphereLights) !== 0;
+  }
+
+  set useSpotLights(value = true) {
+    if (value) {
+      this._uniforms.lights.value |= lights.useSpotLights;
+    } else {
+      this._uniforms.lights.value &= ~lights.useSpotLights;
+    }
+
+    this.needsUpdate = true;
+  }
+
+  get useSpotLights() {
+    return (this._uniforms.lights.value & lights.useSpotLights) !== 0;
+  }
+
+  set useEnvironment(value = true) {
+    if (value) {
+      this._uniforms.lights.value |= lights.useEnvironment;
+    } else {
+      this._uniforms.lights.value &= ~lights.useEnvironment;
+    }
+
+    this.needsUpdate = true;
+  }
+
+  get useEnvironment() {
+    return (this._uniforms.lights.value & lights.useEnvironment) !== 0;
   }
 
   constructor(props = {}) {
@@ -113,10 +227,9 @@ export class VolumeBasicMaterial extends Three.MeshPhongMaterial {
     this.depthWrite = false;
     this.depthTest = true;
     this.transparent = true;
-    this.customProgramCacheKey = () => getUuid();
 
     Object.keys(this._uniforms).forEach(key => {
-      if (props[key]) {
+      if (typeof props[key] !== 'undefined') {
         this[key] = props[key];
 
         if (props[key] instanceof Three.Texture) {
@@ -130,11 +243,17 @@ export class VolumeBasicMaterial extends Three.MeshPhongMaterial {
         shader.uniforms[key] = this._uniforms[key];
       });
 
-      shader.isVolumetricFogMaterial = true;
-
       const shaderProperties = `
         #define VOLUME_BBOX_SPAN 0.5
         ${props.emissiveMap3D ? '#define USE_EMISSIVE_GRID' : ''}
+        ${props.baseColorMap3D ? '#define USE_BASE_COLOR_GRID' : ''}
+
+        #define VOLUME_USE_AMBIENT_LIGHTS ${Number(this.useAmbientLights)} != 0
+        #define VOLUME_USE_ENVIRONMENT ${Number(this.useEnvironment)} != 0
+        #define VOLUME_USE_HEMI_LIGHTS ${Number(this.useHemisphereLights)} != 0
+        #define VOLUME_USE_POINT_LIGHTS ${Number(this.usePointLights)} != 0
+        #define VOLUME_USE_DIR_LIGHTS ${Number(this.useDirectionalLights)} != 0
+        #define VOLUME_USE_SPOT_LIGHTS ${Number(this.useSpotLights)} != 0
       `;
 
       const shaderVaryings = `
@@ -361,7 +480,24 @@ export class VolumeBasicMaterial extends Three.MeshPhongMaterial {
       `;
 
       const volumeAmbientLight = `
+        vec3 baseColorSample = baseColor.rgb;
+
+        #ifdef USE_BASE_COLOR_GRID
+          baseColorSample *= clampedTextureRGB(baseColorMap3D, vPoint);
+        #endif
+
         albedo += ambientLightColor * baseColor.rgb;
+      `;
+
+      const volumeEnvMap = `
+        vec3 viewDir = isOrthographic ? vec3(0.0, 0.0, 1.0) : normalize(vViewPosition);
+        vec3 vUVCoords = normalize(lastNonSolidPoint * mInverseNormalMatrix).xyz;
+
+        #if defined( USE_ENVMAP )
+          vEnvMapScatter = getIBLIrradiance(vUVCoords) * RECIPROCAL_PI;
+
+          albedo += density * getIBLRadiance(viewDir, vUVCoords, .5) * RECIPROCAL_PI;
+        #endif
       `;
 
       const shaderHelpers = `
@@ -424,272 +560,42 @@ export class VolumeBasicMaterial extends Three.MeshPhongMaterial {
         vec3 mapTextureSample(vec3 position){
           vec3 uv = position + VOLUME_BBOX_SPAN + offset3D;
 
-          if (wrap3D == 1000) {
-            uv = mod(uv, 1.);
-          } else if (wrap3D == 0 || wrap3D == 1001) {
-            return uv;
-          } else if (wrap3D == 1002) {
+          ${this.wrap3D === Three.RepeatWrapping ? `return mod(uv, 1.);` : ''}
+          ${this.wrap3D === 0 || this.wrap3D === Three.ClampToEdgeWrapping ? `// NOTE Return UV` : ''}
+          ${this.wrap3D === Three.MirroredRepeatWrapping ? `
             uv.x = loopUV(uv.x);
             uv.y = loopUV(uv.y);
             uv.z = loopUV(uv.z);
-          }
+          ` : ''}
 
           return uv;
         }
 
         float blendSample(float value) {
-          float fSmoothingThreshold = 0.75;
-          float fSmoothingBlend = 0.45;
+          float fSmoothingThreshold = 0.25;
+          float fSmoothingBlend = 0.25;
 
           return smoothstep(
             fSmoothingThreshold - fSmoothingBlend,
             fSmoothingThreshold + fSmoothingBlend,
             value
-          );
+          ) * densityScale;
         }
 
         float clampedTexture(sampler3D source, vec3 position) {
-          vec3 vAbs = abs(position);
+          ${this.wrap3D === 0 || this.wrap3D === Three.ClampToEdgeWrapping ? `
+            vec3 vAbs = abs(position);
 
-          if (
-            (wrap3D == 0 || wrap3D == 1001) &&
-            max(vAbs.x, max(vAbs.y, vAbs.z)) > .5
-          ) {
-            return 0.0;
-          } else {
-            return texture(source, mapTextureSample(position)).r;
-          }
+            if (max(vAbs.x, max(vAbs.y, vAbs.z)) > .5) {
+              return 0.;
+            }
+          ` : ''}
+
+          return texture(source, mapTextureSample(position)).r;
         }
 
-        // NOTE GLSL Noise source - https://gist.github.com/patriciogonzalezvivo/670c22f3966e662d2f83
-        vec4 permute(vec4 x){return mod(((x*34.0)+1.0)*x, 289.0);}
-        vec4 taylorInvSqrt(vec4 r){return 1.79284291400159 - 0.85373472095314 * r;}
-
-        float snoise(vec3 v){ 
-          const vec2  C = vec2(1.0/6.0, 1.0/3.0) ;
-          const vec4  D = vec4(0.0, 0.5, 1.0, 2.0);
-
-          vec3 i  = floor(v + dot(v, C.yyy) );
-          vec3 x0 =   v - i + dot(i, C.xxx) ;
-
-          vec3 g = step(x0.yzx, x0.xyz);
-          vec3 l = 1.0 - g;
-          vec3 i1 = min( g.xyz, l.zxy );
-          vec3 i2 = max( g.xyz, l.zxy );
-
-          vec3 x1 = x0 - i1 + 1.0 * C.xxx;
-          vec3 x2 = x0 - i2 + 2.0 * C.xxx;
-          vec3 x3 = x0 - 1. + 3.0 * C.xxx;
-
-          i = mod(i, 289.0 ); 
-          vec4 p = permute( permute( permute( 
-                    i.z + vec4(0.0, i1.z, i2.z, 1.0 ))
-                  + i.y + vec4(0.0, i1.y, i2.y, 1.0 )) 
-                  + i.x + vec4(0.0, i1.x, i2.x, 1.0 ));
-
-          float n_ = 1.0/7.0; // N=7
-          vec3  ns = n_ * D.wyz - D.xzx;
-
-          vec4 j = p - 49.0 * floor(p * ns.z *ns.z);  //  mod(p,N*N)
-
-          vec4 x_ = floor(j * ns.z);
-          vec4 y_ = floor(j - 7.0 * x_ );    // mod(j,N)
-
-          vec4 x = x_ *ns.x + ns.yyyy;
-          vec4 y = y_ *ns.x + ns.yyyy;
-          vec4 h = 1.0 - abs(x) - abs(y);
-
-          vec4 b0 = vec4( x.xy, y.xy );
-          vec4 b1 = vec4( x.zw, y.zw );
-
-          vec4 s0 = floor(b0)*2.0 + 1.0;
-          vec4 s1 = floor(b1)*2.0 + 1.0;
-          vec4 sh = -step(h, vec4(0.0));
-
-          vec4 a0 = b0.xzyw + s0.xzyw*sh.xxyy ;
-          vec4 a1 = b1.xzyw + s1.xzyw*sh.zzww ;
-
-          vec3 p0 = vec3(a0.xy,h.x);
-          vec3 p1 = vec3(a0.zw,h.y);
-          vec3 p2 = vec3(a1.xy,h.z);
-          vec3 p3 = vec3(a1.zw,h.w);
-
-          vec4 norm = taylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2, p2), dot(p3,p3)));
-          p0 *= norm.x;
-          p1 *= norm.y;
-          p2 *= norm.z;
-          p3 *= norm.w;
-
-          vec4 m = max(0.6 - vec4(dot(x0,x0), dot(x1,x1), dot(x2,x2), dot(x3,x3)), 0.0);
-          m = m * m;
-          return 42.0 * dot( m*m, vec4( dot(p0,x0), dot(p1,x1), 
-                                        dot(p2,x2), dot(p3,x3) ) );
-        }
-
-        float fbm(vec3 x) {
-          vec3 y = vec3(x);
-          float v = 0.0;
-          float a = .5;
-          vec3 shift = vec3(10.);
-          for (int i = 0; i < 3; ++i) {
-            y = y * 10000.0 + shift;
-            v += a * snoise(y);
-            a *= 0.33;
-          }
-          return v;
-        }
-
-        vec3 permute(vec3 x) {
-          return mod((34.0 * x + 1.0) * x, 289.0);
-        }
-        
-        vec3 dist(vec3 x, vec3 y, vec3 z,  bool manhattanDistance) {
-          return manhattanDistance ?  abs(x) + abs(y) + abs(z) :  (x * x + y * y + z * z);
-        }
-        
-        vec2 worley(vec3 P, float jitter, bool manhattanDistance) {
-        float K = 0.142857142857; // 1/7
-        float Ko = 0.428571428571; // 1/2-K/2
-        float  K2 = 0.020408163265306; // 1/(7*7)
-        float Kz = 0.166666666667; // 1/6
-        float Kzo = 0.416666666667; // 1/2-1/6*2
-        
-          vec3 Pi = mod(floor(P), 289.0);
-           vec3 Pf = fract(P) - 0.5;
-        
-          vec3 Pfx = Pf.x + vec3(1.0, 0.0, -1.0);
-          vec3 Pfy = Pf.y + vec3(1.0, 0.0, -1.0);
-          vec3 Pfz = Pf.z + vec3(1.0, 0.0, -1.0);
-        
-          vec3 p = permute(Pi.x + vec3(-1.0, 0.0, 1.0));
-          vec3 p1 = permute(p + Pi.y - 1.0);
-          vec3 p2 = permute(p + Pi.y);
-          vec3 p3 = permute(p + Pi.y + 1.0);
-        
-          vec3 p11 = permute(p1 + Pi.z - 1.0);
-          vec3 p12 = permute(p1 + Pi.z);
-          vec3 p13 = permute(p1 + Pi.z + 1.0);
-        
-          vec3 p21 = permute(p2 + Pi.z - 1.0);
-          vec3 p22 = permute(p2 + Pi.z);
-          vec3 p23 = permute(p2 + Pi.z + 1.0);
-        
-          vec3 p31 = permute(p3 + Pi.z - 1.0);
-          vec3 p32 = permute(p3 + Pi.z);
-          vec3 p33 = permute(p3 + Pi.z + 1.0);
-        
-          vec3 ox11 = fract(p11*K) - Ko;
-          vec3 oy11 = mod(floor(p11*K), 7.0)*K - Ko;
-          vec3 oz11 = floor(p11*K2)*Kz - Kzo; // p11 < 289 guaranteed
-        
-          vec3 ox12 = fract(p12*K) - Ko;
-          vec3 oy12 = mod(floor(p12*K), 7.0)*K - Ko;
-          vec3 oz12 = floor(p12*K2)*Kz - Kzo;
-        
-          vec3 ox13 = fract(p13*K) - Ko;
-          vec3 oy13 = mod(floor(p13*K), 7.0)*K - Ko;
-          vec3 oz13 = floor(p13*K2)*Kz - Kzo;
-        
-          vec3 ox21 = fract(p21*K) - Ko;
-          vec3 oy21 = mod(floor(p21*K), 7.0)*K - Ko;
-          vec3 oz21 = floor(p21*K2)*Kz - Kzo;
-        
-          vec3 ox22 = fract(p22*K) - Ko;
-          vec3 oy22 = mod(floor(p22*K), 7.0)*K - Ko;
-          vec3 oz22 = floor(p22*K2)*Kz - Kzo;
-        
-          vec3 ox23 = fract(p23*K) - Ko;
-          vec3 oy23 = mod(floor(p23*K), 7.0)*K - Ko;
-          vec3 oz23 = floor(p23*K2)*Kz - Kzo;
-        
-          vec3 ox31 = fract(p31*K) - Ko;
-          vec3 oy31 = mod(floor(p31*K), 7.0)*K - Ko;
-          vec3 oz31 = floor(p31*K2)*Kz - Kzo;
-        
-          vec3 ox32 = fract(p32*K) - Ko;
-          vec3 oy32 = mod(floor(p32*K), 7.0)*K - Ko;
-          vec3 oz32 = floor(p32*K2)*Kz - Kzo;
-        
-          vec3 ox33 = fract(p33*K) - Ko;
-          vec3 oy33 = mod(floor(p33*K), 7.0)*K - Ko;
-          vec3 oz33 = floor(p33*K2)*Kz - Kzo;
-        
-          vec3 dx11 = Pfx + jitter*ox11;
-          vec3 dy11 = Pfy.x + jitter*oy11;
-          vec3 dz11 = Pfz.x + jitter*oz11;
-        
-          vec3 dx12 = Pfx + jitter*ox12;
-          vec3 dy12 = Pfy.x + jitter*oy12;
-          vec3 dz12 = Pfz.y + jitter*oz12;
-        
-          vec3 dx13 = Pfx + jitter*ox13;
-          vec3 dy13 = Pfy.x + jitter*oy13;
-          vec3 dz13 = Pfz.z + jitter*oz13;
-        
-          vec3 dx21 = Pfx + jitter*ox21;
-          vec3 dy21 = Pfy.y + jitter*oy21;
-          vec3 dz21 = Pfz.x + jitter*oz21;
-        
-          vec3 dx22 = Pfx + jitter*ox22;
-          vec3 dy22 = Pfy.y + jitter*oy22;
-          vec3 dz22 = Pfz.y + jitter*oz22;
-        
-          vec3 dx23 = Pfx + jitter*ox23;
-          vec3 dy23 = Pfy.y + jitter*oy23;
-          vec3 dz23 = Pfz.z + jitter*oz23;
-        
-          vec3 dx31 = Pfx + jitter*ox31;
-          vec3 dy31 = Pfy.z + jitter*oy31;
-          vec3 dz31 = Pfz.x + jitter*oz31;
-        
-          vec3 dx32 = Pfx + jitter*ox32;
-          vec3 dy32 = Pfy.z + jitter*oy32;
-          vec3 dz32 = Pfz.y + jitter*oz32;
-        
-          vec3 dx33 = Pfx + jitter*ox33;
-          vec3 dy33 = Pfy.z + jitter*oy33;
-          vec3 dz33 = Pfz.z + jitter*oz33;
-        
-          vec3 d11 = dist(dx11, dy11, dz11, manhattanDistance);
-          vec3 d12 =dist(dx12, dy12, dz12, manhattanDistance);
-          vec3 d13 = dist(dx13, dy13, dz13, manhattanDistance);
-          vec3 d21 = dist(dx21, dy21, dz21, manhattanDistance);
-          vec3 d22 = dist(dx22, dy22, dz22, manhattanDistance);
-          vec3 d23 = dist(dx23, dy23, dz23, manhattanDistance);
-          vec3 d31 = dist(dx31, dy31, dz31, manhattanDistance);
-          vec3 d32 = dist(dx32, dy32, dz32, manhattanDistance);
-          vec3 d33 = dist(dx33, dy33, dz33, manhattanDistance);
-        
-          vec3 d1a = min(d11, d12);
-          d12 = max(d11, d12);
-          d11 = min(d1a, d13); // Smallest now not in d12 or d13
-          d13 = max(d1a, d13);
-          d12 = min(d12, d13); // 2nd smallest now not in d13
-          vec3 d2a = min(d21, d22);
-          d22 = max(d21, d22);
-          d21 = min(d2a, d23); // Smallest now not in d22 or d23
-          d23 = max(d2a, d23);
-          d22 = min(d22, d23); // 2nd smallest now not in d23
-          vec3 d3a = min(d31, d32);
-          d32 = max(d31, d32);
-          d31 = min(d3a, d33); // Smallest now not in d32 or d33
-          d33 = max(d3a, d33);
-          d32 = min(d32, d33); // 2nd smallest now not in d33
-          vec3 da = min(d11, d21);
-          d21 = max(d11, d21);
-          d11 = min(da, d31); // Smallest now in d11
-          d31 = max(da, d31); // 2nd smallest now not in d31
-          d11.xy = (d11.x < d11.y) ? d11.xy : d11.yx;
-          d11.xz = (d11.x < d11.z) ? d11.xz : d11.zx; // d11.x now smallest
-          d12 = min(d12, d21); // 2nd smallest now not in d21
-          d12 = min(d12, d22); // nor in d22
-          d12 = min(d12, d31); // nor in d31
-          d12 = min(d12, d32); // nor in d32
-          d11.yz = min(d11.yz,d12.xy); // nor in d12.yz
-          d11.y = min(d11.y,d12.z); // Only two more to go
-          d11.y = min(d11.y,d11.z); // Done! (Phew!)
-          return sqrt(d11.xy); // F1, F2
-        
+        vec3 clampedTextureRGB(sampler3D source, vec3 position) {
+          return texture(source, mapTextureSample(position)).rgb;
         }
       `;
 
@@ -708,6 +614,7 @@ export class VolumeBasicMaterial extends Three.MeshPhongMaterial {
 
             uniform sampler3D densityMap3D;
             uniform sampler3D emissiveMap3D;
+            uniform sampler3D baseColorMap3D;
             uniform vec3 offset3D;
             uniform int wrap3D;
 
@@ -717,7 +624,6 @@ export class VolumeBasicMaterial extends Three.MeshPhongMaterial {
             uniform vec3 baseColor;
             uniform vec3 scatterColor;
             uniform float resolution;
-            uniform float noiseScale;
 
             ${shaderProperties}
             ${shaderVaryings}
@@ -757,7 +663,6 @@ export class VolumeBasicMaterial extends Three.MeshPhongMaterial {
             // Density calculations
 
             float density = 0.0;
-            float smoothness = 0.0;
             vec3 albedo = vec3(0.);
             vec3 emissive = vec3(0.);
             GeometricContext geometry;
@@ -772,6 +677,7 @@ export class VolumeBasicMaterial extends Three.MeshPhongMaterial {
             vec3 vLightProbe;
             vec3 lightDirection;
             vec3 vLightStep;
+            vec3 vEnvMapScatter = vec3(0.0);
             float lightSample;
             float lightAbsorbance;
             float lightDistance;
@@ -792,33 +698,21 @@ export class VolumeBasicMaterial extends Three.MeshPhongMaterial {
 
             vec3 lastNonSolidPoint = vec3(vPoint);
 
-            float samples = 0.;
-            float maxSamples = 0.;
-
-            for (float i = vBounds.x; i < vBounds.y; i += delta) {
-              maxSamples += 1.;
-            }
-
             for (float i = vBounds.x; i < vBounds.y; i += delta) {
               volumeSample = clampedTexture(densityMap3D, vPoint);
 
               density += blendSample(volumeSample) * eDensityAbsorbance;
-              smoothness += blendSample(volumeSample) * eInverseDensityScale;
 
               #ifdef USE_EMISSIVE_GRID
                 emissiveSample = clampedTexture(emissiveMap3D, vPoint);
                 emissive = max(emissive, density * vec3(emissiveSample));
               #endif
 
-              if (volumeSample > 0.) {
-                samples += 1.;
-              }
-
               if (density < 1.) {
                 lastNonSolidPoint = vPoint;
               }
 
-              if (density >= 1. && smoothness >= 1.) {
+              if (density >= 1.) {
                 break;
               }
 
@@ -826,43 +720,42 @@ export class VolumeBasicMaterial extends Three.MeshPhongMaterial {
             }
 
             density = clamp(density, 0.0, 1.0);
-            smoothness = clamp(smoothness, 0.0, 1.0);
 
             vPoint = lastNonSolidPoint;
 
             if (density > 0.) {
 
-              ${volumeAmbientLight}
+              #if VOLUME_USE_AMBIENT_LIGHTS
+                ${volumeAmbientLight}
+              #endif
 
-              #if NUM_HEMI_LIGHTS > 0
+              #if VOLUME_USE_ENVIRONMENT
+                ${volumeEnvMap}
+              #endif
+
+              #if NUM_HEMI_LIGHTS > 0 && VOLUME_USE_HEMI_LIGHTS
                 ${volumeHemiLights}
               #endif
 
-              #if NUM_POINT_LIGHTS > 0
+              #if NUM_POINT_LIGHTS > 0 && VOLUME_USE_POINT_LIGHTS
                 ${volumePointLights}
               #endif
 
-              #if NUM_DIR_LIGHTS > 0
+              #if NUM_DIR_LIGHTS > 0 && VOLUME_USE_DIR_LIGHTS
                 ${volumeDirLights}
               #endif
 
-              #if NUM_SPOT_LIGHTS > 0
+              #if NUM_SPOT_LIGHTS > 0 && VOLUME_USE_SPOT_LIGHTS
                 ${volumeSpotLights}
               #endif
 
             }
 
-            float fauxBeer = (1. - (samples / maxSamples));
-            float smoothnessBlend = smoothstep(0.0, 1.0, smoothness);
-            float opacityNoise = noiseScale > 0. ? smoothness + (abs(fbm(mapTextureSample(vPoint))) * noiseScale + (1. - noiseScale)) : smoothness + 1.;
-
             emissive = getBlackBodyRadiation(emissive.r);
             albedo += emissive;
 
-            // outgoingLight.rgb = vPoint;
-            outgoingLight.rgb = max(scatterColor, albedo);
-            // diffuseColor.a = saturate(density * opacity);
-            diffuseColor.a = smoothnessBlend * saturate(density * opacity) * opacityNoise;
+            outgoingLight.rgb = max(max(scatterColor, vEnvMapScatter), albedo);
+            diffuseColor.a = saturate(density * opacity);
 
             if (density <= 0.) {
               discard;

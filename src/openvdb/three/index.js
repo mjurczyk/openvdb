@@ -7,6 +7,7 @@ import { ParametricVolume, CubeVolume, SphereVolume, CloudVolume, MeshVolume } f
 import { perlin3Noise, simplex3Noise, worley3Noise } from '../math/noise';
 import { VolumeBasicMaterial } from './VolumeBasicMaterial';
 import { VolumeNormalMaterial } from './VolumeNormalMaterial';
+import { lights } from '../utils/lights';
 
 export {
   // NOTE Loaders
@@ -33,4 +34,7 @@ export {
   perlin3Noise,
   simplex3Noise,
   worley3Noise,
+
+  // NOTE Light helpers
+  lights,
 };

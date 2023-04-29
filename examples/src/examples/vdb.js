@@ -1,7 +1,7 @@
 import * as Three from 'three';
 import * as OpenVDB from '../../../src/openvdb/three';
 import { setGuiFields, dropTarget } from '../utils/gui';
-import { loadAndCacheVDB } from '../utils/resources';
+import { loadAndCacheVDB, loaders } from '../utils/resources';
 import { SimpleDropzone } from 'simple-dropzone';
 
 let fogVolume, targetScene;
@@ -22,12 +22,13 @@ dropzone.on('drop', ({ files }) => {
     dropTarget.innerHTML = '[Drop .VDB / .ZIP here]';
 
     fogVolume = new OpenVDB.FogVolume(vdb, {
-      resolution: 100,
+      resolution: 200,
       steps: 1000,
       baseColor: 0xffffff,
       absorbance: 1.0,
       progressive: true,
-      emissiveGrid: vdb.grids?.temperature
+      emissiveGrid: vdb.grids?.temperature,
+      radius: 2.0,
     });
     
     // NOTE Center fog volume
@@ -169,11 +170,25 @@ export const exampleVDB = ({ scene }) => {
           }
         },
         {
-          id: 'backgroundColor',
-          name: 'Background Color',
-          defaultValue: '#598eff',
+          id: 'environment',
+          name: 'EnvMap',
+          defaultValue: 'uv-1',
+          options: {
+            'Fiery Sky': 'fiery-sky-1',
+            'Magic Forest': 'magic-forest-5',
+            'UV': 'uv-1'
+          },
           onChange: (value) => {
-            scene.background.set(value);
+            loaders.rgbe.load(`./assets/${value}-HDR.hdr`, env => {
+              env.mapping = Three.EquirectangularReflectionMapping;
+              scene.environment = env;
+            });
+          
+            loaders.texture.load(`./assets/${value}-8K.jpg`, env => {
+              env.mapping = Three.EquirectangularRefractionMapping;
+              env.encoding = Three.sRGBEncoding;
+              scene.background = env;
+            });
           }
         },
         {
@@ -300,16 +315,6 @@ export const exampleVDB = ({ scene }) => {
           }
         },
         {
-          id: 'noise',
-          name: 'Noise',
-          defaultValue: 0.5,
-          min: 0.0,
-          max: 1.0,
-          onChange: (value) => {
-            if (fogVolume) fogVolume.materials.forEach(material => material.noiseScale = value);
-          }
-        },
-        {
           id: 'opacity',
           name: 'Opacity',
           defaultValue: 1.0,
@@ -322,7 +327,7 @@ export const exampleVDB = ({ scene }) => {
         {
           id: 'steps',
           name: 'Steps',
-          defaultValue: 100.0,
+          defaultValue: 1000.0,
           min: 10.0,
           max: 1000.0,
           onChange: (value) => {

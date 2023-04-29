@@ -97,6 +97,7 @@ export class MeshVolume extends GridDescriptor {
 
     this.bbox.getCenter(this.center);
     this.bbox.getSize(this.size);
+    this.size.addScalar(0.1); // NOTE Add padding to avoid edge glitches
 
     this.raycaster.near = -0.01;
     this.raycaster.far = 1.0; // NOTE We can assume this since the output volume is always 1x1x1

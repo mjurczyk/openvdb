@@ -124,7 +124,7 @@ Converts given `OpenVDBReader` to `Three.Object3D`. Resulting object consists of
 
 ### VolumeToFog
 
-- `VolumeToFog( vdb: OpenVDB.OpenVDBReader | OpenVDB.GridDescriptor | Array<OpenVDB.GridDescriptor>, { resolution, steps, progressive, absorbance, opacity, noise, baseColor }, onConverted: () => void, onProgress: ({ convertedVoxels, totalVoxels, convertedGrids, totalGrids }) => void ): Three.Object3D`
+- `VolumeToFog( vdb: OpenVDB.OpenVDBReader | OpenVDB.GridDescriptor | Array<OpenVDB.GridDescriptor>, { resolution, steps, progressive, absorbance, opacity, radius, baseColor }, onConverted: () => void, onProgress: ({ convertedVoxels, totalVoxels, convertedGrids, totalGrids }) => void ): Three.Object3D`
 
 Converts given `OpenVDBReader` to a volumetric `Three.Object3D`. `onConverted` and `onProgress` are called as the VDB is converted to a fog. Most importantly:
 
@@ -133,7 +133,7 @@ Converts given `OpenVDBReader` to a volumetric `Three.Object3D`. `onConverted` a
 `progressive: boolean` - set to `true` to render the fog on-the-go as it is being parsed, while preserving 60fps.
 `absorbance: number` - (default: `1.0`) `1.0` means fog absorbs all the light going through it, lower values all light to partially traverse through the fog.
 `opacity: number` - alpha opacity of the fog (doesn't affect light calculations.)
-`noise: number` - between `0.0` and `1.0`, amount of CPU-generated noise within the fog volume, adds a bit of randomness to the result.
+`radius: number` - roudness of each voxel.
 `baseColor: Three.Color | string | number` - (default: `0x000000`) albedo color of the fog volume.
 
 ⚠️ Note - fog volumes currently react to all lights in the scene. Keep this in mind as light calculations within the volume are done using quite expensive raymarching. If fog volume covers a significant part of the viewport, consider decreasing `steps` parameter, or the overall amount of lights.

@@ -1,19 +1,19 @@
 import * as Three from 'three';
 import * as OpenVDB from '../../../src/openvdb/three';
 import { gui, setGuiFields } from '../utils/gui';
-import { loadAndCacheVDB } from '../utils/resources';
+import { loadAndCacheVDB, loaders } from '../utils/resources';
 
 export const exampleBunny = ({ scene }) => {
   loadAndCacheVDB('bunny_cloud.vdb', './assets/bunny_cloud.vdb').then(vdb => {
     const debugMesh = new Three.Mesh(
       new Three.SphereGeometry(20.0, 32.0, 32.0),
-      new Three.MeshPhongMaterial({ color: 0xffffff })
+      new Three.MeshStandardMaterial({ color: 0xffffff, metalness: 0.0, roughness: 0.5 })
     );
     scene.add(debugMesh);
 
     const debugObstacle = new Three.Mesh(
       new Three.SphereGeometry(20.0, 32.0, 32.0),
-      new Three.MeshPhongMaterial({ color: 0xffffff })
+      new Three.MeshStandardMaterial({ color: 0xffffff, metalness: 0.0, roughness: 0.5 })
     );
     debugObstacle.position.set(-200.0, 0.0, 200.0);
     scene.add(debugObstacle);
@@ -21,9 +21,9 @@ export const exampleBunny = ({ scene }) => {
     const fogVolume = new OpenVDB.FogVolume(vdb, {
       resolution: 100,
       steps: 10000,
-      baseColor: 0xffffff,
       absorbance: 1.0,
-      progressive: true
+      progressive: true,
+      radius: 2.0,
     });
 
     // NOTE Center fog volume
@@ -98,7 +98,6 @@ export const exampleBunny = ({ scene }) => {
 
     const hemiSphereLight = new Three.HemisphereLight(0xff0000, 0x0000ff, 1.0);
     scene.add(hemiSphereLight);
-
     setInterval(() => {
       spotLightPivot.rotateY(0.005);
       pointLightPivot.rotateX(0.005);
@@ -118,11 +117,25 @@ export const exampleBunny = ({ scene }) => {
             }
           },
           {
-            id: 'backgroundColor',
-            name: 'Background Color',
-            defaultValue: '#598eff',
+            id: 'environment',
+            name: 'EnvMap',
+            defaultValue: 'uv-1',
+            options: {
+              'Fiery Sky': 'fiery-sky-1',
+              'Magic Forest': 'magic-forest-5',
+              'UV': 'uv-1'
+            },
             onChange: (value) => {
-              scene.background.set(value);
+              loaders.rgbe.load(`./assets/${value}-HDR.hdr`, env => {
+                env.mapping = Three.EquirectangularReflectionMapping;
+                scene.environment = env;
+              });
+            
+              loaders.texture.load(`./assets/${value}-8K.jpg`, env => {
+                env.mapping = Three.EquirectangularRefractionMapping;
+                env.encoding = Three.sRGBEncoding;
+                scene.background = env;
+              });
             }
           },
           {
@@ -136,6 +149,7 @@ export const exampleBunny = ({ scene }) => {
               'Directional Light': 'dir',
               'Sun': 'sun',
               'Glow': 'glow',
+              'None': 'none',
             },
             onChange: (value) => {
               pointLight.visible = value === 'point';
@@ -152,6 +166,12 @@ export const exampleBunny = ({ scene }) => {
               debugMeshLight.visible = value === 'sun';
 
               fogVolumeLight.visible = value === 'glow';
+
+              fogVolume.materials.forEach(material => material.useEnvironment = true);
+              fogVolume.materials.forEach(material => material.usePointLights = ['point', 'sun', 'glow'].includes(value));
+              fogVolume.materials.forEach(material => material.useDirectionalLights = value === 'dir');
+              fogVolume.materials.forEach(material => material.useSpotLights = value === 'spot');
+              fogVolume.materials.forEach(material => material.useHemisphereLights = value === 'hemi');
             }
           },
           {
@@ -234,16 +254,6 @@ export const exampleBunny = ({ scene }) => {
             }
           },
           {
-            id: 'noise',
-            name: 'Noise',
-            defaultValue: 0.5,
-            min: 0.0,
-            max: 1.0,
-            onChange: (value) => {
-              fogVolume.materials.forEach(material => material.noiseScale = value);
-            }
-          },
-          {
             id: 'opacity',
             name: 'Opacity',
             defaultValue: 1.0,
@@ -256,7 +266,7 @@ export const exampleBunny = ({ scene }) => {
           {
             id: 'steps',
             name: 'Steps',
-            defaultValue: 100.0,
+            defaultValue: 1000.0,
             min: 10.0,
             max: 1000.0,
             onChange: (value) => {

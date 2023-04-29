@@ -1,3 +1,21 @@
+# v0.2.15
+
+Core:
+
+- Add MeshVolume
+- Add GLTF-to-Mesh
+- Add environment lighting
+- Add volume roundness (`radius` prop) for MeshGeneration
+- Remove GPU `noise` prop
+- Move wrapping calculations to compile-time instead of checking each sample on the GPU
+- Add `useAmbientLights`, `useDirectionalLights`, `useHemisphereLights`, `usePointLights`, `useSpotLights` and `useEnvironment` setters to limit the amount of lights affecting the volume
+- Improve material caching (cache material key based on properties)
+- Add `baseColorMap` property to volume fogs and `baseColorMap3D` to VolumeBasicMaterial
+
+Examples:
+
+- Add `gltf` example
+
 # v0.1.4
 
 Core:
