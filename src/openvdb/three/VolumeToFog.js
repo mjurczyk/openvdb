@@ -58,7 +58,7 @@ export class VolumeToFog extends Three.Group {
       emissiveTexture3D.needsUpdate = true;
 
       probeEmissiveValue = (index, target, override) => {
-        return emissiveData[index] = typeof override !== 'undefined' ? override : emissiveGrid.getValue(target) * offset * 255.;
+        return emissiveData[index] = typeof override !== 'undefined' ? override : emissiveGrid.getValue(target) * 255.;
       };
     }
 
