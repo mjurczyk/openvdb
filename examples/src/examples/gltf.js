@@ -99,7 +99,7 @@ export const exampleGLTF = ({ scene }) => {
     ]);
   };
 
-  loaders.gltf.load('./assets/damaged_helmet.glb', ({ scene: gltfModel }) => {
+  loaders.gltf.load('./assets/car.glb', ({ scene: gltfModel }) => {
     const model = gltfModel;
 
     model.position.x += 2.0;
@@ -111,10 +111,10 @@ export const exampleGLTF = ({ scene }) => {
       new OpenVDB.MeshVolume(model),
       {
         baseColor: 0xff00ff,
-        resolution: 50,
+        resolution: 100,
         progressive: true,
         steps: 1000,
-        radius: 2.0,
+        radius: 5.0
       }
     );
 

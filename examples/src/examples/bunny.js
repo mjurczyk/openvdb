@@ -167,7 +167,7 @@ export const exampleBunny = ({ scene }) => {
 
               fogVolumeLight.visible = value === 'glow';
 
-              fogVolume.materials.forEach(material => material.useEnvironment = true);
+              fogVolume.materials.forEach(material => material.useEnvironment = value !== 'none');
               fogVolume.materials.forEach(material => material.usePointLights = ['point', 'sun', 'glow'].includes(value));
               fogVolume.materials.forEach(material => material.useDirectionalLights = value === 'dir');
               fogVolume.materials.forEach(material => material.useSpotLights = value === 'spot');

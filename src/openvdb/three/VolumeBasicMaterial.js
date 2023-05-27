@@ -20,7 +20,6 @@ export class VolumeBasicMaterial extends Three.MeshStandardMaterial {
     offset3D: { value: new Three.Vector3(0.0, 0.0, 0.0) },
     wrap3D: { value: Three.ClampToEdgeWrapping },
     lights: { value:
-      lights.useAmbientLights |
       lights.useDirectionalLights |
       lights.usePointLights |
       lights.useSpotLights |
@@ -136,20 +135,6 @@ export class VolumeBasicMaterial extends Three.MeshStandardMaterial {
     return this._uniforms.lights.value;
   }
 
-  set useAmbientLights(value = true) {
-    if (value) {
-      this._uniforms.lights.value |= lights.useAmbientLights;
-    } else {
-      this._uniforms.lights.value &= ~lights.useAmbientLights;
-    }
-
-    this.needsUpdate = true;
-  }
-
-  get useAmbientLights() {
-    return (this._uniforms.lights.value & lights.useAmbientLights) !== 0;
-  }
-
   set useDirectionalLights(value = true) {
     if (value) {
       this._uniforms.lights.value |= lights.useDirectionalLights;
@@ -229,7 +214,7 @@ export class VolumeBasicMaterial extends Three.MeshStandardMaterial {
     this.transparent = true;
 
     Object.keys(this._uniforms).forEach(key => {
-      if (typeof props[key] !== 'undefined') {
+      if (typeof props[key] !== 'undefined' && props[key] !== null) {
         this[key] = props[key];
 
         if (props[key] instanceof Three.Texture) {
@@ -248,7 +233,6 @@ export class VolumeBasicMaterial extends Three.MeshStandardMaterial {
         ${props.emissiveMap3D ? '#define USE_EMISSIVE_GRID' : ''}
         ${props.baseColorMap3D ? '#define USE_BASE_COLOR_GRID' : ''}
 
-        #define VOLUME_USE_AMBIENT_LIGHTS ${Number(this.useAmbientLights)} != 0
         #define VOLUME_USE_ENVIRONMENT ${Number(this.useEnvironment)} != 0
         #define VOLUME_USE_HEMI_LIGHTS ${Number(this.useHemisphereLights)} != 0
         #define VOLUME_USE_POINT_LIGHTS ${Number(this.usePointLights)} != 0
@@ -486,7 +470,7 @@ export class VolumeBasicMaterial extends Three.MeshStandardMaterial {
           baseColorSample *= clampedTextureRGB(baseColorMap3D, vPoint);
         #endif
 
-        albedo += ambientLightColor * baseColor.rgb;
+        albedo += ambientLightColor;
       `;
 
       const volumeEnvMap = `
@@ -725,9 +709,7 @@ export class VolumeBasicMaterial extends Three.MeshStandardMaterial {
 
             if (density > 0.) {
 
-              #if VOLUME_USE_AMBIENT_LIGHTS
-                ${volumeAmbientLight}
-              #endif
+              ${volumeAmbientLight}
 
               #if VOLUME_USE_ENVIRONMENT
                 ${volumeEnvMap}
@@ -749,8 +731,10 @@ export class VolumeBasicMaterial extends Three.MeshStandardMaterial {
                 ${volumeSpotLights}
               #endif
 
-            }
+              albedo *= baseColorSample;
 
+            }
+ 
             emissive = getBlackBodyRadiation(emissive.r);
             albedo += emissive;
 

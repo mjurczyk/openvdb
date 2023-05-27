@@ -1,19 +1,31 @@
 import * as Three from 'three';
 import { getUuid } from '../utils/uuid';
+import { lights } from '../utils/lights';
 
-export class VolumeNormalMaterial extends Three.MeshPhongMaterial {
+export class VolumeNormalMaterial extends Three.MeshStandardMaterial {
+  name = 'VolumeNormalMaterial';
+  isVolumetricFogMaterial = true;
+  customProgramCacheKey = () => getUuid(this);
+
   _uniforms = {
     baseColor: { value: new Three.Color(0xffffff) },
     scatterColor: { value: new Three.Color(0x000000) },
     densityMap3D: { value: null },
     emissiveMap3D: { value: null },
+    baseColorMap3D: { value: null },
     steps: { value: 100 },
     absorbance: { value: 1.0 },
     densityScale: { value: 1.0 },
     resolution: { value: 100 },
     offset3D: { value: new Three.Vector3(0.0, 0.0, 0.0) },
     wrap3D: { value: Three.ClampToEdgeWrapping },
-    noiseScale: { value: 0.5 },
+    lights: { value:
+      lights.useDirectionalLights |
+      lights.usePointLights |
+      lights.useSpotLights |
+      lights.useHemisphereLights |
+      lights.useEnvironment
+    },
   };
 
   set baseColor(value) {
@@ -44,10 +56,23 @@ export class VolumeNormalMaterial extends Three.MeshPhongMaterial {
   set emissiveMap3D(value) {
     this._uniforms.emissiveMap3D.value = value;
     value.offset3D = this._uniforms.offset3D.value;
+
+    this.needsUpdate = true;
   }
 
   get emissiveMap3D() {
     return this._uniforms.emissiveMap3D.value;
+  }
+
+  set baseColorMap3D(value) {
+    this._uniforms.baseColorMap3D.value = value;
+    value.offset3D = this._uniforms.offset3D.value;
+
+    this.needsUpdate = true;
+  }
+
+  get baseColorMap3D() {
+    return this._uniforms.baseColorMap3D.value;
   }
 
   set steps(value) {
@@ -84,6 +109,8 @@ export class VolumeNormalMaterial extends Three.MeshPhongMaterial {
 
   set wrap3D(value) {
     this._uniforms.wrap3D.value = value;
+
+    this.needsUpdate = true;
   }
 
   get wrap3D() {
@@ -98,12 +125,84 @@ export class VolumeNormalMaterial extends Three.MeshPhongMaterial {
     return this._uniforms.densityScale.value;
   }
 
-  set noiseScale(value) {
-    this._uniforms.noiseScale.value = value;
+  set lights(value) {
+    this._uniforms.lights.value = value;
+
+    this.needsUpdate = true;
   }
 
-  get noiseScale() {
-    return this._uniforms.noiseScale.value;
+  get lights() {
+    return this._uniforms.lights.value;
+  }
+
+  set useDirectionalLights(value = true) {
+    if (value) {
+      this._uniforms.lights.value |= lights.useDirectionalLights;
+    } else {
+      this._uniforms.lights.value &= ~lights.useDirectionalLights;
+    }
+
+    this.needsUpdate = true;
+  }
+
+  get useDirectionalLights() {
+    return (this._uniforms.lights.value & lights.useDirectionalLights) !== 0;
+  }
+
+  set usePointLights(value = true) {
+    if (value) {
+      this._uniforms.lights.value |= lights.usePointLights;
+    } else {
+      this._uniforms.lights.value &= ~lights.usePointLights;
+    }
+
+    this.needsUpdate = true;
+  }
+
+  get usePointLights() {
+    return (this._uniforms.lights.value & lights.usePointLights) !== 0;
+  }
+
+  set useHemisphereLights(value = true) {
+    if (value) {
+      this._uniforms.lights.value |= lights.useHemisphereLights;
+    } else {
+      this._uniforms.lights.value &= ~lights.useHemisphereLights;
+    }
+
+    this.needsUpdate = true;
+  }
+
+  get useHemisphereLights() {
+    return (this._uniforms.lights.value & lights.useHemisphereLights) !== 0;
+  }
+
+  set useSpotLights(value = true) {
+    if (value) {
+      this._uniforms.lights.value |= lights.useSpotLights;
+    } else {
+      this._uniforms.lights.value &= ~lights.useSpotLights;
+    }
+
+    this.needsUpdate = true;
+  }
+
+  get useSpotLights() {
+    return (this._uniforms.lights.value & lights.useSpotLights) !== 0;
+  }
+
+  set useEnvironment(value = true) {
+    if (value) {
+      this._uniforms.lights.value |= lights.useEnvironment;
+    } else {
+      this._uniforms.lights.value &= ~lights.useEnvironment;
+    }
+
+    this.needsUpdate = true;
+  }
+
+  get useEnvironment() {
+    return (this._uniforms.lights.value & lights.useEnvironment) !== 0;
   }
 
   constructor(props = {}) {
@@ -113,10 +212,9 @@ export class VolumeNormalMaterial extends Three.MeshPhongMaterial {
     this.depthWrite = false;
     this.depthTest = true;
     this.transparent = true;
-    this.customProgramCacheKey = () => getUuid();
 
     Object.keys(this._uniforms).forEach(key => {
-      if (props[key]) {
+      if (typeof props[key] !== 'undefined' && props[key] !== null) {
         this[key] = props[key];
 
         if (props[key] instanceof Three.Texture) {
@@ -130,11 +228,16 @@ export class VolumeNormalMaterial extends Three.MeshPhongMaterial {
         shader.uniforms[key] = this._uniforms[key];
       });
 
-      shader.isVolumetricFogMaterial = true;
-
       const shaderProperties = `
         #define VOLUME_BBOX_SPAN 0.5
         ${props.emissiveMap3D ? '#define USE_EMISSIVE_GRID' : ''}
+        ${props.baseColorMap3D ? '#define USE_BASE_COLOR_GRID' : ''}
+
+        #define VOLUME_USE_ENVIRONMENT ${Number(this.useEnvironment)} != 0
+        #define VOLUME_USE_HEMI_LIGHTS ${Number(this.useHemisphereLights)} != 0
+        #define VOLUME_USE_POINT_LIGHTS ${Number(this.usePointLights)} != 0
+        #define VOLUME_USE_DIR_LIGHTS ${Number(this.useDirectionalLights)} != 0
+        #define VOLUME_USE_SPOT_LIGHTS ${Number(this.useSpotLights)} != 0
       `;
 
       const shaderVaryings = `
@@ -153,6 +256,7 @@ export class VolumeNormalMaterial extends Three.MeshPhongMaterial {
 
             out vec3 vOrigin;
             out vec3 vDirection;
+            out vec3 vPosition;
 
             #include <common>
           `
@@ -164,6 +268,7 @@ export class VolumeNormalMaterial extends Three.MeshPhongMaterial {
 
             vOrigin = vec3(inverse(modelMatrix) * vec4(cameraPosition, 1.0)).xyz;
             vDirection = position - vOrigin;
+            vPosition = position;
 
             mModelMatrix = modelMatrix;
             mInverseModelViewMatrix = inverse(modelViewMatrix);
@@ -204,9 +309,9 @@ export class VolumeNormalMaterial extends Three.MeshPhongMaterial {
             vLightProbe -= vLightStep;
             stepAccumulation += 1.;
             
-            lightSample = texture(densityMap3D, mapTextureSample(vLightProbe)).r;
+            lightSample = clampedTexture(densityMap3D, vLightProbe);
             
-            lightAbsorbance += lightSample * eInverseAbsorbance;
+            lightAbsorbance += blendSample(lightSample) * eInverseAbsorbance;
 
             if (lightAbsorbance >= 1.) {
               lightAbsorbance = 1.;
@@ -240,9 +345,9 @@ export class VolumeNormalMaterial extends Three.MeshPhongMaterial {
             vLightProbe -= vLightStep;
             stepAccumulation += 1.;
             
-            lightSample = texture(densityMap3D, mapTextureSample(vLightProbe)).r;
-            
-            lightAbsorbance += lightSample * eInverseAbsorbance;
+            float lightSample = clampedTexture(densityMap3D, vLightProbe);
+
+            lightAbsorbance += blendSample(lightSample) * eInverseAbsorbance;
 
             if (lightAbsorbance >= 1.) {
               lightAbsorbance = 1.;
@@ -285,9 +390,9 @@ export class VolumeNormalMaterial extends Three.MeshPhongMaterial {
               vLightProbe -= vLightStep;
               stepAccumulation += 1.;
               
-              lightSample = texture(densityMap3D, mapTextureSample(vLightProbe)).r;
+              lightSample = clampedTexture(densityMap3D, vLightProbe);
               
-              lightAbsorbance += lightSample * eInverseAbsorbance;
+              lightAbsorbance += blendSample(lightSample) * eInverseAbsorbance;
 
               if (lightAbsorbance >= 1.) {
                 lightAbsorbance = 1.;
@@ -329,7 +434,7 @@ export class VolumeNormalMaterial extends Three.MeshPhongMaterial {
           for (int lightMarch = 1; lightMarch < int(lightMarchLimit / 2.); lightMarch++) {
             if (absorbanceUp < 1.) {
               textureProbe = vLightProbe - float(lightMarch) * vLightStep;
-              lightSample = texture(densityMap3D, mapTextureSample(textureProbe)).r;
+              lightSample = clampedTexture(densityMap3D, textureProbe);
 
               absorbanceUp += lightSample * eInverseAbsorbance;
               stepAccumulationUp += 1.;
@@ -337,9 +442,9 @@ export class VolumeNormalMaterial extends Three.MeshPhongMaterial {
             
             if (absorbanceDown < 1.) {
               textureProbe = vLightProbe + float(lightMarch) * vLightStep;
-              lightSample = texture(densityMap3D, mapTextureSample(textureProbe)).r;
+              lightSample = clampedTexture(densityMap3D, textureProbe);
 
-              absorbanceDown += lightSample * eInverseAbsorbance;
+              absorbanceDown += blendSample(lightSample) * eInverseAbsorbance;
               stepAccumulationDown += 1.;
             }
           }
@@ -359,7 +464,24 @@ export class VolumeNormalMaterial extends Three.MeshPhongMaterial {
       `;
 
       const volumeAmbientLight = `
+        vec3 baseColorSample = baseColor.rgb;
+
+        #ifdef USE_BASE_COLOR_GRID
+          baseColorSample *= clampedTextureRGB(baseColorMap3D, vPoint);
+        #endif
+
         albedo += ambientLightColor * baseColor.rgb;
+      `;
+
+      const volumeEnvMap = `
+        vec3 viewDir = isOrthographic ? vec3(0.0, 0.0, 1.0) : normalize(vViewPosition);
+        vec3 vUVCoords = normalize(lastNonSolidPoint * mInverseNormalMatrix).xyz;
+
+        #if defined( USE_ENVMAP )
+          vEnvMapScatter = getIBLIrradiance(vUVCoords) * RECIPROCAL_PI;
+
+          albedo += density * getIBLRadiance(viewDir, vUVCoords, .5) * RECIPROCAL_PI;
+        #endif
       `;
 
       const shaderHelpers = `
@@ -419,98 +541,45 @@ export class VolumeNormalMaterial extends Three.MeshPhongMaterial {
           }
         }
 
-        vec3 mapTextureSample(vec3 position) {
+        vec3 mapTextureSample(vec3 position){
           vec3 uv = position + VOLUME_BBOX_SPAN + offset3D;
 
-          if (wrap3D == 1000) {
-            uv = mod(uv, 1.);
-          } else if (wrap3D == 0 || wrap3D == 1001) {
-            return uv;
-          } else if (wrap3D == 1002) {
+          ${this.wrap3D === Three.RepeatWrapping ? `return mod(uv, 1.);` : ''}
+          ${this.wrap3D === 0 || this.wrap3D === Three.ClampToEdgeWrapping ? `// NOTE Return UV` : ''}
+          ${this.wrap3D === Three.MirroredRepeatWrapping ? `
             uv.x = loopUV(uv.x);
             uv.y = loopUV(uv.y);
             uv.z = loopUV(uv.z);
-          }
+          ` : ''}
 
           return uv;
         }
 
-        // NOTE GLSL Noise source - https://gist.github.com/patriciogonzalezvivo/670c22f3966e662d2f83
-        vec4 permute(vec4 x){return mod(((x*34.0)+1.0)*x, 289.0);}
-        vec4 taylorInvSqrt(vec4 r){return 1.79284291400159 - 0.85373472095314 * r;}
+        float blendSample(float value) {
+          float fSmoothingThreshold = 0.25;
+          float fSmoothingBlend = 0.25;
 
-        float snoise(vec3 v){ 
-          const vec2  C = vec2(1.0/6.0, 1.0/3.0) ;
-          const vec4  D = vec4(0.0, 0.5, 1.0, 2.0);
-
-          vec3 i  = floor(v + dot(v, C.yyy) );
-          vec3 x0 =   v - i + dot(i, C.xxx) ;
-
-          vec3 g = step(x0.yzx, x0.xyz);
-          vec3 l = 1.0 - g;
-          vec3 i1 = min( g.xyz, l.zxy );
-          vec3 i2 = max( g.xyz, l.zxy );
-
-          vec3 x1 = x0 - i1 + 1.0 * C.xxx;
-          vec3 x2 = x0 - i2 + 2.0 * C.xxx;
-          vec3 x3 = x0 - 1. + 3.0 * C.xxx;
-
-          i = mod(i, 289.0 ); 
-          vec4 p = permute( permute( permute( 
-                    i.z + vec4(0.0, i1.z, i2.z, 1.0 ))
-                  + i.y + vec4(0.0, i1.y, i2.y, 1.0 )) 
-                  + i.x + vec4(0.0, i1.x, i2.x, 1.0 ));
-
-          float n_ = 1.0/7.0; // N=7
-          vec3  ns = n_ * D.wyz - D.xzx;
-
-          vec4 j = p - 49.0 * floor(p * ns.z *ns.z);  //  mod(p,N*N)
-
-          vec4 x_ = floor(j * ns.z);
-          vec4 y_ = floor(j - 7.0 * x_ );    // mod(j,N)
-
-          vec4 x = x_ *ns.x + ns.yyyy;
-          vec4 y = y_ *ns.x + ns.yyyy;
-          vec4 h = 1.0 - abs(x) - abs(y);
-
-          vec4 b0 = vec4( x.xy, y.xy );
-          vec4 b1 = vec4( x.zw, y.zw );
-
-          vec4 s0 = floor(b0)*2.0 + 1.0;
-          vec4 s1 = floor(b1)*2.0 + 1.0;
-          vec4 sh = -step(h, vec4(0.0));
-
-          vec4 a0 = b0.xzyw + s0.xzyw*sh.xxyy ;
-          vec4 a1 = b1.xzyw + s1.xzyw*sh.zzww ;
-
-          vec3 p0 = vec3(a0.xy,h.x);
-          vec3 p1 = vec3(a0.zw,h.y);
-          vec3 p2 = vec3(a1.xy,h.z);
-          vec3 p3 = vec3(a1.zw,h.w);
-
-          vec4 norm = taylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2, p2), dot(p3,p3)));
-          p0 *= norm.x;
-          p1 *= norm.y;
-          p2 *= norm.z;
-          p3 *= norm.w;
-
-          vec4 m = max(0.6 - vec4(dot(x0,x0), dot(x1,x1), dot(x2,x2), dot(x3,x3)), 0.0);
-          m = m * m;
-          return 42.0 * dot( m*m, vec4( dot(p0,x0), dot(p1,x1), 
-                                        dot(p2,x2), dot(p3,x3) ) );
+          return smoothstep(
+            fSmoothingThreshold - fSmoothingBlend,
+            fSmoothingThreshold + fSmoothingBlend,
+            value
+          ) * densityScale;
         }
 
-        float fbm(vec3 x) {
-          vec3 y = vec3(x);
-          float v = 0.0;
-          float a = 0.75;
-          vec3 shift = vec3(1000.);
-          for (int i = 0; i < 3; ++i) {
-            y = y * 10000.0 + shift;
-            v += a * snoise(y);
-            a *= 0.5;
-          }
-          return v;
+        float clampedTexture(sampler3D source, vec3 position) {
+          ${this.wrap3D === 0 || this.wrap3D === Three.ClampToEdgeWrapping ? `
+            vec3 vAbs = abs(position);
+
+            if (max(vAbs.x, max(vAbs.y, vAbs.z)) > .5) {
+              return 0.;
+            }
+          ` : ''}
+
+          return texture(source, mapTextureSample(position)).r;
+        }
+
+        vec3 clampedTextureRGB(sampler3D source, vec3 position) {
+          return texture(source, mapTextureSample(position)).rgb;
         }
       `;
 
@@ -525,9 +594,11 @@ export class VolumeNormalMaterial extends Three.MeshPhongMaterial {
 
             in vec3 vOrigin;
             in vec3 vDirection;
+            in vec3 vPosition;
 
             uniform sampler3D densityMap3D;
             uniform sampler3D emissiveMap3D;
+            uniform sampler3D baseColorMap3D;
             uniform vec3 offset3D;
             uniform int wrap3D;
 
@@ -537,7 +608,6 @@ export class VolumeNormalMaterial extends Three.MeshPhongMaterial {
             uniform vec3 baseColor;
             uniform vec3 scatterColor;
             uniform float resolution;
-            uniform float noiseScale;
 
             ${shaderProperties}
             ${shaderVaryings}
@@ -558,12 +628,14 @@ export class VolumeNormalMaterial extends Three.MeshPhongMaterial {
 
             vec3 vRayDirection = normalize(vDirection);
             vec2 vBounds = getVolumeBbox(vRayDirection);
+            vec2 vMaxBounds = getVolumeBbox(vOrigin);
             
             if (vBounds.x > vBounds.y) {
               discard;
             }
 
             vBounds.x = max(vBounds.x, 0.0);
+            vMaxBounds.x = max(vMaxBounds.x, 0.0);
 
             // Volume movement
 
@@ -575,13 +647,13 @@ export class VolumeNormalMaterial extends Three.MeshPhongMaterial {
             // Density calculations
 
             float density = 0.0;
-            float smoothness = 0.0;
             vec3 albedo = vec3(0.);
             vec3 emissive = vec3(0.);
             GeometricContext geometry;
             float volumeSample;
             float emissiveSample;
             float noiseSample;
+            float noiseFactor;
 
             // Light calculations
             
@@ -589,6 +661,7 @@ export class VolumeNormalMaterial extends Three.MeshPhongMaterial {
             vec3 vLightProbe;
             vec3 lightDirection;
             vec3 vLightStep;
+            vec3 vEnvMapScatter = vec3(0.0);
             float lightSample;
             float lightAbsorbance;
             float lightDistance;
@@ -610,13 +683,12 @@ export class VolumeNormalMaterial extends Three.MeshPhongMaterial {
             vec3 lastNonSolidPoint = vec3(vPoint);
 
             for (float i = vBounds.x; i < vBounds.y; i += delta) {
-              volumeSample = texture(densityMap3D, mapTextureSample(vPoint)).r;
-              
-              density += volumeSample * eDensityAbsorbance;
-              smoothness += volumeSample * eInverseDensityScale;
+              volumeSample = clampedTexture(densityMap3D, vPoint);
+
+              density += blendSample(volumeSample) * eDensityAbsorbance;
 
               #ifdef USE_EMISSIVE_GRID
-                emissiveSample = texture(emissiveMap3D, mapTextureSample(vPoint)).r;
+                emissiveSample = clampedTexture(emissiveMap3D, vPoint);
                 emissive = max(emissive, density * vec3(emissiveSample));
               #endif
 
@@ -624,7 +696,7 @@ export class VolumeNormalMaterial extends Three.MeshPhongMaterial {
                 lastNonSolidPoint = vPoint;
               }
 
-              if (density >= 1. && smoothness >= 1.) {
+              if (density >= 1.) {
                 break;
               }
 
@@ -632,18 +704,40 @@ export class VolumeNormalMaterial extends Three.MeshPhongMaterial {
             }
 
             density = clamp(density, 0.0, 1.0);
-            smoothness = clamp(smoothness, 0.0, 1.0);
 
             vPoint = lastNonSolidPoint;
+
+            if (density > 0.) {
+
+              ${volumeAmbientLight}
+
+              #if VOLUME_USE_ENVIRONMENT
+                ${volumeEnvMap}
+              #endif
+
+              #if NUM_HEMI_LIGHTS > 0 && VOLUME_USE_HEMI_LIGHTS
+                ${volumeHemiLights}
+              #endif
+
+              #if NUM_POINT_LIGHTS > 0 && VOLUME_USE_POINT_LIGHTS
+                ${volumePointLights}
+              #endif
+
+              #if NUM_DIR_LIGHTS > 0 && VOLUME_USE_DIR_LIGHTS
+                ${volumeDirLights}
+              #endif
+
+              #if NUM_SPOT_LIGHTS > 0 && VOLUME_USE_SPOT_LIGHTS
+                ${volumeSpotLights}
+              #endif
+
+            }
 
             emissive = getBlackBodyRadiation(emissive.r);
             albedo += emissive;
 
-            float smoothnessBlend = smoothstep(0.0, 1.0, smoothness);
-            float opacityNoise = noiseScale > 0. ? smoothness + (abs(fbm(mapTextureSample(vPoint))) * noiseScale + (1. - noiseScale)) : smoothness + 1.;
-
             outgoingLight.rgb = vPoint.xyz;
-            diffuseColor.a = smoothnessBlend * saturate(density * opacity) * opacityNoise;
+            diffuseColor.a = saturate(density * opacity);
 
             if (density <= 0.) {
               discard;

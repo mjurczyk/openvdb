@@ -1,11 +1,8 @@
 import * as Three from 'three';
-import { MathUtils } from 'three';
 import { GridDescriptor } from '../core/GridDescriptor';
 import { Bbox } from '../math/bbox';
 import { Vector3 } from '../math/vector';
 import { VolumeBasicMaterial } from './VolumeBasicMaterial';
-import { simplex2Noise, worley3Noise } from '../math/noise';
-import { perlin3Noise } from '../math/noise';
 
 export class VolumeToFog extends Three.Group {
   processes = [];
@@ -49,54 +46,76 @@ export class VolumeToFog extends Three.Group {
     if (emissiveGrid) {
       grids = grids.filter(match => match !== emissiveGrid);
 
-      const emissiveData = new Uint8Array(Math.pow(resolution, 3));
-      emissiveTexture3D = new Three.Data3DTexture(emissiveData, resolution, resolution, resolution);
       emissiveTexture3D.format = Three.RedFormat;
       emissiveTexture3D.minFilter = Three.LinearFilter;
       emissiveTexture3D.magFilter = Three.LinearFilter;
       emissiveTexture3D.unpackAlignment = 1;
       emissiveTexture3D.needsUpdate = true;
 
-      probeEmissiveValue = (index, target, override) => {
-        return emissiveData[index] = typeof override !== 'undefined' ? override : emissiveGrid.getValue(target) * 255.;
-      };
+      if (emissiveGrid instanceof Uint8Array) {
+        emissiveTexture3D = new Three.Data3DTexture(emissiveGrid, resolution, resolution, resolution);
+      } else {
+        const emissiveData = new Uint8Array(Math.pow(resolution, 3));
+        emissiveTexture3D = new Three.Data3DTexture(emissiveData, resolution, resolution, resolution);
+
+        probeEmissiveValue = (index, target, override) => {
+          return emissiveData[index] = typeof override !== 'undefined' ? override : emissiveGrid.getValue(target) * 255.;
+        };
+      }
     }
 
     if (baseColorGrid) {
-      const baseColorData = new Uint8Array(Math.pow(resolution, 3) * 4);
-      baseColorTexture3D = new Three.Data3DTexture(baseColorData, resolution, resolution, resolution);
       baseColorTexture3D.format = Three.RGBAFormat;
       baseColorTexture3D.minFilter = Three.LinearFilter;
       baseColorTexture3D.magFilter = Three.LinearFilter;
       baseColorTexture3D.unpackAlignment = 1;
       baseColorTexture3D.needsUpdate = true;
 
-      const colorSampler = new Three.Color();
+      if (baseColorGrid instanceof Uint8Array) {
+        baseColorTexture3D = new Three.Data3DTexture(baseColorGrid, resolution, resolution, resolution);
+      } else {
+        const baseColorData = new Uint8Array(Math.pow(resolution, 3) * 4);
+        baseColorTexture3D = new Three.Data3DTexture(baseColorData, resolution, resolution, resolution);
 
-      probeBaseColorValue = (index, target, override) => {
-        if (override) {
-          baseColorData[index * 4 + 0] = override.r * 255.;
-          baseColorData[index * 4 + 1] = override.g * 255.;
-          baseColorData[index * 4 + 2] = override.b * 255.;
+        const colorSampler = new Three.Color();
+
+        probeBaseColorValue = (index, target, override) => {
+          if (override) {
+            baseColorData[index * 4 + 0] = override.r * 255.;
+            baseColorData[index * 4 + 1] = override.g * 255.;
+            baseColorData[index * 4 + 2] = override.b * 255.;
+            baseColorData[index * 4 + 3] = 255.;
+
+            return;
+          }
+
+          const gridSample = baseColorGrid.getValue(target);
+
+          if (gridSample instanceof Three.Color) {
+            colorSampler.set(gridValue);
+          } else if (gridSample instanceof Three.Vector3) {
+            colorSampler.setRGB(
+              gridSample.x,
+              gridSample.y,
+              gridSample.z
+            );
+          } else {
+            colorSampler.setRGB(1.0, 0.0, 1.0); // NOTE Show debug issues as violet
+          }
+
+          baseColorData[index * 4 + 0] = colorSampler.r * 255.;
+          baseColorData[index * 4 + 1] = colorSampler.g * 255.;
+          baseColorData[index * 4 + 2] = colorSampler.b * 255.;
           baseColorData[index * 4 + 3] = 255.;
 
-          return;
-        }
-
-        colorSampler.set(baseColorGrid.getValue(target));
-
-        baseColorData[index * 4 + 0] = colorSampler.r * 255.;
-        baseColorData[index * 4 + 1] = colorSampler.g * 255.;
-        baseColorData[index * 4 + 2] = colorSampler.b * 255.;
-        baseColorData[index * 4 + 3] = 255.;
-
-        return {
-          r: colorSampler.r,
-          g: colorSampler.g,
-          b: colorSampler.b,
-          a: colorSampler.a,
+          return {
+            r: colorSampler.r,
+            g: colorSampler.g,
+            b: colorSampler.b,
+            a: colorSampler.a,
+          };
         };
-      };
+      }
     }
 
     // NOTE Parse grids
@@ -108,6 +127,32 @@ export class VolumeToFog extends Three.Group {
     const totalVoxels = totalGrids * Math.pow(resolution, 3);
 
     grids.reverse().forEach(async (grid, gridIndex) => {
+      if (grid instanceof Uint8Array) {
+        const volumeTexture3D = new Three.Data3DTexture(grid, resolution, resolution, resolution);
+        volumeTexture3D.format = Three.RedFormat;
+        volumeTexture3D.minFilter = Three.LinearFilter;
+        volumeTexture3D.magFilter = Three.LinearFilter;
+        volumeTexture3D.unpackAlignment = 1;
+        volumeTexture3D.needsUpdate = true;
+
+        const geometry = new Three.SphereGeometry(1.0);
+        const material = new VolumeBasicMaterial({
+          ...materialProps,
+          emissiveMap3D: emissiveTexture3D,
+          densityMap3D: volumeTexture3D,
+          baseColorMap3D: baseColorTexture3D
+        });
+
+        const fog = new Three.Mesh(geometry, material);
+        fog.frustumCulled = false;
+
+        this.materials.push(material);
+
+        this.add(fog);
+
+        return;
+      }
+
       if (!(grid instanceof GridDescriptor)) {
         return;
       }
@@ -153,11 +198,6 @@ export class VolumeToFog extends Three.Group {
       const baseResolutionPow3 = Math.pow(baseResolution, 3);
 
       const convertResolution = (resolution) => new Promise((resolve) => {
-        const resolutionScale = resolution / (resolutionSteps[resolutionSteps.length - 1]);
-        const resolutionScaleInv = 1.0 / resolutionScale;
-        const resolutionScaleInvPow2 = Math.pow(resolutionScaleInv, 2);
-        const resolutionScaleInvPow3 = Math.pow(resolutionScaleInv, 3);
-
         const resolutionInv = 1.0 / resolution;
         const resolutionPow2 = Math.pow(resolution, 2);
         const resolutionPow3 = Math.pow(resolution, 3);
@@ -189,57 +229,55 @@ export class VolumeToFog extends Three.Group {
           // NOTE Fill values
 
           for (let i = 0; i < resolutionPow3; i++) {
-            const baseX = Math.round(x * resolutionScaleInv);
-            const baseY = Math.round(y * resolutionScaleInvPow2);
-            const baseZ = Math.round(z * resolutionScaleInvPow3);
+            const baseX = x;
+            const baseY = y;
+            const baseZ = z;
             const baseIndex = baseX + baseY * resolution + baseZ * resolutionPow2;
             
             const value = grid.getValue(target);
             const emissiveValue = probeEmissiveValue && probeEmissiveValue(baseIndex, target);
             const baseColorValue = probeBaseColorValue && probeBaseColorValue(baseIndex, target);
 
-            const cellBleed = radius > 1. ? Math.ceil(resolutionScaleInv * 1.5) : 0.;
+            const cellBleed = radius;
 
-            for (let sx = -cellBleed; sx < resolutionScaleInv + cellBleed; sx++) {
-              for (let sy = -cellBleed; sy < resolutionScaleInv + cellBleed; sy++) {
-                for (let sz = -cellBleed; sz < resolutionScaleInv + cellBleed; sz++) {
-                  if (
-                    x + sx < 0.0 ||
-                    x + sx >= resolution ||
-                    y + sy < 0.0 ||
-                    y + sy >= resolution ||
-                    z + sz < 0.0 ||
-                    z + sz >= resolution
-                  ) {
-                    continue;
+            if (cellBleed) {
+              for (let sx = -cellBleed; sx < cellBleed; sx++) {
+                for (let sy = -cellBleed; sy < cellBleed; sy++) {
+                  for (let sz = -cellBleed; sz < cellBleed; sz++) {
+                    if (
+                      x + sx < 0.0 ||
+                      x + sx >= resolution ||
+                      y + sy < 0.0 ||
+                      y + sy >= resolution ||
+                      z + sz < 0.0 ||
+                      z + sz >= resolution
+                    ) {
+                      continue;
+                    }
+
+                    const targetIndex = baseIndex + sx + sy * baseResolution + sz * baseResolutionPow2;
+
+                    const offset = Math.max(0.0, Math.min(1.0, 1. - Math.hypot(
+                      sx,
+                      sy,
+                      sz,
+                    ) / (radius / 2.0)));
+
+                    const dataValue = offset * value * 255.;
+
+                    data[targetIndex] += dataValue;
+                    data[targetIndex] = Math.min(data[targetIndex], 255.);
+
+                    probeEmissiveValue && probeEmissiveValue(targetIndex, null, emissiveValue * offset);
+                    probeBaseColorValue && probeBaseColorValue(targetIndex, null, baseColorValue * offset);
                   }
-
-                  const targetIndex = baseIndex + sx + sy * baseResolution + sz * baseResolutionPow2;
-
-                  const offset = Math.max(0.0, Math.min(1.0, 1. - Math.hypot(
-                    sx - resolutionScaleInv / 2.0,
-                    sy - resolutionScaleInv / 2.0,
-                    sz - resolutionScaleInv / 2.0,
-                  ) / (radius || 2.)));
-
-                  const dataValue = offset * value * 255.;
-
-                  data[targetIndex] += dataValue;
-                  data[targetIndex] = Math.min(data[targetIndex], 255.);
-
-                  probeEmissiveValue && probeEmissiveValue(
-                    baseIndex + sx + sy * baseResolution + sz * baseResolutionPow2,
-                    null,
-                    emissiveValue
-                  );
-
-                  probeBaseColorValue && probeBaseColorValue(
-                    baseIndex + sx + sy * baseResolution + sz * baseResolutionPow2,
-                    null,
-                    baseColorValue
-                  );
                 }
               }
+            } else {
+              const dataValue = value * 255.;
+
+              data[baseIndex] += dataValue;
+              data[baseIndex] = Math.min(data[baseIndex], 255.);
             }
 
             convertedVoxels++;
@@ -291,10 +329,6 @@ export class VolumeToFog extends Three.Group {
         const onAnimationFrame = () => {
           // NOTE Unblocking conversion
           // REF https://github.com/gkjohnson/three-mesh-bvh/blob/master/example/voxelize.js#L326
-          if (probe) {
-            this.processes[gridIndex] = requestAnimationFrame(onAnimationFrame);
-          }
-
           let startTime = window.performance.now();
           while (window.performance.now() - startTime < 16 && probe) {
             const { done } = probe.next();
@@ -320,6 +354,10 @@ export class VolumeToFog extends Three.Group {
                 }
               }
             }
+          }
+
+          if (probe && this.processes) {
+            this.processes[gridIndex] = setTimeout(onAnimationFrame, 0);
           }
         };
         onAnimationFrame();
