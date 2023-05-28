@@ -6,5 +6,6 @@ export const getUuid = (material = {}) => {
     material.wrap3D,
     !!material.emissiveMap3D,
     !!material.baseColorMap3D,
+    !!material.maskMap3D,
   ].join(',')
 };

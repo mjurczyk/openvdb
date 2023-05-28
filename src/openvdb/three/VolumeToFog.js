@@ -21,6 +21,7 @@ export class VolumeToFog extends Three.Group {
       progressive,
       emissiveGrid,
       baseColorGrid,
+      maskGrid,
       radius,
     } = materialProps;
 
@@ -41,16 +42,12 @@ export class VolumeToFog extends Three.Group {
 
     // NOTE Shader properties (grids influencing color output)
 
-    let emissiveTexture3D, probeEmissiveValue, baseColorTexture3D, probeBaseColorValue;
+    let emissiveTexture3D, probeEmissiveValue;
+    let baseColorTexture3D, probeBaseColorValue;
+    let maskTexture3D, probeMaskValue;
 
     if (emissiveGrid) {
       grids = grids.filter(match => match !== emissiveGrid);
-
-      emissiveTexture3D.format = Three.RedFormat;
-      emissiveTexture3D.minFilter = Three.LinearFilter;
-      emissiveTexture3D.magFilter = Three.LinearFilter;
-      emissiveTexture3D.unpackAlignment = 1;
-      emissiveTexture3D.needsUpdate = true;
 
       if (emissiveGrid instanceof Uint8Array) {
         emissiveTexture3D = new Three.Data3DTexture(emissiveGrid, resolution, resolution, resolution);
@@ -62,15 +59,15 @@ export class VolumeToFog extends Three.Group {
           return emissiveData[index] = typeof override !== 'undefined' ? override : emissiveGrid.getValue(target) * 255.;
         };
       }
+
+      emissiveTexture3D.format = Three.RedFormat;
+      emissiveTexture3D.minFilter = Three.LinearFilter;
+      emissiveTexture3D.magFilter = Three.LinearFilter;
+      emissiveTexture3D.unpackAlignment = 1;
+      emissiveTexture3D.needsUpdate = true;
     }
 
     if (baseColorGrid) {
-      baseColorTexture3D.format = Three.RGBAFormat;
-      baseColorTexture3D.minFilter = Three.LinearFilter;
-      baseColorTexture3D.magFilter = Three.LinearFilter;
-      baseColorTexture3D.unpackAlignment = 1;
-      baseColorTexture3D.needsUpdate = true;
-
       if (baseColorGrid instanceof Uint8Array) {
         baseColorTexture3D = new Three.Data3DTexture(baseColorGrid, resolution, resolution, resolution);
       } else {
@@ -116,6 +113,31 @@ export class VolumeToFog extends Three.Group {
           };
         };
       }
+
+      baseColorTexture3D.format = Three.RGBAFormat;
+      baseColorTexture3D.minFilter = Three.LinearFilter;
+      baseColorTexture3D.magFilter = Three.LinearFilter;
+      baseColorTexture3D.unpackAlignment = 1;
+      baseColorTexture3D.needsUpdate = true;
+    }
+
+    if (maskGrid) {
+      if (maskGrid instanceof Uint8Array) {
+        maskTexture3D = new Three.Data3DTexture(maskGrid, resolution, resolution, resolution);
+      } else {
+        const maskData = new Uint8Array(Math.pow(resolution, 3));
+        maskTexture3D = new Three.Data3DTexture(maskData, resolution, resolution, resolution);
+
+        probeMaskValue = (index, target, override) => {
+          return maskData[index] = typeof override !== 'undefined' ? override : maskGrid.getValue(target) * 255.;
+        };
+      }
+
+      maskTexture3D.format = Three.RedFormat;
+      maskTexture3D.minFilter = Three.LinearFilter;
+      maskTexture3D.magFilter = Three.LinearFilter;
+      maskTexture3D.unpackAlignment = 1;
+      maskTexture3D.needsUpdate = true;
     }
 
     // NOTE Parse grids
@@ -140,7 +162,8 @@ export class VolumeToFog extends Three.Group {
           ...materialProps,
           emissiveMap3D: emissiveTexture3D,
           densityMap3D: volumeTexture3D,
-          baseColorMap3D: baseColorTexture3D
+          baseColorMap3D: baseColorTexture3D,
+          maskMap3D: maskTexture3D,
         });
 
         const fog = new Three.Mesh(geometry, material);
@@ -170,7 +193,8 @@ export class VolumeToFog extends Three.Group {
         ...materialProps,
         emissiveMap3D: emissiveTexture3D,
         densityMap3D: volumeTexture3D,
-        baseColorMap3D: baseColorTexture3D
+        baseColorMap3D: baseColorTexture3D,
+        maskMap3D: maskTexture3D,
       });
 
       const fog = new Three.Mesh(geometry, material);
@@ -178,24 +202,8 @@ export class VolumeToFog extends Three.Group {
 
       this.materials.push(material);
 
-      let resolutionSteps = [resolution];
-
-      // if (progressive) {
-      //   resolutionSteps = [resolution];
-
-      //   while (resolutionSteps[resolutionSteps.length - 1] > 10) {
-      //     resolutionSteps.push(resolution / (resolutionSteps.length + 1));
-      //   }
-
-      //   resolutionSteps = resolutionSteps.filter(value => ~~value === value);
-      //   resolutionSteps.reverse();
-      // } else {
-      //   resolutionSteps = [resolution];
-      // }
-
       const baseResolution = resolution;
       const baseResolutionPow2 = Math.pow(baseResolution, 2);
-      const baseResolutionPow3 = Math.pow(baseResolution, 3);
 
       const convertResolution = (resolution) => new Promise((resolve) => {
         const resolutionInv = 1.0 / resolution;
@@ -237,6 +245,7 @@ export class VolumeToFog extends Three.Group {
             const value = grid.getValue(target);
             const emissiveValue = probeEmissiveValue && probeEmissiveValue(baseIndex, target);
             const baseColorValue = probeBaseColorValue && probeBaseColorValue(baseIndex, target);
+            const maskValue = probeMaskValue && probeMaskValue(baseIndex, target);
 
             const cellBleed = radius;
 
@@ -270,6 +279,7 @@ export class VolumeToFog extends Three.Group {
 
                     probeEmissiveValue && probeEmissiveValue(targetIndex, null, emissiveValue * offset);
                     probeBaseColorValue && probeBaseColorValue(targetIndex, null, baseColorValue * offset);
+                    probeMaskValue && probeMaskValue(targetIndex, null, baseColorValue * offset);
                   }
                 }
               }
@@ -292,11 +302,16 @@ export class VolumeToFog extends Three.Group {
               if (baseColorTexture3D) {
                 baseColorTexture3D.needsUpdate = true;
               }
+
+              if (maskTexture3D) {
+                maskTexture3D.needsUpdate = true;
+              }
             }
 
             if (z >= resolution) {
               emissiveTexture3D.needsUpdate = true;
               baseColorTexture3D.needsUpdate = true;
+              maskTexture3D.needsUpdate = true;
 
               break;
             }
@@ -368,10 +383,6 @@ export class VolumeToFog extends Three.Group {
       }
 
       await convertResolution(resolution);
-
-      // for (let i = 0; i <= resolutionSteps.length; i++) {
-      //   await convertResolution(resolutionSteps[i]);
-      // }
     });
   }
 

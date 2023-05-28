@@ -13,6 +13,7 @@ export class VolumeBasicMaterial extends Three.MeshStandardMaterial {
     densityMap3D: { value: null },
     emissiveMap3D: { value: null },
     baseColorMap3D: { value: null },
+    maskMap3D: { value: null },
     steps: { value: 100 },
     absorbance: { value: 1.0 },
     densityScale: { value: 1.0 },
@@ -62,6 +63,16 @@ export class VolumeBasicMaterial extends Three.MeshStandardMaterial {
 
   get emissiveMap3D() {
     return this._uniforms.emissiveMap3D.value;
+  }
+
+  set maskMap3D(value) {
+    this._uniforms.maskMap3D.value = value;
+
+    this.needsUpdate = true;
+  }
+
+  get maskMap3D() {
+    return this._uniforms.maskMap3D.value;
   }
 
   set baseColorMap3D(value) {
@@ -210,7 +221,7 @@ export class VolumeBasicMaterial extends Three.MeshStandardMaterial {
 
     this.side = Three.BackSide;
     this.depthWrite = false;
-    this.depthTest = true;
+    this.depthTest = false;
     this.transparent = true;
 
     Object.keys(this._uniforms).forEach(key => {
@@ -230,8 +241,9 @@ export class VolumeBasicMaterial extends Three.MeshStandardMaterial {
 
       const shaderProperties = `
         #define VOLUME_BBOX_SPAN 0.5
-        ${props.emissiveMap3D ? '#define USE_EMISSIVE_GRID' : ''}
-        ${props.baseColorMap3D ? '#define USE_BASE_COLOR_GRID' : ''}
+        ${props.emissiveMap3D ? '#define USE_EMISSIVE_GRID 1' : ''}
+        ${props.baseColorMap3D ? '#define USE_BASE_COLOR_GRID 1' : ''}
+        ${props.maskMap3D ? '#define USE_MASK_GRID 1' : ''}
 
         #define VOLUME_USE_ENVIRONMENT ${Number(this.useEnvironment)} != 0
         #define VOLUME_USE_HEMI_LIGHTS ${Number(this.useHemisphereLights)} != 0
@@ -541,8 +553,22 @@ export class VolumeBasicMaterial extends Three.MeshStandardMaterial {
           }
         }
 
-        vec3 mapTextureSample(vec3 position){
-          vec3 uv = position + VOLUME_BBOX_SPAN + offset3D;
+        vec3 mapTextureSample0(vec3 position){
+          vec3 uv = position + VOLUME_BBOX_SPAN;
+
+          ${this.wrap3D === Three.RepeatWrapping ? `return mod(uv, 1.);` : ''}
+          ${this.wrap3D === 0 || this.wrap3D === Three.ClampToEdgeWrapping ? `// NOTE Return UV` : ''}
+          ${this.wrap3D === Three.MirroredRepeatWrapping ? `
+            uv.x = loopUV(uv.x);
+            uv.y = loopUV(uv.y);
+            uv.z = loopUV(uv.z);
+          ` : ''}
+
+          return uv;
+        }
+
+        vec3 mapTextureSample(vec3 position, vec3 offset){
+          vec3 uv = position + VOLUME_BBOX_SPAN + offset;
 
           ${this.wrap3D === Three.RepeatWrapping ? `return mod(uv, 1.);` : ''}
           ${this.wrap3D === 0 || this.wrap3D === Three.ClampToEdgeWrapping ? `// NOTE Return UV` : ''}
@@ -575,11 +601,23 @@ export class VolumeBasicMaterial extends Three.MeshStandardMaterial {
             }
           ` : ''}
 
-          return texture(source, mapTextureSample(position)).r;
+          return texture(source, mapTextureSample(position, offset3D)).r;
+        }
+
+        float clampedMaskTexture(sampler3D source, vec3 position) {
+          ${this.wrap3D === 0 || this.wrap3D === Three.ClampToEdgeWrapping ? `
+            vec3 vAbs = abs(position);
+
+            if (max(vAbs.x, max(vAbs.y, vAbs.z)) > .5) {
+              return 0.;
+            }
+          ` : ''}
+
+          return texture(source, mapTextureSample0(position)).r;
         }
 
         vec3 clampedTextureRGB(sampler3D source, vec3 position) {
-          return texture(source, mapTextureSample(position)).rgb;
+          return texture(source, mapTextureSample(position, offset3D)).rgb;
         }
       `;
 
@@ -599,6 +637,7 @@ export class VolumeBasicMaterial extends Three.MeshStandardMaterial {
             uniform sampler3D densityMap3D;
             uniform sampler3D emissiveMap3D;
             uniform sampler3D baseColorMap3D;
+            uniform sampler3D maskMap3D;
             uniform vec3 offset3D;
             uniform int wrap3D;
 
@@ -652,6 +691,7 @@ export class VolumeBasicMaterial extends Three.MeshStandardMaterial {
             GeometricContext geometry;
             float volumeSample;
             float emissiveSample;
+            float maskSample = 1.;
             float noiseSample;
             float noiseFactor;
 
@@ -684,8 +724,12 @@ export class VolumeBasicMaterial extends Three.MeshStandardMaterial {
 
             for (float i = vBounds.x; i < vBounds.y; i += delta) {
               volumeSample = clampedTexture(densityMap3D, vPoint);
+              
+              #ifdef USE_MASK_GRID
+                maskSample = clampedMaskTexture(maskMap3D, vPoint);
+              #endif
 
-              density += blendSample(volumeSample) * eDensityAbsorbance;
+              density += blendSample(volumeSample) * eDensityAbsorbance * maskSample;
 
               #ifdef USE_EMISSIVE_GRID
                 emissiveSample = clampedTexture(emissiveMap3D, vPoint);
