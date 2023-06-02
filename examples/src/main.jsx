@@ -47,9 +47,8 @@ const animate = () => {
   stats.end();
 };
 
-setActiveDemo('bunny');
+setActiveDemo('clouds');
 
 init();
 animate();
-// exampleGLTF({ scene });
-exampleBunny({ scene });
+exampleClouds({ scene });

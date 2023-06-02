@@ -3,10 +3,13 @@ import { GridDescriptor } from '../core/GridDescriptor';
 import { Bbox } from '../math/bbox';
 import { Vector3 } from '../math/vector';
 import { VolumeBasicMaterial } from './VolumeBasicMaterial';
+import { updateFrameDepth } from '../utils/depth';
 
 export class VolumeToFog extends Three.Group {
   processes = [];
   materials = [];
+
+  isFogVolume = true;
 
   constructor(
     source,
@@ -168,6 +171,7 @@ export class VolumeToFog extends Three.Group {
 
         const fog = new Three.Mesh(geometry, material);
         fog.frustumCulled = false;
+        fog.onBeforeRender = updateFrameDepth;
 
         this.materials.push(material);
 
@@ -199,6 +203,7 @@ export class VolumeToFog extends Three.Group {
 
       const fog = new Three.Mesh(geometry, material);
       fog.frustumCulled = false;
+      fog.onBeforeRender = updateFrameDepth;
 
       this.materials.push(material);
 

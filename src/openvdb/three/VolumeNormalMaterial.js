@@ -1,6 +1,7 @@
 import * as Three from 'three';
 import { getUuid } from '../utils/uuid';
 import { lights } from '../utils/lights';
+import { getDepthUniforms } from '../utils/depth';
 
 export class VolumeNormalMaterial extends Three.MeshStandardMaterial {
   name = 'VolumeNormalMaterial';
@@ -13,6 +14,7 @@ export class VolumeNormalMaterial extends Three.MeshStandardMaterial {
     densityMap3D: { value: null },
     emissiveMap3D: { value: null },
     baseColorMap3D: { value: null },
+    maskMap3D: { value: null },
     steps: { value: 100 },
     absorbance: { value: 1.0 },
     densityScale: { value: 1.0 },
@@ -26,6 +28,9 @@ export class VolumeNormalMaterial extends Three.MeshStandardMaterial {
       lights.useHemisphereLights |
       lights.useEnvironment
     },
+    cameraPosition: { value: new Three.Vector3(0.0, 0.0, 0.0) },
+    cameraNear: { value: 1.0 },
+    cameraFar: { value: 1.0 },
   };
 
   set baseColor(value) {
@@ -62,6 +67,16 @@ export class VolumeNormalMaterial extends Three.MeshStandardMaterial {
 
   get emissiveMap3D() {
     return this._uniforms.emissiveMap3D.value;
+  }
+
+  set maskMap3D(value) {
+    this._uniforms.maskMap3D.value = value;
+
+    this.needsUpdate = true;
+  }
+
+  get maskMap3D() {
+    return this._uniforms.maskMap3D.value;
   }
 
   set baseColorMap3D(value) {
@@ -210,7 +225,7 @@ export class VolumeNormalMaterial extends Three.MeshStandardMaterial {
 
     this.side = Three.BackSide;
     this.depthWrite = false;
-    this.depthTest = true;
+    this.depthTest = false;
     this.transparent = true;
 
     Object.keys(this._uniforms).forEach(key => {
@@ -223,15 +238,21 @@ export class VolumeNormalMaterial extends Three.MeshStandardMaterial {
       }
     });
 
-    this.onBeforeCompile = (shader) => {
-      Object.keys(this._uniforms).forEach(key => {
-        shader.uniforms[key] = this._uniforms[key];
+    this.onBeforeCompile = (shader, renderer) => {
+      const depthInfo = getDepthUniforms(renderer);
+
+      Object.entries({
+        ...this._uniforms,
+        ...depthInfo,
+      }).forEach(([key, value]) => {
+        shader.uniforms[key] = value;
       });
 
       const shaderProperties = `
         #define VOLUME_BBOX_SPAN 0.5
-        ${props.emissiveMap3D ? '#define USE_EMISSIVE_GRID' : ''}
-        ${props.baseColorMap3D ? '#define USE_BASE_COLOR_GRID' : ''}
+        ${props.emissiveMap3D ? '#define USE_EMISSIVE_GRID 1' : ''}
+        ${props.baseColorMap3D ? '#define USE_BASE_COLOR_GRID 1' : ''}
+        ${props.maskMap3D ? '#define USE_MASK_GRID 1' : ''}
 
         #define VOLUME_USE_ENVIRONMENT ${Number(this.useEnvironment)} != 0
         #define VOLUME_USE_HEMI_LIGHTS ${Number(this.useHemisphereLights)} != 0
@@ -242,6 +263,9 @@ export class VolumeNormalMaterial extends Three.MeshStandardMaterial {
 
       const shaderVaryings = `
          varying mat4 mModelMatrix;
+         varying mat4 mViewMatrix;
+         varying mat4 mProjectionMatrix;
+         varying mat4 mModelViewMatrix;
          varying mat4 mInverseModelViewMatrix;
          varying mat3 mInverseNormalMatrix;
       `;
@@ -271,6 +295,9 @@ export class VolumeNormalMaterial extends Three.MeshStandardMaterial {
             vPosition = position;
 
             mModelMatrix = modelMatrix;
+            mViewMatrix = viewMatrix;
+            mProjectionMatrix = projectionMatrix;
+            mModelViewMatrix = modelViewMatrix;
             mInverseModelViewMatrix = inverse(modelViewMatrix);
             mInverseNormalMatrix = inverse(normalMatrix);
           `
@@ -470,7 +497,7 @@ export class VolumeNormalMaterial extends Three.MeshStandardMaterial {
           baseColorSample *= clampedTextureRGB(baseColorMap3D, vPoint);
         #endif
 
-        albedo += ambientLightColor * baseColor.rgb;
+        albedo += ambientLightColor;
       `;
 
       const volumeEnvMap = `
@@ -485,17 +512,6 @@ export class VolumeNormalMaterial extends Three.MeshStandardMaterial {
       `;
 
       const shaderHelpers = `
-        bool isOutsideVolume(vec3 source) {
-          return (
-            source.x >= 1. ||
-            source.y >= 1. ||
-            source.z >= 1. ||
-            source.x <= 0. ||
-            source.y <= 0. ||
-            source.z <= 0.
-          );
-        }
-
         vec2 getVolumeBbox(vec3 vPointOfReference) {
           const vec3 vBoxMin = vec3(-0.5);
           const vec3 vBoxMax = vec3(0.5);
@@ -541,8 +557,22 @@ export class VolumeNormalMaterial extends Three.MeshStandardMaterial {
           }
         }
 
-        vec3 mapTextureSample(vec3 position){
-          vec3 uv = position + VOLUME_BBOX_SPAN + offset3D;
+        vec3 mapTextureSample0(vec3 position){
+          vec3 uv = position + VOLUME_BBOX_SPAN;
+
+          ${this.wrap3D === Three.RepeatWrapping ? `return mod(uv, 1.);` : ''}
+          ${this.wrap3D === 0 || this.wrap3D === Three.ClampToEdgeWrapping ? `// NOTE Return UV` : ''}
+          ${this.wrap3D === Three.MirroredRepeatWrapping ? `
+            uv.x = loopUV(uv.x);
+            uv.y = loopUV(uv.y);
+            uv.z = loopUV(uv.z);
+          ` : ''}
+
+          return uv;
+        }
+
+        vec3 mapTextureSample(vec3 position, vec3 offset){
+          vec3 uv = position + VOLUME_BBOX_SPAN + offset;
 
           ${this.wrap3D === Three.RepeatWrapping ? `return mod(uv, 1.);` : ''}
           ${this.wrap3D === 0 || this.wrap3D === Three.ClampToEdgeWrapping ? `// NOTE Return UV` : ''}
@@ -575,21 +605,35 @@ export class VolumeNormalMaterial extends Three.MeshStandardMaterial {
             }
           ` : ''}
 
-          return texture(source, mapTextureSample(position)).r;
+          return texture(source, mapTextureSample(position, offset3D)).r;
+        }
+
+        float clampedMaskTexture(sampler3D source, vec3 position) {
+          ${this.wrap3D === 0 || this.wrap3D === Three.ClampToEdgeWrapping ? `
+            vec3 vAbs = abs(position);
+
+            if (max(vAbs.x, max(vAbs.y, vAbs.z)) > .5) {
+              return 0.;
+            }
+          ` : ''}
+
+          return texture(source, mapTextureSample0(position)).r;
         }
 
         vec3 clampedTextureRGB(sampler3D source, vec3 position) {
-          return texture(source, mapTextureSample(position)).rgb;
+          return texture(source, mapTextureSample(position, offset3D)).rgb;
         }
       `;
 
       shader.fragmentShader = shader.fragmentShader
         .replace('#include <uv_pars_fragment>', `// NOTE Override UV calculations`)
         .replace('#include <uv2_pars_fragment>', `// NOTE Override UV calculations`)
+        .replace('#include <packing>', '')
         .replace(
           `#include <common>`,
           `
             precision highp float;
+            precision highp sampler2D;
             precision highp sampler3D;
 
             in vec3 vOrigin;
@@ -599,6 +643,7 @@ export class VolumeNormalMaterial extends Three.MeshStandardMaterial {
             uniform sampler3D densityMap3D;
             uniform sampler3D emissiveMap3D;
             uniform sampler3D baseColorMap3D;
+            uniform sampler3D maskMap3D;
             uniform vec3 offset3D;
             uniform int wrap3D;
 
@@ -609,13 +654,20 @@ export class VolumeNormalMaterial extends Three.MeshStandardMaterial {
             uniform vec3 scatterColor;
             uniform float resolution;
 
+            uniform float cameraNear;
+            uniform float cameraFar;
+            uniform sampler2D depthScreenMap;
+            uniform vec4 depthView;
+
             ${shaderProperties}
             ${shaderVaryings}
-            ${shaderHelpers}
 
             #include <common>
+            #include <packing>
             #include <uv_pars_fragment>
             #include <uv2_pars_fragment>
+
+            ${shaderHelpers}
           `
         )
         .replace(`#include <lights_fragment_begin>`, `// NOTE Override light calculations`)
@@ -652,8 +704,10 @@ export class VolumeNormalMaterial extends Three.MeshStandardMaterial {
             GeometricContext geometry;
             float volumeSample;
             float emissiveSample;
+            float maskSample = 1.;
             float noiseSample;
             float noiseFactor;
+            vec3 fTest;
 
             // Light calculations
             
@@ -678,14 +732,25 @@ export class VolumeNormalMaterial extends Three.MeshStandardMaterial {
             float eDensityAbsorbance = exp(-absorbanceDensityRatio * delta);
             float eInverseDensityScale = exp(-1. - inverseDensityScale);
 
+            // Depth Testing
+
+            vec2 screenUV = gl_FragCoord.xy / depthView.zw;
+            float worldDepth = unpackRGBAToDepth(texture2D(depthScreenMap, screenUV));
+            float fogDepth = 0.;
+            vec3 vProjPoint;
+
             ${volumeLightsConfig}
 
             vec3 lastNonSolidPoint = vec3(vPoint);
 
             for (float i = vBounds.x; i < vBounds.y; i += delta) {
               volumeSample = clampedTexture(densityMap3D, vPoint);
+              
+              #ifdef USE_MASK_GRID
+                maskSample = clampedMaskTexture(maskMap3D, vPoint);
+              #endif
 
-              density += blendSample(volumeSample) * eDensityAbsorbance;
+              density += blendSample(volumeSample) * eDensityAbsorbance * maskSample;
 
               #ifdef USE_EMISSIVE_GRID
                 emissiveSample = clampedTexture(emissiveMap3D, vPoint);
@@ -697,6 +762,15 @@ export class VolumeNormalMaterial extends Three.MeshStandardMaterial {
               }
 
               if (density >= 1.) {
+                break;
+              }
+
+              vProjPoint = (mModelMatrix * vec4(vPoint, 1.0)).xyz;
+              fogDepth = length(vProjPoint - cameraPosition);
+              fogDepth = (fogDepth - cameraNear) / (cameraFar - cameraNear);
+              fogDepth = saturate(fogDepth);
+              
+              if (worldDepth < fogDepth) {
                 break;
               }
 
@@ -731,8 +805,9 @@ export class VolumeNormalMaterial extends Three.MeshStandardMaterial {
                 ${volumeSpotLights}
               #endif
 
+              albedo *= baseColorSample;
             }
-
+ 
             emissive = getBlackBodyRadiation(emissive.r);
             albedo += emissive;
 

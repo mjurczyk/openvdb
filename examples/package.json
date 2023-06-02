@@ -19,7 +19,7 @@
     "react-three-fiber": "^6.0.13",
     "simple-dropzone": "^0.8.1",
     "styled-components": "^5.3.6",
-    "three": "^0.145.0",
+    "three": "^0.150.1",
     "vite": "^3.1.0"
   }
 }

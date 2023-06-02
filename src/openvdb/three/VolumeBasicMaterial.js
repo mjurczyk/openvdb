@@ -1,6 +1,7 @@
 import * as Three from 'three';
 import { getUuid } from '../utils/uuid';
 import { lights } from '../utils/lights';
+import { getDepthUniforms } from '../utils/depth';
 
 export class VolumeBasicMaterial extends Three.MeshStandardMaterial {
   name = 'VolumeBasicMaterial';
@@ -16,6 +17,7 @@ export class VolumeBasicMaterial extends Three.MeshStandardMaterial {
     maskMap3D: { value: null },
     steps: { value: 100 },
     absorbance: { value: 1.0 },
+    roughness: { value: 0.5 },
     densityScale: { value: 1.0 },
     resolution: { value: 100 },
     offset3D: { value: new Three.Vector3(0.0, 0.0, 0.0) },
@@ -27,6 +29,9 @@ export class VolumeBasicMaterial extends Three.MeshStandardMaterial {
       lights.useHemisphereLights |
       lights.useEnvironment
     },
+    cameraPosition: { value: new Three.Vector3(0.0, 0.0, 0.0) },
+    cameraNear: { value: 1.0 },
+    cameraFar: { value: 1.0 },
   };
 
   set baseColor(value) {
@@ -100,6 +105,20 @@ export class VolumeBasicMaterial extends Three.MeshStandardMaterial {
 
   get absorbance() {
     return this._uniforms.absorbance.value;
+  }
+
+  set roughness(value) {
+    if (this._uniforms) {
+      this._uniforms.roughness.value = value;
+    }
+  }
+
+  get roughness() {
+    if (!this._uniforms) {
+      return 0.5;
+    }
+
+    return this._uniforms.roughness.value;
   }
 
   set resolution(value) {
@@ -234,9 +253,14 @@ export class VolumeBasicMaterial extends Three.MeshStandardMaterial {
       }
     });
 
-    this.onBeforeCompile = (shader) => {
-      Object.keys(this._uniforms).forEach(key => {
-        shader.uniforms[key] = this._uniforms[key];
+    this.onBeforeCompile = (shader, renderer) => {
+      const depthInfo = getDepthUniforms(renderer);
+
+      Object.entries({
+        ...this._uniforms,
+        ...depthInfo,
+      }).forEach(([key, value]) => {
+        shader.uniforms[key] = value;
       });
 
       const shaderProperties = `
@@ -254,6 +278,9 @@ export class VolumeBasicMaterial extends Three.MeshStandardMaterial {
 
       const shaderVaryings = `
          varying mat4 mModelMatrix;
+         varying mat4 mViewMatrix;
+         varying mat4 mProjectionMatrix;
+         varying mat4 mModelViewMatrix;
          varying mat4 mInverseModelViewMatrix;
          varying mat3 mInverseNormalMatrix;
       `;
@@ -283,6 +310,9 @@ export class VolumeBasicMaterial extends Three.MeshStandardMaterial {
             vPosition = position;
 
             mModelMatrix = modelMatrix;
+            mViewMatrix = viewMatrix;
+            mProjectionMatrix = projectionMatrix;
+            mModelViewMatrix = modelViewMatrix;
             mInverseModelViewMatrix = inverse(modelViewMatrix);
             mInverseNormalMatrix = inverse(normalMatrix);
           `
@@ -492,22 +522,11 @@ export class VolumeBasicMaterial extends Three.MeshStandardMaterial {
         #if defined( USE_ENVMAP )
           vEnvMapScatter = getIBLIrradiance(vUVCoords) * RECIPROCAL_PI;
 
-          albedo += density * getIBLRadiance(viewDir, vUVCoords, .5) * RECIPROCAL_PI;
+          albedo += density * getIBLRadiance(viewDir, vUVCoords, roughness) * RECIPROCAL_PI;
         #endif
       `;
 
       const shaderHelpers = `
-        bool isOutsideVolume(vec3 source) {
-          return (
-            source.x >= 1. ||
-            source.y >= 1. ||
-            source.z >= 1. ||
-            source.x <= 0. ||
-            source.y <= 0. ||
-            source.z <= 0.
-          );
-        }
-
         vec2 getVolumeBbox(vec3 vPointOfReference) {
           const vec3 vBoxMin = vec3(-0.5);
           const vec3 vBoxMax = vec3(0.5);
@@ -624,10 +643,12 @@ export class VolumeBasicMaterial extends Three.MeshStandardMaterial {
       shader.fragmentShader = shader.fragmentShader
         .replace('#include <uv_pars_fragment>', `// NOTE Override UV calculations`)
         .replace('#include <uv2_pars_fragment>', `// NOTE Override UV calculations`)
+        .replace('#include <packing>', '')
         .replace(
           `#include <common>`,
           `
             precision highp float;
+            precision highp sampler2D;
             precision highp sampler3D;
 
             in vec3 vOrigin;
@@ -648,13 +669,20 @@ export class VolumeBasicMaterial extends Three.MeshStandardMaterial {
             uniform vec3 scatterColor;
             uniform float resolution;
 
+            uniform float cameraNear;
+            uniform float cameraFar;
+            uniform sampler2D depthScreenMap;
+            uniform vec4 depthView;
+
             ${shaderProperties}
             ${shaderVaryings}
-            ${shaderHelpers}
 
             #include <common>
+            #include <packing>
             #include <uv_pars_fragment>
             #include <uv2_pars_fragment>
+
+            ${shaderHelpers}
           `
         )
         .replace(`#include <lights_fragment_begin>`, `// NOTE Override light calculations`)
@@ -694,6 +722,7 @@ export class VolumeBasicMaterial extends Three.MeshStandardMaterial {
             float maskSample = 1.;
             float noiseSample;
             float noiseFactor;
+            vec3 fTest;
 
             // Light calculations
             
@@ -718,6 +747,13 @@ export class VolumeBasicMaterial extends Three.MeshStandardMaterial {
             float eDensityAbsorbance = exp(-absorbanceDensityRatio * delta);
             float eInverseDensityScale = exp(-1. - inverseDensityScale);
 
+            // Depth Testing
+
+            vec2 screenUV = gl_FragCoord.xy / depthView.zw;
+            float worldDepth = unpackRGBAToDepth(texture2D(depthScreenMap, screenUV));
+            float fogDepth = 0.;
+            vec3 vProjPoint;
+
             ${volumeLightsConfig}
 
             vec3 lastNonSolidPoint = vec3(vPoint);
@@ -741,6 +777,15 @@ export class VolumeBasicMaterial extends Three.MeshStandardMaterial {
               }
 
               if (density >= 1.) {
+                break;
+              }
+
+              vProjPoint = (mModelMatrix * vec4(vPoint, 1.0)).xyz;
+              fogDepth = length(vProjPoint - cameraPosition);
+              fogDepth = (fogDepth - cameraNear) / (cameraFar - cameraNear);
+              fogDepth = saturate(fogDepth);
+              
+              if (worldDepth < fogDepth) {
                 break;
               }
 
@@ -776,7 +821,6 @@ export class VolumeBasicMaterial extends Three.MeshStandardMaterial {
               #endif
 
               albedo *= baseColorSample;
-
             }
  
             emissive = getBlackBodyRadiation(emissive.r);

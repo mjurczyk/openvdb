@@ -16,7 +16,7 @@ export const exampleClouds = ({ scene }) => {
     new Three.MeshStandardMaterial({ color: 0xffffff })
   );
   debugObstacle.position.set(-200.0, 0.0, 200.0);
-  scene.add(debugObstacle);
+  // scene.add(debugObstacle);
 
   const fogVolume = new OpenVDB.FogVolume(new OpenVDB.CloudVolume({
     height: 0.2,
@@ -24,7 +24,7 @@ export const exampleClouds = ({ scene }) => {
   }), {
     resolution: 50,
     progressive: true,
-    steps: 500,
+    steps: 100,
     absorbance: 0.5,
     baseColor: 0xaaaaaa,
     radius: 1.,
@@ -44,6 +44,17 @@ export const exampleClouds = ({ scene }) => {
   const light = new Three.DirectionalLight(0xffff88, 1.0);
   light.position.set(1.0, 1.0, 0.0);
   scene.add(light);
+
+  // NOTE Depth testing
+  loaders.gltf.load('./assets/depth-testing.glb', ({ scene: gltfModel }) => {
+    const model = gltfModel;
+
+    model.position.x += 2.0;
+    model.scale.setScalar(25.0);
+    model.position.y = -100.0;
+
+    scene.add(model);
+  });
 
   setGuiFields([
     {
@@ -146,6 +157,16 @@ export const exampleClouds = ({ scene }) => {
           }
         },
         {
+          id: 'roughness',
+          name: 'Roughness',
+          defaultValue: 0.5,
+          min: 0.0,
+          max: 1.0,
+          onChange: (value) => {
+            fogVolume.materials.forEach(material => material.roughness = value);
+          }
+        },
+        {
           id: 'opacity',
           name: 'Opacity',
           defaultValue: 1.0,
@@ -158,7 +179,7 @@ export const exampleClouds = ({ scene }) => {
         {
           id: 'steps',
           name: 'Steps',
-          defaultValue: 1000.0,
+          defaultValue: 500.0,
           min: 10.0,
           max: 1000.0,
           onChange: (value) => {

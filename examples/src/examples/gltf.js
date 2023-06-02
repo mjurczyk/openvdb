@@ -1,5 +1,4 @@
 import * as Three from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader';
 import * as OpenVDB from '../../../src/openvdb/three';
 import { gui, setGuiFields } from '../utils/gui';
 import { loaders } from '../utils/resources';

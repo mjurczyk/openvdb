@@ -38,7 +38,11 @@ export default [
       file: './build/three/index.js',
       format: 'esm',
     },
-    plugins: [externalPeerDependencies(), nodeResolve(), uglify()],
+    plugins: [
+      externalPeerDependencies(),
+      nodeResolve(),
+      uglify()
+    ],
   },
   {
     // NOTE CJS Core
@@ -47,7 +51,11 @@ export default [
       file: './build/index.cjs.js',
       format: 'cjs',
     },
-    plugins: [externalPeerDependencies(), nodeResolve(), uglify()],
+    plugins: [
+      externalPeerDependencies(),
+      nodeResolve(),
+      uglify()
+    ],
   },
   {
     // NOTE CJS Three.js
@@ -56,6 +64,10 @@ export default [
       file: './build/three/index.cjs.js',
       format: 'cjs',
     },
-    plugins: [externalPeerDependencies(), nodeResolve(), uglify()],
+    plugins: [
+      externalPeerDependencies(),
+      nodeResolve(),
+      uglify()
+    ],
   },
 ];
