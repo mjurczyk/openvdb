@@ -350,8 +350,12 @@ export class VolumeBasicMaterial extends Three.MeshStandardMaterial {
           for (int lightMarch = 0; lightMarch < iLightMarchLimit; lightMarch++) {
             vLightProbe -= vLightStep;
             stepAccumulation += 1.;
+
+            #ifdef USE_MASK_GRID
+              maskSample = clampedMaskTexture(maskMap3D, vLightProbe);
+            #endif
             
-            lightSample = clampedTexture(densityMap3D, vLightProbe);
+            lightSample = clampedTexture(densityMap3D, vLightProbe) * maskSample;
             
             lightAbsorbance += blendSample(lightSample) * eInverseAbsorbance;
 
@@ -386,8 +390,12 @@ export class VolumeBasicMaterial extends Three.MeshStandardMaterial {
           for (int lightMarch = 0; lightMarch < iLightMarchLimit; lightMarch++) {
             vLightProbe -= vLightStep;
             stepAccumulation += 1.;
+
+            #ifdef USE_MASK_GRID
+              maskSample = clampedMaskTexture(maskMap3D, vLightProbe);
+            #endif
             
-            float lightSample = clampedTexture(densityMap3D, vLightProbe);
+            float lightSample = clampedTexture(densityMap3D, vLightProbe) * maskSample;
 
             lightAbsorbance += blendSample(lightSample) * eInverseAbsorbance;
 
@@ -431,8 +439,12 @@ export class VolumeBasicMaterial extends Three.MeshStandardMaterial {
             for (int lightMarch = 0; lightMarch < iLightMarchLimit; lightMarch++) {
               vLightProbe -= vLightStep;
               stepAccumulation += 1.;
+
+              #ifdef USE_MASK_GRID
+                maskSample = clampedMaskTexture(maskMap3D, vLightProbe);
+              #endif
               
-              lightSample = clampedTexture(densityMap3D, vLightProbe);
+              lightSample = clampedTexture(densityMap3D, vLightProbe) * maskSample;
               
               lightAbsorbance += blendSample(lightSample) * eInverseAbsorbance;
 
@@ -476,7 +488,12 @@ export class VolumeBasicMaterial extends Three.MeshStandardMaterial {
           for (int lightMarch = 1; lightMarch < int(lightMarchLimit / 2.); lightMarch++) {
             if (absorbanceUp < 1.) {
               textureProbe = vLightProbe - float(lightMarch) * vLightStep;
-              lightSample = clampedTexture(densityMap3D, textureProbe);
+
+              #ifdef USE_MASK_GRID
+                maskSample = clampedMaskTexture(maskMap3D, textureProbe);
+              #endif
+
+              lightSample = clampedTexture(densityMap3D, textureProbe) * maskSample;
 
               absorbanceUp += lightSample * eInverseAbsorbance;
               stepAccumulationUp += 1.;
@@ -484,7 +501,12 @@ export class VolumeBasicMaterial extends Three.MeshStandardMaterial {
             
             if (absorbanceDown < 1.) {
               textureProbe = vLightProbe + float(lightMarch) * vLightStep;
-              lightSample = clampedTexture(densityMap3D, textureProbe);
+
+              #ifdef USE_MASK_GRID
+                maskSample = clampedMaskTexture(maskMap3D, textureProbe);
+              #endif
+
+              lightSample = clampedTexture(densityMap3D, textureProbe) * maskSample;
 
               absorbanceDown += blendSample(lightSample) * eInverseAbsorbance;
               stepAccumulationDown += 1.;
@@ -765,7 +787,7 @@ export class VolumeBasicMaterial extends Three.MeshStandardMaterial {
                 maskSample = clampedMaskTexture(maskMap3D, vPoint);
               #endif
 
-              density += blendSample(volumeSample) * eDensityAbsorbance * maskSample;
+              density += blendSample(volumeSample * maskSample) * eDensityAbsorbance;
 
               #ifdef USE_EMISSIVE_GRID
                 emissiveSample = clampedTexture(emissiveMap3D, vPoint);
@@ -827,7 +849,7 @@ export class VolumeBasicMaterial extends Three.MeshStandardMaterial {
             albedo += emissive;
 
             outgoingLight.rgb = max(max(scatterColor, vEnvMapScatter), albedo);
-            diffuseColor.a = saturate(density * opacity);
+            diffuseColor.a = saturate(density) * opacity;
 
             if (density <= 0.) {
               discard;

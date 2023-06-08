@@ -66,7 +66,7 @@ export class MeshVolume extends GridDescriptor {
 
     this.mesh = new Three.Mesh(
       meshGeometry,
-      new Three.MeshNormalMaterial({ side: Three.DoubleSide })
+      new Three.MeshBasicMaterial({ side: Three.DoubleSide })
     );
 
     this.cacheMeshGeometry();
@@ -146,8 +146,8 @@ export class MeshVolume extends GridDescriptor {
     // NOTE Add padding to avoid edge glitches
     this.size.addScalar(0.1);
 
-    this.raycaster.near = -0.01;
-    this.raycaster.far = 1.0; // NOTE We can assume this since the output volume is always 1x1x1
+    this.raycaster.near = 0.0;
+    this.raycaster.far = 1000.0; // NOTE We can assume this since the output volume is always 1x1x1
   }
 
   getValue(position) {
