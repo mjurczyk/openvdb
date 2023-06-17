@@ -1,6 +1,6 @@
 {
   "name": "openvdb",
-  "version": "0.2.71",
+  "version": "0.3.0",
   "description": "This project indirectly ports OpenVDB file format and tools to JavaScript, TypeScript, and Node. Specific 3D library implementations can be found in sub-directories.",
   "main": "./index.js",
   "exports": {
@@ -41,7 +41,7 @@
   ],
   "license": "MIT",
   "peerDependencies": {
-    "three": "^0.150.0"
+    "three": "^0.153.0"
   },
   "devDependencies": {
     "@lopatnov/rollup-plugin-uglify": "^2.1.5",

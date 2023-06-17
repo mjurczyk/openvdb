@@ -22,8 +22,7 @@ const init = () => {
 
   scene.background = new Three.Color(0x598eff);
 
-  renderer.outputEncoding = Three.sRGBEncoding;
-  // renderer.useLegacyLights = false;
+  renderer.outputColorSpace = Three.SRGBColorSpace
   renderer.physicallyCorrectLights = true;
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.shadowMap.enabled = true;

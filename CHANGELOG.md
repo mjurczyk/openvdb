@@ -1,4 +1,11 @@
-# v0.2.15
+# v0.3.x
+
+Core:
+
+- Three.js r153 color spaces compatibility
+- Three.js r151 UV channels compatibility
+
+# v0.2.x
 
 Core:
 
