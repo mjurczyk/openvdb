@@ -98,7 +98,7 @@ export class CloudVolume extends GridDescriptor {
 
       const noise = scaledNoise(20.0, worley3Noise) + scaledNoise(100.0, worley3Noise) * 0.25 + scaledNoise(10.0, perlin3Noise);
 
-      return noise < this.density ? (0.5 * yOffset + scaledNoise(100.0, perlin3Noise) + scaledNoise(100.0, worley3Noise)) : 0.0;
+      return noise < this.density ? (0.5 + scaledNoise(100.0, perlin3Noise) + scaledNoise(100.0, worley3Noise)) * yOffset : 0.0;
     }
 
     return 0.0;

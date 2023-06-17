@@ -627,7 +627,6 @@ export class VolumeNormalMaterial extends Three.MeshStandardMaterial {
 
       shader.fragmentShader = shader.fragmentShader
         .replace('#include <uv_pars_fragment>', `// NOTE Override UV calculations`)
-        .replace('#include <uv2_pars_fragment>', `// NOTE Override UV calculations`)
         .replace('#include <packing>', '')
         .replace(
           `#include <common>`,
@@ -665,7 +664,6 @@ export class VolumeNormalMaterial extends Three.MeshStandardMaterial {
             #include <common>
             #include <packing>
             #include <uv_pars_fragment>
-            #include <uv2_pars_fragment>
 
             ${shaderHelpers}
           `

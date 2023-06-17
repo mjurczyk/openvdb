@@ -19,6 +19,7 @@ export class VolumeBasicMaterial extends Three.MeshStandardMaterial {
     absorbance: { value: 1.0 },
     roughness: { value: 0.5 },
     densityScale: { value: 1.0 },
+    densityCutoff: { value: 0.0 },
     resolution: { value: 100 },
     offset3D: { value: new Three.Vector3(0.0, 0.0, 0.0) },
     wrap3D: { value: Three.ClampToEdgeWrapping },
@@ -153,6 +154,14 @@ export class VolumeBasicMaterial extends Three.MeshStandardMaterial {
 
   get densityScale() {
     return this._uniforms.densityScale.value;
+  }
+
+  set densityCutoff(value) {
+    this._uniforms.densityCutoff.value = value;
+  }
+
+  get densityCutoff() {
+    return this._uniforms.densityCutoff.value;
   }
 
   set lights(value) {
@@ -355,7 +364,7 @@ export class VolumeBasicMaterial extends Three.MeshStandardMaterial {
               maskSample = clampedMaskTexture(maskMap3D, vLightProbe);
             #endif
             
-            lightSample = clampedTexture(densityMap3D, vLightProbe) * maskSample;
+            lightSample = clampedTexture(densityMap3D, vLightProbe) * sqrt(lightDistance);
             
             lightAbsorbance += blendSample(lightSample) * eInverseAbsorbance;
 
@@ -395,7 +404,7 @@ export class VolumeBasicMaterial extends Three.MeshStandardMaterial {
               maskSample = clampedMaskTexture(maskMap3D, vLightProbe);
             #endif
             
-            float lightSample = clampedTexture(densityMap3D, vLightProbe) * maskSample;
+            float lightSample = clampedTexture(densityMap3D, vLightProbe);
 
             lightAbsorbance += blendSample(lightSample) * eInverseAbsorbance;
 
@@ -444,7 +453,7 @@ export class VolumeBasicMaterial extends Three.MeshStandardMaterial {
                 maskSample = clampedMaskTexture(maskMap3D, vLightProbe);
               #endif
               
-              lightSample = clampedTexture(densityMap3D, vLightProbe) * maskSample;
+              lightSample = clampedTexture(densityMap3D, vLightProbe);
               
               lightAbsorbance += blendSample(lightSample) * eInverseAbsorbance;
 
@@ -493,7 +502,7 @@ export class VolumeBasicMaterial extends Three.MeshStandardMaterial {
                 maskSample = clampedMaskTexture(maskMap3D, textureProbe);
               #endif
 
-              lightSample = clampedTexture(densityMap3D, textureProbe) * maskSample;
+              lightSample = clampedTexture(densityMap3D, textureProbe);
 
               absorbanceUp += lightSample * eInverseAbsorbance;
               stepAccumulationUp += 1.;
@@ -506,7 +515,7 @@ export class VolumeBasicMaterial extends Three.MeshStandardMaterial {
                 maskSample = clampedMaskTexture(maskMap3D, textureProbe);
               #endif
 
-              lightSample = clampedTexture(densityMap3D, textureProbe) * maskSample;
+              lightSample = clampedTexture(densityMap3D, textureProbe);
 
               absorbanceDown += blendSample(lightSample) * eInverseAbsorbance;
               stepAccumulationDown += 1.;
@@ -623,14 +632,16 @@ export class VolumeBasicMaterial extends Three.MeshStandardMaterial {
         }
 
         float blendSample(float value) {
-          float fSmoothingThreshold = 0.25;
-          float fSmoothingBlend = 0.25;
+          return value * densityScale;
+ 
+          // float fSmoothingThreshold = 0.1;
+          // float fSmoothingBlend = 0.1;
 
-          return smoothstep(
-            fSmoothingThreshold - fSmoothingBlend,
-            fSmoothingThreshold + fSmoothingBlend,
-            value
-          ) * densityScale;
+          // return smoothstep(
+          //   fSmoothingThreshold - fSmoothingBlend,
+          //   fSmoothingThreshold + fSmoothingBlend,
+          //   value
+          // ) * densityScale;
         }
 
         float clampedTexture(sampler3D source, vec3 position) {
@@ -687,6 +698,7 @@ export class VolumeBasicMaterial extends Three.MeshStandardMaterial {
             uniform float steps;
             uniform float absorbance;
             uniform float densityScale;
+            uniform float densityCutoff;
             uniform vec3 baseColor;
             uniform vec3 scatterColor;
             uniform float resolution;
@@ -787,7 +799,7 @@ export class VolumeBasicMaterial extends Three.MeshStandardMaterial {
                 maskSample = clampedMaskTexture(maskMap3D, vPoint);
               #endif
 
-              density += blendSample(volumeSample * maskSample) * eDensityAbsorbance;
+              density += blendSample(volumeSample) * eDensityAbsorbance * maskSample;
 
               #ifdef USE_EMISSIVE_GRID
                 emissiveSample = clampedTexture(emissiveMap3D, vPoint);
@@ -817,6 +829,10 @@ export class VolumeBasicMaterial extends Three.MeshStandardMaterial {
             density = clamp(density, 0.0, 1.0);
 
             vPoint = lastNonSolidPoint;
+
+            if (density <= densityCutoff) {
+              discard;
+            }
 
             if (density > 0.) {
 
@@ -850,10 +866,6 @@ export class VolumeBasicMaterial extends Three.MeshStandardMaterial {
 
             outgoingLight.rgb = max(max(scatterColor, vEnvMapScatter), albedo);
             diffuseColor.a = saturate(density) * opacity;
-
-            if (density <= 0.) {
-              discard;
-            }
 
             #include <output_fragment>
           `

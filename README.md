@@ -1,5 +1,5 @@
 <a href="https://mjurczyk.github.io/openvdb/" target="_blank">
-  <img width="100%" src="https://user-images.githubusercontent.com/9549760/200132454-4774f8ed-f45a-43ab-a435-39c62ebd43df.png" title="OpenVDB - Web implementation of volumetric grids" />
+  <img width="100%" src="https://github.com/mjurczyk/openvdb/assets/9549760/fb7a04c1-9c69-44c9-addb-f6969b3017c6" title="OpenVDB - Web implementation of volumetric grids" />
 </a>
 
 # OpenVDB
@@ -128,15 +128,18 @@ Converts given `OpenVDBReader` to `Three.Object3D`. Resulting object consists of
 
 Converts given `OpenVDBReader` to a volumetric `Three.Object3D`. `onConverted` and `onProgress` are called as the VDB is converted to a fog. Most importantly:
 
-`resolution: number` - (required) resolution of the resulting 3D texture. Keep in mind this will be risen to the power of 3 - so resolution 200 results in 8 million voxels.
-`steps: number` - (default: 100) detail of the resulting fog volume. High amount of steps combined with large amount of lights in the scene may decrease performance significantly.
-`progressive: boolean` - set to `true` to render the fog on-the-go as it is being parsed, while preserving 60fps.
-`absorbance: number` - (default: `1.0`) `1.0` means fog absorbs all the light going through it, lower values all light to partially traverse through the fog.
-`opacity: number` - alpha opacity of the fog (doesn't affect light calculations.)
-`radius: number` - roudness of each voxel.
-`baseColor: Three.Color | string | number` - (default: `0x000000`) albedo color of the fog volume.
-
-⚠️ Note - fog volumes currently react to all lights in the scene. Keep this in mind as light calculations within the volume are done using quite expensive raymarching. If fog volume covers a significant part of the viewport, consider decreasing `steps` parameter, or the overall amount of lights.
+* `resolution: number` - (required) resolution of the resulting 3D texture. Keep in mind this will be risen to the power of 3 - so resolution 200 results in 8 million voxels.
+* `steps: number` - (default: 100) detail of the resulting fog volume. High amount of steps combined with large amount of lights in the scene may decrease performance significantly.
+* `progressive: boolean` - set to `true` to render the fog on-the-go as it is being parsed, while preserving 60fps.
+* `absorbance: number` - (default: `1.0`) `1.0` means fog absorbs all the light going through it, lower values all light to partially traverse through the fog.
+* `densityScale: number` - scales density of the entire grid.
+* `densityCutoff: number` - defines sharpness of the shape.
+* `opacity: number` - alpha opacity of the fog (doesn't affect light calculations.)
+* `baseColor: Three.Color | string | number` - (default: `0x000000`) albedo color of the fog volume.
+* `emissiveGrid` - VDB emission grid.
+* `baseColorGrid` - VDB grid equivalent of `baseColor`.
+* `maskGrid` - static VDB grid mask applied to each voxel. Not affected by UV offset.
+* `lights` - bitmask of light types affecting the volume (`lights.useDirectionalLights | lights.usePointLights | lights.useSpotLights | lights.useHemisphereLights | lights.useEnvironment`)
 
 ---
 

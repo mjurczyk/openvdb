@@ -158,7 +158,10 @@ export const updateFrameDepth = (renderer, scene, camera, geometry, material) =>
   depthMaterial._uniforms.cameraFar.value = camera.far;
 
   renderer.getSize(vector2);
-  depthRenderTarget.setSize(vector2.x, vector2.y);
+  depthRenderTarget.setSize(
+    vector2.x,
+    vector2.y,
+  );
 
   depthView.x = camera.near;
   depthView.y = camera.far;

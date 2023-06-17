@@ -282,9 +282,9 @@ export class VolumeToFog extends Three.Group {
                     data[targetIndex] += dataValue;
                     data[targetIndex] = Math.min(data[targetIndex], 255.);
 
-                    probeEmissiveValue && probeEmissiveValue(targetIndex, null, emissiveValue * offset);
+                    probeEmissiveValue && probeEmissiveValue(targetIndex, null, emissiveValue * offset * 255.);
                     probeBaseColorValue && probeBaseColorValue(targetIndex, null, baseColorValue * offset);
-                    probeMaskValue && probeMaskValue(targetIndex, null, baseColorValue * offset);
+                    probeMaskValue && probeMaskValue(targetIndex, null, maskValue * offset * 255.);
                   }
                 }
               }
