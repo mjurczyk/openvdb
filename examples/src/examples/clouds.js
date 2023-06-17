@@ -10,21 +10,16 @@ const FLIGHT_DEMO = true;
 
 export const exampleClouds = ({ scene }) => {
   const fogVolume = new OpenVDB.FogVolume(new OpenVDB.CloudVolume({
-    height: 0.3,
-    density: 0.5
+    height: 0.2,
+    density: 0.3
   }), {
     resolution: 100,
     progressive: true,
     steps: 100,
     absorbance: 1.,
     baseColor: 0x000000,
-    // radius: 1.,
     lights: lights.useEnvironment | lights.useDirectionalLights,
-    densityCutoff: 0.01,
-    maskGrid: new OpenVDB.CloudVolume({
-      height: 0.3,
-      density: 1.0,
-    })
+    densityCutoff: 0.,
   });
   fogVolume.scale.setScalar(1000.0);
   fogVolume.position.y += 300.0;
@@ -34,16 +29,16 @@ export const exampleClouds = ({ scene }) => {
   const flightDirection = new Three.Vector3(0.0, 0.0, 1.0);
   const windDirection = new Three.Vector3(1.0, 0.0, 1.0).multiplyScalar(0.00005);
 
-  // setInterval(() => {
-  //   const delta = flightDirection.clone().normalize().multiplyScalar(0.00005);
+  setInterval(() => {
+    const delta = flightDirection.clone().normalize().multiplyScalar(0.0001);
 
-  //   fogVolume.materials.forEach(material => {
-  //     material.densityMap3D.offset3D.x += delta.x;
-  //     material.densityMap3D.offset3D.z += delta.z;
+    fogVolume.materials.forEach(material => {
+      material.densityMap3D.offset3D.x += delta.x;
+      material.densityMap3D.offset3D.z += delta.z;
 
-  //     material.densityMap3D.offset3D.x += windDirection.x;
-  //     material.densityMap3D.offset3D.z += windDirection.z;
-  //   });
+    //   material.densityMap3D.offset3D.x += windDirection.x;
+    //   material.densityMap3D.offset3D.z += windDirection.z;
+    });
 
   //   fogVolume.position.y -= flightDirection.y * 0.2;
 
@@ -55,7 +50,7 @@ export const exampleClouds = ({ scene }) => {
   //   camera.getWorldDirection(cameraDirection);
 
   //   flightDirection.lerp(cameraDirection, 0.005);
-  // }, 1 / 60);
+  }, 1 / 60);
   
   const light = new Three.DirectionalLight(0xccccff, 0.2);
   light.position.set(1000.0, 1000.0, 1000.0);
