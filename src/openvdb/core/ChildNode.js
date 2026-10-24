@@ -1,6 +1,14 @@
 import { unsupported } from '../debug';
+import {
+  createValueBuffer,
+  halfValueTypeMap,
+  uint32Size,
+  uint64Size,
+  valueTypeSizeMap,
+} from '../math/memory';
 import { Vector3 } from '../math/vector';
-import { Compression } from './Compression';
+import { BufferIterator } from './BufferIterator';
+import { Compression, compressionMetadata } from './Compression';
 import { GridSharedContext } from './GridSharedContext';
 import { Mask } from './Mask';
 import { Version } from './Version';
@@ -11,6 +19,10 @@ export const log2dimMap = [5, 4, 3];
 export const totalMap = [4, 3, 0];
 
 const nodeTypeMap = ['internal', 'internal', 'leaf'];
+
+const cloneValue = (value) => (value instanceof Vector3 ? value.clone() : value);
+
+const negateValue = (value) => (value instanceof Vector3 ? value.clone().negate() : -value);
 
 export class ChildNode {
   readNode(depth = 0, props) {
@@ -107,79 +119,24 @@ export class ChildNode {
   }
 
   readValues() {
-    const { bufferIterator, compression, version } = GridSharedContext.getContext(this);
-    const oldVersion = Version.less(version, 222);
-    const useCompression = compression.activeMask;
+    const { version, valueType } = GridSharedContext.getContext(this);
 
     if (this.isLeaf()) {
-      this.values = Array(this.valueMask.size).fill(0.0);
-
-      this.valueMask.forEachOn(({ offset }) => {
-        this.values[offset] = 1.0;
-      });
-
+      // NOTE Leaf values are saved after the topology, see readBuffers
       return;
     }
 
-    const numValues = oldVersion ? this.childMask.countOff() : this.numValues;
-    let metadata = 0x110;
+    if (Version.less(version, 222)) {
+      // NOTE Old files save values only for slots without a child
+      const savedValues = this.readCompressedValues(this.childMask.countOff());
+      let savedIndex = 0;
 
-    if (Version.greaterEq(version, 222)) {
-      metadata = bufferIterator.readBytes(1);
-    }
-
-    const background = this.background;
-    const inactiveVal1 = background;
-    const inactiveVal0 = metadata === 6 ? background : !background;
-
-    if ([2, 4, 5].includes(metadata)) {
-      unsupported('Compression::readCompressedValues first conditional');
-      // Read one of at most two distinct inactive values.
-      //     if (seek) {
-      //         is.seekg(/*bytes=*/sizeof(ValueT), std::ios_base::cur);
-      //     } else {
-      //         is.read(reinterpret_cast<char*>(&inactiveVal0), /*bytes=*/sizeof(ValueT));
-      //     }
-      //     if (metadata == MASK_AND_TWO_INACTIVE_VALS) {
-      //         // Read the second of two distinct inactive values.
-      //         if (seek) {
-      //             is.seekg(/*bytes=*/sizeof(ValueT), std::ios_base::cur);
-      //         } else {
-      //             is.read(reinterpret_cast<char*>(&inactiveVal1), /*bytes=*/sizeof(ValueT));
-      //         }
-      //     }
-    }
-
-    if ([3, 4, 5].includes(metadata)) {
-      this.selectionMask = new Mask(this);
-      GridSharedContext.passContext(this, this.selectionMask);
-      this.selectionMask.readMask(this);
-      GridSharedContext.cleanContext(this.selectionMask);
-    }
-
-    let tempCount = numValues;
-
-    if (useCompression && metadata !== 6 && Version.greaterEq(version, 222)) {
-      tempCount = this.valueMask.countOn();
-    }
-
-    this.readData(tempCount);
-
-    if (useCompression && tempCount !== numValues) {
-      unsupported('Inactive values');
-      // Restore inactive values, using the background value and, if available,
-      //     // the inside/outside mask.  (For fog volumes, the destination buffer is assumed
-      //     // to be initialized to background value zero, so inactive values can be ignored.)
-      //     for (Index destIdx = 0, tempIdx = 0; destIdx < MaskT::SIZE; ++destIdx) {
-      //         if (valueMask.isOn(destIdx)) {
-      //             // Copy a saved active value into this node's buffer.
-      //             destBuf[destIdx] = tempBuf[tempIdx];
-      //             ++tempIdx;
-      //         } else {
-      //             // Reconstruct an unsaved inactive value and copy it into this node's buffer.
-      //             destBuf[destIdx] = (selectionMask.isOn(destIdx) ? inactiveVal1 : inactiveVal0);
-      //         }
-      //     }
+      this.values = createValueBuffer(valueType, this.numValues);
+      this.childMask.forEachOff(({ offset }) => {
+        this.values[offset] = savedValues[savedIndex++];
+      });
+    } else {
+      this.values = this.readCompressedValues(this.numValues);
     }
 
     this.childMask.forEachOn((indices) => {
@@ -219,46 +176,158 @@ export class ChildNode {
     });
   }
 
-  readCompressedData(codec) {
-    const { bufferIterator, valueType, useHalf } = GridSharedContext.getContext(this);
-    const zippedBytesCount = bufferIterator.readBytes(8);
+  readBuffers() {
+    const { bufferIterator, version } = GridSharedContext.getContext(this);
 
-    if (zippedBytesCount <= 0) {
-      Array(-zippedBytesCount)
-        .fill(0)
-        .forEach(() => {
-          this.values.push(bufferIterator.readFloat(useHalf ? 'half' : valueType));
-        });
+    if (this.isInternalNode()) {
+      this.childMask.forEachOn(({ offset }) => {
+        const child = this.table[offset];
+
+        GridSharedContext.passContext(this, child);
+        child.readBuffers();
+        GridSharedContext.cleanContext(child);
+      });
 
       return;
-    } else {
-      const zippedBytes = bufferIterator.readRawBytes(zippedBytesCount);
+    }
 
-      try {
-        this.values.push(codec.decode(zippedBytes));
-      } catch (error) {
-        console.warn('readZipData', 'uncompress', 'error', {
-          error,
-          zippedBytes,
-        });
+    // NOTE Value mask is a copy of the mask read in readTopology
+    bufferIterator.skip(this.valueMask.size >> 3);
+
+    let numBuffers = 1;
+
+    if (Version.less(version, 222)) {
+      // NOTE Skip leaf origin, it is known from the topology
+      bufferIterator.skip(3 * uint32Size);
+      numBuffers = bufferIterator.readBytes(1);
+    }
+
+    this.values = this.readCompressedValues(this.numValues);
+
+    // NOTE Old files can have auxiliary buffers. They are not mask-compressed and not used.
+    for (let index = 1; index < numBuffers; index++) {
+      this.readData(this.numValues);
+    }
+  }
+
+  // NOTE https://github.com/AcademySoftwareFoundation/openvdb/blob/master/openvdb/openvdb/io/Compression.h#L496
+  readCompressedValues(count) {
+    const { bufferIterator, compression, version, valueType } = GridSharedContext.getContext(this);
+    const maskCompressed = Version.greaterEq(version, 222) && compression.activeMask;
+
+    let metadata = compressionMetadata.noMaskAndAllVals;
+
+    if (Version.greaterEq(version, 222)) {
+      metadata = bufferIterator.readBytes(1);
+    }
+
+    const background = this.background;
+    let inactiveVal1 = background;
+    let inactiveVal0 =
+      metadata === compressionMetadata.noMaskOrInactiveVals ? background : negateValue(background);
+
+    if (
+      [
+        compressionMetadata.noMaskAndOneInactiveVal,
+        compressionMetadata.maskAndOneInactiveVal,
+        compressionMetadata.maskAndTwoInactiveVals,
+      ].includes(metadata)
+    ) {
+      // NOTE Inactive values use full precision, also in half float grids
+      inactiveVal0 = bufferIterator.readFloat(valueType);
+
+      if (metadata === compressionMetadata.maskAndTwoInactiveVals) {
+        inactiveVal1 = bufferIterator.readFloat(valueType);
       }
+    }
+
+    let selectionMask = null;
+
+    if (
+      [
+        compressionMetadata.maskAndNoInactiveVals,
+        compressionMetadata.maskAndOneInactiveVal,
+        compressionMetadata.maskAndTwoInactiveVals,
+      ].includes(metadata)
+    ) {
+      selectionMask = new Mask();
+      GridSharedContext.passContext(this, selectionMask);
+      selectionMask.readMask(this);
+      GridSharedContext.cleanContext(selectionMask);
+    }
+
+    const savedCount =
+      maskCompressed && metadata !== compressionMetadata.noMaskAndAllVals
+        ? this.valueMask.countOn()
+        : count;
+    const savedValues = this.readData(savedCount);
+
+    if (savedCount === count) {
+      return savedValues;
+    }
+
+    // NOTE Only active values are saved. Restore inactive values from the selection mask.
+    const values = createValueBuffer(valueType, count);
+
+    for (let offset = 0, savedIndex = 0; offset < count; offset++) {
+      if (this.valueMask.isOn(offset)) {
+        values[offset] = savedValues[savedIndex++];
+      } else {
+        values[offset] = cloneValue(
+          selectionMask && selectionMask.isOn(offset) ? inactiveVal1 : inactiveVal0
+        );
+      }
+    }
+
+    return values;
+  }
+
+  readCompressedData(codec, byteCount) {
+    const { bufferIterator } = GridSharedContext.getContext(this);
+    const compressedBytesCount = bufferIterator.readBytes(uint64Size);
+
+    if (compressedBytesCount <= 0) {
+      // NOTE Data is not compressed, size is the negative byte count
+      return bufferIterator.readRawBytes(-compressedBytesCount);
+    }
+
+    const compressedBytes = bufferIterator.readRawBytes(compressedBytesCount);
+
+    try {
+      return codec.decode(compressedBytes);
+    } catch (error) {
+      console.warn('readCompressedData', 'uncompress', 'error', {
+        error,
+        compressedBytes,
+      });
+
+      return new Uint8Array(byteCount);
     }
   }
 
   readData(count) {
     const { bufferIterator, valueType, useHalf, compression } = GridSharedContext.getContext(this);
+    const dataType = (useHalf && halfValueTypeMap[valueType]) || valueType;
+    const byteCount = count * valueTypeSizeMap[dataType];
+
+    let bytes;
 
     if (compression.blosc) {
-      this.readCompressedData(Compression.blosc);
+      bytes = this.readCompressedData(Compression.blosc, byteCount);
     } else if (compression.zip) {
-      this.readCompressedData(Compression.zlib);
+      bytes = this.readCompressedData(Compression.zlib, byteCount);
     } else {
-      Array(count)
-        .fill(0)
-        .forEach(() => {
-          this.values.push(bufferIterator.readFloat(useHalf ? 'half' : valueType));
-        });
+      bytes = bufferIterator.readRawBytes(byteCount);
     }
+
+    const dataIterator = new BufferIterator(bytes);
+    const values = createValueBuffer(valueType, count);
+
+    for (let index = 0; index < count; index++) {
+      values[index] = dataIterator.readFloat(dataType);
+    }
+
+    return values;
   }
 
   getLocalBbox() {
@@ -304,11 +373,11 @@ export class ChildNode {
 
     return (
       position.x >= min.x &&
-      position.x <= max.x &&
+      position.x < max.x &&
       position.y >= min.y &&
-      position.y <= max.y &&
+      position.y < max.y &&
       position.z >= min.z &&
-      position.z <= max.z
+      position.z < max.z
     );
   }
 
@@ -342,7 +411,7 @@ export class ChildNode {
     }
 
     if (this.isLeaf()) {
-      return this.valueMask.isOn(this.coordToOffset(position)) ? 1.0 : 0.0;
+      return this.values[this.coordToOffset(position)];
     }
 
     const targetChild = this.table[this.coordToOffset(position)];
@@ -352,6 +421,31 @@ export class ChildNode {
     }
 
     return 0.0;
+  }
+
+  isActive(position, accessor = null) {
+    if (!this.contains(position)) {
+      return false;
+    }
+
+    if (accessor) {
+      accessor.cache(this);
+    }
+
+    const offset = this.coordToOffset(position);
+
+    if (this.isLeaf()) {
+      return this.valueMask.isOn(offset);
+    }
+
+    const targetChild = this.table[offset];
+
+    if (targetChild) {
+      return targetChild.isActive(position, accessor);
+    }
+
+    // NOTE Active tile
+    return this.valueMask.isOn(offset);
   }
 
   getLeafAt(position, accessor = null) {

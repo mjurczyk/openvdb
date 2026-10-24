@@ -2,6 +2,7 @@ import * as Three from 'three';
 import { MathUtils } from 'three';
 import { Bbox } from '../math/bbox';
 import { Vector3 } from '../math/vector';
+import { getDensity } from '../utils/density';
 
 export class VolumeToPoints extends Three.Group {
   processes = [];
@@ -93,7 +94,7 @@ export class VolumeToPoints extends Three.Group {
             target.z += step.z;
           }
 
-          const value = grid.getValue(target);
+          const value = getDensity(grid, target);
 
           if (value) {
             vertices.push(x - resolution / 2.0, y - resolution / 2.0, z - resolution / 2.0);

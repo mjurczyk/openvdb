@@ -4,6 +4,7 @@ import { Bbox } from '../math/bbox';
 import { Vector3 } from '../math/vector';
 import { VolumeBasicMaterial } from './VolumeBasicMaterial';
 import { updateFrameDepth } from '../utils/depth';
+import { getDensity } from '../utils/density';
 
 export class VolumeToFog extends Three.Group {
   processes = [];
@@ -59,7 +60,7 @@ export class VolumeToFog extends Three.Group {
         emissiveTexture3D = new Three.Data3DTexture(emissiveData, resolution, resolution, resolution);
 
         probeEmissiveValue = (index, target, override) => {
-          return emissiveData[index] = typeof override !== 'undefined' ? override : emissiveGrid.getValue(target) * 255.;
+          return emissiveData[index] = typeof override !== 'undefined' ? override : getDensity(emissiveGrid, target) * 255.;
         };
       }
 
@@ -132,7 +133,7 @@ export class VolumeToFog extends Three.Group {
         maskTexture3D = new Three.Data3DTexture(maskData, resolution, resolution, resolution);
 
         probeMaskValue = (index, target, override) => {
-          return maskData[index] = typeof override !== 'undefined' ? override : maskGrid.getValue(target) * 255.;
+          return maskData[index] = typeof override !== 'undefined' ? override : getDensity(maskGrid, target) * 255.;
         };
       }
 
@@ -247,7 +248,7 @@ export class VolumeToFog extends Three.Group {
             const baseZ = z;
             const baseIndex = baseX + baseY * resolution + baseZ * resolutionPow2;
             
-            const value = grid.getValue(target);
+            const value = getDensity(grid, target);
             const emissiveValue = probeEmissiveValue && probeEmissiveValue(baseIndex, target);
             const baseColorValue = probeBaseColorValue && probeBaseColorValue(baseIndex, target);
             const maskValue = probeMaskValue && probeMaskValue(baseIndex, target);

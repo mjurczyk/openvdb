@@ -1,5 +1,16 @@
 import { Zlib, Blosc } from '../dependencies';
 
+// NOTE https://github.com/AcademySoftwareFoundation/openvdb/blob/master/openvdb/openvdb/io/Compression.h
+export const compressionMetadata = {
+  noMaskOrInactiveVals: 0,
+  noMaskAndMinusBg: 1,
+  noMaskAndOneInactiveVal: 2,
+  maskAndNoInactiveVals: 3,
+  maskAndOneInactiveVal: 4,
+  maskAndTwoInactiveVals: 5,
+  noMaskAndAllVals: 6,
+};
+
 class CompressionClass {
   blosc = null;
   zlib = null;

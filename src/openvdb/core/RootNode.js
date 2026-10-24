@@ -89,6 +89,14 @@ export class RootNode {
     GridSharedContext.cleanContext(child);
   }
 
+  readBuffers() {
+    this.table.forEach((child) => {
+      GridSharedContext.passContext(this, child);
+      child.readBuffers();
+      GridSharedContext.cleanContext(child);
+    });
+  }
+
   getLocalBbox() {
     // NOTE Ignore bbox for root nodes
     return [new Vector3(0.0, 0.0, 0.0), new Vector3(0.0, 0.0, 0.0)];
@@ -102,18 +110,20 @@ export class RootNode {
     return true;
   }
 
+  getChildAt(position) {
+    return this.table.find((child) => child.contains(position)) || null;
+  }
+
   getValue(position, accessor = null) {
-    let max = 0.0;
+    const child = this.getChildAt(position);
 
-    for (let i = 0; i < this.table.length; i++) {
-      max = Math.max(max, this.table[i].getValue(position, accessor));
+    return child ? child.getValue(position, accessor) : 0.0;
+  }
 
-      if (max !== 0.0) {
-        i = this.table.length;
-      }
-    }
+  isActive(position, accessor = null) {
+    const child = this.getChildAt(position);
 
-    return max;
+    return child ? child.isActive(position, accessor) : false;
   }
 
   getLeafAt(position, accessor = null) {
