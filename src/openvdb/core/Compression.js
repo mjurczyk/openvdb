@@ -11,6 +11,20 @@ export const compressionMetadata = {
   noMaskAndAllVals: 6,
 };
 
+export const compressionFlags = {
+  none: 0x0,
+  zip: 0x1,
+  activeMask: 0x2,
+  blosc: 0x4,
+};
+
+export const parseCompressionFlags = (flags) => ({
+  none: flags === compressionFlags.none,
+  zip: (flags & compressionFlags.zip) !== 0,
+  activeMask: (flags & compressionFlags.activeMask) !== 0,
+  blosc: (flags & compressionFlags.blosc) !== 0,
+});
+
 class CompressionClass {
   blosc = null;
   zlib = null;

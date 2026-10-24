@@ -1,7 +1,7 @@
 import { assert, unsupported } from '../debug';
 import { charSize, uint32Size, uint64Size } from '../math/memory';
 import { BufferIterator } from './BufferIterator';
-import { Compression } from './Compression';
+import { Compression, compressionFlags, parseCompressionFlags } from './Compression';
 import { GridDescriptor } from './GridDescriptor';
 import { GridSharedContext } from './GridSharedContext';
 
@@ -56,7 +56,7 @@ export class OpenVDBReader {
       major: -1,
     };
 
-    if (version > 211) {
+    if (version >= 211) {
       this.libraryVersion.major = bufferIterator.readBytes(uint32Size);
       this.libraryVersion.minor = bufferIterator.readBytes(uint32Size);
     } else {
@@ -67,28 +67,19 @@ export class OpenVDBReader {
 
   readHeader() {
     const { bufferIterator, version } = GridSharedContext.getContext(this);
-    this.hasGridOffsets = bufferIterator.readBytes(charSize);
+    // NOTE Files before version 212 do not store this flag. They always have grid offsets.
+    this.hasGridOffsets = version >= 212 ? bufferIterator.readBytes(charSize) !== 0 : true;
 
-    let compression;
+    // NOTE Files before version 220 always use zip. From version 222, each grid stores its flags.
+    let compression = compressionFlags.zip | compressionFlags.activeMask;
 
     if (version >= 220 && version < 222) {
-      compression = bufferIterator.readBytes(charSize);
-      compression = {
-        none: compression & 0x0,
-        zip: compression & 0x1,
-        activeMask: compression & 0x2,
-        blosc: compression & 0x4,
-      };
-    } else {
-      compression = {
-        none: false,
-        zip: false,
-        activeMask: true,
-        blosc: false,
-      };
+      // NOTE This byte is a boolean, not flags.
+      compression =
+        bufferIterator.readBytes(charSize) !== 0 ? compressionFlags.zip : compressionFlags.none;
     }
 
-    GridSharedContext.getContext(this).compression = compression;
+    GridSharedContext.getContext(this).compression = parseCompressionFlags(compression);
 
     let uuid = '';
     Array(36)
