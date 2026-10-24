@@ -6,6 +6,7 @@ import { RootNode } from './RootNode';
 import { GridSharedContext } from './GridSharedContext';
 import { log2dimMap, totalMap } from './ChildNode';
 import { Accessor } from './Accessor';
+import { parseCompressionFlags } from './Compression';
 
 export class GridDescriptor {
   static halfFloatGridPrefix = '_HalfFloat';
@@ -69,15 +70,9 @@ export class GridDescriptor {
     const { bufferIterator, version } = GridSharedContext.getContext(this);
 
     if (Version.greaterEq(version, 222)) {
-      let compression = bufferIterator.readBytes(uint32Size);
-      compression = {
-        none: compression & 0x0,
-        zip: compression & 0x1,
-        activeMask: compression & 0x2,
-        blosc: compression & 0x4,
-      };
-
-      GridSharedContext.getContext(this).compression = compression;
+      GridSharedContext.getContext(this).compression = parseCompressionFlags(
+        bufferIterator.readBytes(uint32Size)
+      );
     } else {
       // NOTE Use inherited compression instead
     }
