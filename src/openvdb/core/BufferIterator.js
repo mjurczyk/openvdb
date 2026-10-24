@@ -16,6 +16,7 @@ import {
   uint32Size,
   uint64Size,
   vec3dType,
+  vec3hType,
   vec3iType,
   vec3sType,
 } from '../math/memory';
@@ -23,6 +24,13 @@ import { Vector3 } from '../math/vector';
 
 // NOTE VDB files are little-endian
 const littleEndian = true;
+
+const vectorComponentTypeMap = {
+  [vec3hType]: halfFloatType,
+  [vec3sType]: floatType,
+  [vec3iType]: int32Type,
+  [vec3dType]: doubleType,
+};
 
 export class BufferIterator {
   source = null;
@@ -197,20 +205,6 @@ export class BufferIterator {
   }
 
   readFloat(precision = doubleType) {
-    if ([vec3sType, vec3iType, vec3dType].includes(precision)) {
-      const valueType = {
-        [vec3sType]: floatType,
-        [vec3iType]: int32Type,
-        [vec3dType]: doubleType,
-      }[precision];
-
-      return new Vector3(
-        this.readFloat(valueType),
-        this.readFloat(valueType),
-        this.readFloat(valueType)
-      );
-    }
-
     switch (precision) {
       case halfFloatType:
         return this.readFloat16();
@@ -226,6 +220,11 @@ export class BufferIterator {
         return this.readUint32();
       case pointDataIndex64:
         return this.readUint64();
+      case vec3hType:
+      case vec3sType:
+      case vec3iType:
+      case vec3dType:
+        return this.readVector3(vectorComponentTypeMap[precision]);
       default:
         unsupported(`Unknown value type: ${precision}`);
         throw new Error(`BufferIterator: unknown value type "${precision}".`);

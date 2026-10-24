@@ -2,6 +2,7 @@ import * as Three from 'three';
 import { BoxGeometry, MathUtils } from 'three';
 import { Bbox } from '../math/bbox';
 import { Vector3 } from '../math/vector';
+import { getDensity } from '../utils/density';
 
 const edgeLUT = [
   0x0, 0x109, 0x203, 0x30a, 0x406, 0x50f, 0x605, 0x70c, 0x80c, 0x905, 0xa0f, 0xb06, 0xc0a, 0xd03,
@@ -381,47 +382,47 @@ export class VolumeToLevelSet extends Three.Group {
 
           // Index 0
           referencePoint.copy(target);
-          values[0] = grid.getValue(referencePoint);
+          values[0] = getDensity(grid, referencePoint);
 
           // Index 1
           referencePoint.copy(target);
           referencePoint.x += step.x;
-          values[1] = grid.getValue(referencePoint);
+          values[1] = getDensity(grid, referencePoint);
 
           // Index 2
           referencePoint.copy(target);
           referencePoint.x += step.x;
           referencePoint.z += step.z;
-          values[2] = grid.getValue(referencePoint);
+          values[2] = getDensity(grid, referencePoint);
 
           // Index 3
           referencePoint.copy(target);
           referencePoint.z += step.z;
-          values[3] = grid.getValue(referencePoint);
+          values[3] = getDensity(grid, referencePoint);
 
           // Index 4
           referencePoint.copy(target);
           referencePoint.y += step.y;
-          values[4] = grid.getValue(referencePoint);
+          values[4] = getDensity(grid, referencePoint);
 
           // Index 5
           referencePoint.copy(target);
           referencePoint.x += step.x;
           referencePoint.y += step.y;
-          values[5] = grid.getValue(referencePoint);
+          values[5] = getDensity(grid, referencePoint);
 
           // Index 6
           referencePoint.copy(target);
           referencePoint.x += step.x;
           referencePoint.y += step.y;
           referencePoint.z += step.z;
-          values[6] = grid.getValue(referencePoint);
+          values[6] = getDensity(grid, referencePoint);
 
           // Index 7
           referencePoint.copy(target);
           referencePoint.y += step.y;
           referencePoint.z += step.z;
-          values[7] = grid.getValue(referencePoint);
+          values[7] = getDensity(grid, referencePoint);
 
           let cubeIndex = 0;
 

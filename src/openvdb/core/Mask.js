@@ -29,10 +29,6 @@ export class Mask {
 
     this.onCache = this.countOn();
     this.offCache = this.countOff();
-
-    // NOTE Cache mask indices
-    this.forEachOn();
-    this.forEachOff();
   }
 
   countOn() {
@@ -57,8 +53,6 @@ export class Mask {
     return this.size - this.countOn();
   }
 
-  onIndexCache = null;
-
   forEachOn(callback) {
     if (this.countOn() === 0) {
       return;
@@ -71,18 +65,12 @@ export class Mask {
     let wordIndex = 0;
     let bitIndex = 0;
 
-    if (!this.onIndexCache) {
-      this.onIndexCache = [];
-    }
-
     for (wordIndex = 0; wordIndex < this.words.length; wordIndex++) {
       const word = this.words[wordIndex].split('');
 
       for (bitIndex = 0; bitIndex < word.length; bitIndex++) {
         if (word[bitIndex] === '1') {
           const offset = wordIndex * 64 + bitIndex;
-
-          this.onIndexCache[offset] = true;
 
           if (callback({ wordIndex, bitIndex, offset }) === 0.0) {
             bitIndex = word.length;
@@ -105,18 +93,12 @@ export class Mask {
     let wordIndex = 0;
     let bitIndex = 0;
 
-    if (!this.onIndexCache) {
-      this.onIndexCache = [];
-    }
-
     for (wordIndex = 0; wordIndex < this.words.length; wordIndex++) {
       const word = this.words[wordIndex].split('');
 
       for (bitIndex = 0; bitIndex < word.length; bitIndex++) {
         if (word[bitIndex] === '0') {
           const offset = wordIndex * 64 + bitIndex;
-
-          this.onIndexCache[offset] = false;
 
           if (callback({ wordIndex, bitIndex, offset }) === 0) {
             bitIndex = word.length;
@@ -128,10 +110,10 @@ export class Mask {
   }
 
   isOn(offset) {
-    return !!this.onIndexCache[offset];
+    return this.words[offset >> 6][offset & 63] === '1';
   }
 
   isOff(offset) {
-    return !this.onIndexCache[offset];
+    return !this.isOn(offset);
   }
 }

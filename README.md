@@ -100,7 +100,7 @@ vdbReader.grids.forEach(function (grid) {
 
 Loads OpenVDB file and parses its grids. Grids can be accessed via `.grids` property of the value returned from the Promise.
 
-Each grid has a `.getValue( position: Three.Vector3 ): float` method, which returns a voxel value for the given position. See `src/openvdb/three/VolumeToFog.js` for an example of VDB file parsing.
+Each grid has a `.getValue( position: Three.Vector3 ): float` method, which returns the voxel value saved in the file for the given position (density for fog volumes, signed distance for level sets). The `.isActive( position: Three.Vector3 ): boolean` method returns `true` if the voxel at the given position is active. See `src/openvdb/three/VolumeToFog.js` for an example of VDB file parsing.
 
 ---
 

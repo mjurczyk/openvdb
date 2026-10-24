@@ -1,6 +1,6 @@
 import { assert, unsupported } from '../debug';
 import { Version } from './Version';
-import { floatType, int64Type, uint32Size } from '../math/memory';
+import { floatType, int64Type, uint32Size, valueTypeSizeMap } from '../math/memory';
 import { GridTransform } from './GridTransform';
 import { RootNode } from './RootNode';
 import { GridSharedContext } from './GridSharedContext';
@@ -39,9 +39,6 @@ export class GridDescriptor {
       this.readTopology();
       this.readBuffers();
     }
-
-    // NOTE Hack to make multi-grid VDBs work without reading leaf values
-    bufferIterator.offset = this.endBufferPosition;
   }
 
   readGridHeader() {
@@ -155,7 +152,20 @@ export class GridDescriptor {
   }
 
   readBuffers() {
-    // TODO
+    const { bufferIterator, valueType, version } = GridSharedContext.getContext(this);
+
+    if (!this.root || !valueTypeSizeMap[valueType] || Version.less(version, 214)) {
+      // NOTE Bool, mask and point grids use other leaf buffer formats. Files before 214 have no child nodes.
+      unsupported(`Leaf buffers of ${valueType} grids`);
+      bufferIterator.offset = this.endBufferPosition;
+      return;
+    }
+
+    GridSharedContext.passContext(this, this.root);
+    this.root.readBuffers();
+    GridSharedContext.cleanContext(this.root);
+
+    assert('End buffer', this.endBufferPosition, bufferIterator.offset);
   }
 
   getWorldBbox(child) {
@@ -187,6 +197,17 @@ export class GridDescriptor {
     const roundedPosition = position.clone().round();
 
     return this.accessor.getValue(roundedPosition);
+  }
+
+  isActive(position) {
+    const roundedPosition = position.clone().round();
+
+    return this.accessor.isActive(roundedPosition);
+  }
+
+  // NOTE Level sets store signed distance values, not density
+  isLevelSet() {
+    return this.metadata?.class?.value === 'level set';
   }
 
   getLeafAt(position) {
