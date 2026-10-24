@@ -190,6 +190,7 @@ export const updateFrameDepth = (renderer, scene, camera, geometry, material) =>
     volume.visible = true;
   });
 
+  // NOTE The nested render increases info.render.frame. Keep the new value. Then other fog meshes in this frame use the cached depth.
   cachedCamera = camera;
-  cachedFrame = currentFrame;
+  cachedFrame = renderer?.info?.render?.frame || 0;
 };
