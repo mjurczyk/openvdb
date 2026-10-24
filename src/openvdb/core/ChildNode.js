@@ -100,9 +100,11 @@ export class ChildNode {
 
     vec.set(x, y, z);
 
-    vec.x = vec.x << this.numVoxels;
-    vec.y = vec.y << this.numVoxels;
-    vec.z = vec.z << this.numVoxels;
+    const childTotal = this.total - this.log2dim;
+
+    vec.x = vec.x << childTotal;
+    vec.y = vec.y << childTotal;
+    vec.z = vec.z << childTotal;
 
     return vec;
   }
