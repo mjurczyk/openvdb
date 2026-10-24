@@ -1,5 +1,5 @@
 import * as Three from 'three';
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import Stats from 'stats.js'
 import { exampleVDB } from './examples/vdb';
 import packageInfo from '../../package.json';
@@ -23,7 +23,6 @@ const init = () => {
   scene.background = new Three.Color(0x598eff);
 
   renderer.outputColorSpace = Three.SRGBColorSpace
-  renderer.physicallyCorrectLights = true;
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.shadowMap.enabled = true;
 

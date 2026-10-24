@@ -1,6 +1,6 @@
 import * as Three from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader';
-import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { HDRLoader } from 'three/examples/jsm/loaders/HDRLoader.js';
 import * as OpenVDB from '../../../src/openvdb/three';
 
 export const vdbList = {};
@@ -27,6 +27,6 @@ export const loadAndCacheVDB = async (name, file) => {
 
 export const loaders = {
   texture: new Three.TextureLoader(),
-  rgbe: new RGBELoader(),
+  rgbe: new HDRLoader(),
   gltf: new GLTFLoader()
 };

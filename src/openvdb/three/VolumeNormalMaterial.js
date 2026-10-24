@@ -270,8 +270,6 @@ export class VolumeNormalMaterial extends Three.MeshStandardMaterial {
          varying mat3 mInverseNormalMatrix;
       `;
 
-      shader.vertexUvs = true;
-
       shader.vertexShader = shader.vertexShader
         .replace(
           `#include <common>`,
@@ -309,8 +307,6 @@ export class VolumeNormalMaterial extends Three.MeshStandardMaterial {
 
         vec3 vUnit = (mModelMatrix * vec4(1., 0., 0., 0.)).xyz;
         float vUnitLength = length(vUnit);
-        
-        geometry.position = vPoint;
 
         vec3 iblIrradiance = vec3(0.0);
       `;
@@ -321,7 +317,6 @@ export class VolumeNormalMaterial extends Three.MeshStandardMaterial {
         
         for (int lightIndex = 0; lightIndex < NUM_POINT_LIGHTS; lightIndex++) {
           pointLight = pointLights[lightIndex];
-          getPointLightInfo(pointLight, geometry, directLight);
 
           vLightProbe = vec3(vPoint);
           lightAbsorbance = 0.;
@@ -359,7 +354,6 @@ export class VolumeNormalMaterial extends Three.MeshStandardMaterial {
 
         for (int lightIndex = 0; lightIndex < NUM_DIR_LIGHTS; lightIndex++) {
           directionalLight = directionalLights[lightIndex];
-          getDirectionalLightInfo(directionalLight, geometry, directLight);
 
           vLightProbe = vec3(vPoint);
           lightAbsorbance = 0.0;
@@ -398,7 +392,6 @@ export class VolumeNormalMaterial extends Three.MeshStandardMaterial {
         
         for (int lightIndex = 0; lightIndex < NUM_SPOT_LIGHTS; lightIndex++) {
           spotLight = spotLights[lightIndex];
-          getSpotLightInfo(spotLight, geometry, directLight);
 
           vLightProbe = vec3(vPoint);
           lightAbsorbance = 0.0;
@@ -672,7 +665,7 @@ export class VolumeNormalMaterial extends Three.MeshStandardMaterial {
         .replace(`#include <lights_fragment_maps>`, `// NOTE Override light calculations`)
         .replace(`#include <lights_fragment_end>`, `// NOTE Override light calculations`)
         .replace(
-          `#include <output_fragment>`,
+          `#include <opaque_fragment>`,
             `
             vec3 vWorld = -vViewPosition;
 
@@ -699,7 +692,6 @@ export class VolumeNormalMaterial extends Three.MeshStandardMaterial {
             float density = 0.0;
             vec3 albedo = vec3(0.);
             vec3 emissive = vec3(0.);
-            GeometricContext geometry;
             float volumeSample;
             float emissiveSample;
             float maskSample = 1.;
@@ -718,8 +710,6 @@ export class VolumeNormalMaterial extends Three.MeshStandardMaterial {
             float lightAbsorbance;
             float lightDistance;
             float stepAccumulation;
-            
-            IncidentLight directLight;
 
             // Utils
 
@@ -816,7 +806,7 @@ export class VolumeNormalMaterial extends Three.MeshStandardMaterial {
               discard;
             }
 
-            #include <output_fragment>
+            #include <opaque_fragment>
           `
         );
     };

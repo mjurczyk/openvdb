@@ -2,6 +2,7 @@
 
 Core:
 
+- Three.js r186 compatibility (`opaque_fragment`, `colorspace_fragment`, `mergeGeometries`). Three.js r186 or later is now required
 - Three.js r153 color spaces compatibility
 - Three.js r151 UV channels compatibility
 
