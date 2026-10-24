@@ -32,7 +32,7 @@ export class Mask {
   }
 
   countOn() {
-    if (this.onCache) {
+    if (this.onCache !== undefined) {
       return this.onCache;
     }
 
@@ -46,7 +46,7 @@ export class Mask {
   }
 
   countOff() {
-    if (this.offCache) {
+    if (this.offCache !== undefined) {
       return this.offCache;
     }
 
