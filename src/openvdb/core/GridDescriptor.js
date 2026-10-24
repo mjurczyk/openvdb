@@ -169,9 +169,7 @@ export class GridDescriptor {
   }
 
   getWorldBbox(child) {
-    const localBbox = (child || this).getLocalBbox();
-
-    return localBbox.map((vector) => vector.clone()).map(this.transform.applyTransformMap);
+    return this.transform.applyTransformMapToBbox((child || this).getLocalBbox());
   }
 
   getLocalBbox() {
@@ -184,10 +182,10 @@ export class GridDescriptor {
   }
 
   getPreciseWorldBbox() {
-    return [
-      this.transform.applyTransformMap(this.metadata.file_bbox_min.value.clone()),
-      this.transform.applyTransformMap(this.metadata.file_bbox_max.value.clone()),
-    ];
+    return this.transform.applyTransformMapToBbox([
+      this.metadata.file_bbox_min.value,
+      this.metadata.file_bbox_max.value,
+    ]);
   }
 
   valueCache = {};
