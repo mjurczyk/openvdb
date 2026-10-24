@@ -343,7 +343,7 @@ export class VolumeToLevelSet extends Three.Group {
       bbox.getSize(size);
 
       step.copy(size).multiplyScalar(resolutionInv);
-      grid.transform.applyInverseTransformMap(step);
+      grid.transform.applyInverseJacobian(step);
 
       target.sub(size.clone().multiplyScalar(0.5));
       grid.transform.applyInverseTransformMap(target);
