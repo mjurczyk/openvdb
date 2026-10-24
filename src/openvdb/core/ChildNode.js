@@ -394,10 +394,13 @@ export class ChildNode {
         (position.z & this.offsetMask)
       );
     } else {
+      // NOTE Nodes with only tiles have no first child
+      const childTotal = this.total - this.log2dim;
+
       return (
-        (((position.x & this.offsetMask) >> this.firstChild.total) << (2 * this.log2dim)) |
-        (((position.y & this.offsetMask) >> this.firstChild.total) << this.log2dim) |
-        ((position.z & this.offsetMask) >> this.firstChild.total)
+        (((position.x & this.offsetMask) >> childTotal) << (2 * this.log2dim)) |
+        (((position.y & this.offsetMask) >> childTotal) << this.log2dim) |
+        ((position.z & this.offsetMask) >> childTotal)
       );
     }
   }
@@ -427,7 +430,7 @@ export class ChildNode {
       return targetChild.getValue(position, accessor);
     }
 
-    // NOTE Tile value, same as NanoVDB. Files before 214 have no internal values.
+    // NOTE Tile value, active or inactive, same as NanoVDB. Files before 214 have no internal values.
     return this.values[offset] ?? this.background;
   }
 
