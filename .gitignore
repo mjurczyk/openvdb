@@ -6,3 +6,4 @@ build
 # Test files
 test/compiled.index.js
 notes/
+session-notes/
