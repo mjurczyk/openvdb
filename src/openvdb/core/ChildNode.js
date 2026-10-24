@@ -18,6 +18,11 @@ export const log2dimMap = [5, 4, 3];
 
 export const totalMap = [4, 3, 0];
 
+// NOTE Extent of a top-level internal node, also of a root tile
+export const rootChildLog2Dim = log2dimMap.reduce((total, next) => total + next);
+
+export const rootChildDim = 1 << rootChildLog2Dim;
+
 const nodeTypeMap = ['internal', 'internal', 'leaf'];
 
 const cloneValue = (value) => (value instanceof Vector3 ? value.clone() : value);
@@ -406,7 +411,7 @@ export class ChildNode {
 
   getValue(position, accessor = null) {
     if (!this.contains(position)) {
-      return 0.0;
+      return this.background;
     }
 
     if (accessor) {
@@ -425,8 +430,8 @@ export class ChildNode {
       return targetChild.getValue(position, accessor);
     }
 
-    // NOTE Tile value, active or inactive
-    return this.values[offset];
+    // NOTE Tile value, active or inactive, same as NanoVDB. Files before 214 have no internal values.
+    return this.values[offset] ?? this.background;
   }
 
   isActive(position, accessor = null) {

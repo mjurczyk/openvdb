@@ -1,17 +1,16 @@
 import { Vector3 } from '../math/vector';
-import { log2dimMap } from './ChildNode';
+import { rootChildDim } from './ChildNode';
 
 // NOTE Root tile has one value for the full extent of a top-level internal node
-const tileDim = 1 << log2dimMap.reduce((total, next) => total + next);
-
 export class RootTile {
   leavesCount = 0;
 
-  constructor({ origin, value, active }) {
+  constructor({ origin, value, active, background }) {
     this.origin = origin;
     this.value = value;
     this.active = active;
-    this.dim = tileDim;
+    this.background = background;
+    this.dim = rootChildDim;
   }
 
   readBuffers() {
@@ -54,7 +53,7 @@ export class RootTile {
 
   getValue(position, accessor = null) {
     if (!this.contains(position)) {
-      return 0.0;
+      return this.background;
     }
 
     if (accessor) {

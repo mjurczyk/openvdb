@@ -1,9 +1,15 @@
 import { unsupported } from '../debug';
 import { uint32Size } from '../math/memory';
 import { Vector3 } from '../math/vector';
-import { ChildNode } from './ChildNode';
+import { ChildNode, rootChildLog2Dim } from './ChildNode';
 import { GridSharedContext } from './GridSharedContext';
 import { RootTile } from './RootTile';
+
+// NOTE Root keys have 20 bits for each int32 axis, same as NanoVDB CoordToKey. X and Y share one safe integer.
+const getRootKeyXY = (x, y) =>
+  (x >> rootChildLog2Dim) * 0x100000 + ((y >> rootChildLog2Dim) & 0xfffff);
+
+const getRootKeyZ = (z) => z >> rootChildLog2Dim;
 
 export class RootNode {
   readNode() {
@@ -13,6 +19,7 @@ export class RootNode {
     this.numTiles = bufferIterator.readBytes(uint32Size);
     this.numChildren = bufferIterator.readBytes(uint32Size);
     this.table = [];
+    this.tableByKey = new Map();
     this.origin = new Vector3();
 
     this.readChildren();
@@ -50,7 +57,7 @@ export class RootNode {
     const value = bufferIterator.readFloat(valueType);
     const active = bufferIterator.readBool();
 
-    this.table.push(new RootTile({ origin: vec, value, active }));
+    this.addToTable(new RootTile({ origin: vec, value, active, background: this.background }));
   }
 
   readInternalNode() {
@@ -71,10 +78,22 @@ export class RootNode {
       background: this.background,
     });
 
-    this.table.push(child);
+    this.addToTable(child);
     this.leavesCount += child.leavesCount;
 
     GridSharedContext.cleanContext(child);
+  }
+
+  addToTable(node) {
+    const { x, y, z } = node.origin;
+    const keyXY = getRootKeyXY(x, y);
+
+    if (!this.tableByKey.has(keyXY)) {
+      this.tableByKey.set(keyXY, new Map());
+    }
+
+    this.table.push(node);
+    this.tableByKey.get(keyXY).set(getRootKeyZ(z), node);
   }
 
   readBuffers() {
@@ -99,13 +118,15 @@ export class RootNode {
   }
 
   getChildAt(position) {
-    return this.table.find((child) => child.contains(position)) || null;
+    const tableZ = this.tableByKey.get(getRootKeyXY(position.x, position.y));
+
+    return tableZ?.get(getRootKeyZ(position.z)) || null;
   }
 
   getValue(position, accessor = null) {
     const child = this.getChildAt(position);
 
-    return child ? child.getValue(position, accessor) : 0.0;
+    return child ? child.getValue(position, accessor) : this.background;
   }
 
   isActive(position, accessor = null) {
@@ -115,16 +136,8 @@ export class RootNode {
   }
 
   getLeafAt(position, accessor = null) {
-    let leaf = null;
+    const child = this.getChildAt(position);
 
-    for (let i = 0; i < this.table.length; i++) {
-      leaf = this.table[i].getLeafAt(position, accessor);
-
-      if (leaf !== null) {
-        i = this.table.length;
-      }
-    }
-
-    return leaf;
+    return child ? child.getLeafAt(position, accessor) : null;
   }
 }
