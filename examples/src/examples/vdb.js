@@ -186,7 +186,7 @@ export const exampleVDB = ({ scene }) => {
           
             loaders.texture.load(`./assets/${value}-8K.jpg`, env => {
               env.mapping = Three.EquirectangularRefractionMapping;
-              env.encoding = Three.sRGBEncoding;
+              env.colorSpace = Three.SRGBColorSpace;
               scene.background = env;
             });
           }

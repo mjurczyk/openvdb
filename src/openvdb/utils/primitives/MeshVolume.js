@@ -1,5 +1,5 @@
 import * as Three from 'three';
-import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUtils';
+import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { floatType } from '../../math/memory';
 import { GridDescriptor } from '../../core/GridDescriptor';
 import { Vector3 } from '../../math/vector';
@@ -61,7 +61,7 @@ export class MeshVolume extends GridDescriptor {
 
     // NOTE Merge all geometries into a single mesh to avoid raycasting tons of separate objects
     const meshGeometry = BufferGeometryUtils.mergeVertices(
-      BufferGeometryUtils.mergeBufferGeometries(geometries, false)
+      BufferGeometryUtils.mergeGeometries(geometries, false)
     );
 
     this.mesh = new Three.Mesh(

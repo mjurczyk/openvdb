@@ -2,6 +2,7 @@ import * as Three from 'three';
 import { FogVolume } from '../three';
 
 const vector2 = new Three.Vector2();
+const clearColor = new Three.Color();
 
 let depthRenderTarget;
 let depthMaterial;
@@ -79,7 +80,7 @@ export class MeshDistanceMaterial extends Three.MeshBasicMaterial {
           `
         )
         .replace(
-          `#include <output_fragment>`,
+          `#include <opaque_fragment>`,
           `
             float dist = length(vPosition - cameraPosition);
             dist = (dist - cameraNear) / (cameraFar - cameraNear);
@@ -89,7 +90,7 @@ export class MeshDistanceMaterial extends Three.MeshBasicMaterial {
           `
         )
         .replace('#include <tonemapping_fragment>', '')
-        .replace('#include <encodings_fragment>', '')
+        .replace('#include <colorspace_fragment>', '')
         .replace('#include <fog_fragment>', '')
         .replace('#include <premultiplied_alpha_fragment>', '')
         .replace('#include <dithering_fragment>', '');
@@ -178,13 +179,22 @@ export const updateFrameDepth = (renderer, scene, camera, geometry, material) =>
     }
   });
   
+  // NOTE Empty pixels must unpack to depth 1.0. In r186 packing, red is the high byte, so background colors give wrong depth.
+  const background = scene.background;
+  const clearAlpha = renderer.getClearAlpha();
+  renderer.getClearColor(clearColor);
+
+  scene.background = null;
   scene.overrideMaterial = depthMaterial;
+  renderer.setClearColor(0xffffff, 1.0);
 
   renderer.setRenderTarget(depthRenderTarget);
   renderer.render(scene, camera);
   renderer.setRenderTarget(null);
 
+  renderer.setClearColor(clearColor, clearAlpha);
   scene.overrideMaterial = null;
+  scene.background = background;
 
   volumes.forEach(volume => {
     volume.visible = true;
