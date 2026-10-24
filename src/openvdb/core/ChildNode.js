@@ -389,10 +389,13 @@ export class ChildNode {
         (position.z & this.offsetMask)
       );
     } else {
+      // NOTE Nodes with only tiles have no first child
+      const childTotal = this.total - this.log2dim;
+
       return (
-        (((position.x & this.offsetMask) >> this.firstChild.total) << (2 * this.log2dim)) |
-        (((position.y & this.offsetMask) >> this.firstChild.total) << this.log2dim) |
-        ((position.z & this.offsetMask) >> this.firstChild.total)
+        (((position.x & this.offsetMask) >> childTotal) << (2 * this.log2dim)) |
+        (((position.y & this.offsetMask) >> childTotal) << this.log2dim) |
+        ((position.z & this.offsetMask) >> childTotal)
       );
     }
   }
@@ -410,17 +413,20 @@ export class ChildNode {
       accessor.cache(this);
     }
 
+    const offset = this.coordToOffset(position);
+
     if (this.isLeaf()) {
-      return this.values[this.coordToOffset(position)];
+      return this.values[offset];
     }
 
-    const targetChild = this.table[this.coordToOffset(position)];
+    const targetChild = this.table[offset];
 
     if (targetChild) {
       return targetChild.getValue(position, accessor);
     }
 
-    return 0.0;
+    // NOTE Tile value, active or inactive
+    return this.values[offset];
   }
 
   isActive(position, accessor = null) {
