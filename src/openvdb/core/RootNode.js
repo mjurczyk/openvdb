@@ -3,6 +3,7 @@ import { uint32Size } from '../math/memory';
 import { Vector3 } from '../math/vector';
 import { ChildNode } from './ChildNode';
 import { GridSharedContext } from './GridSharedContext';
+import { RootTile } from './RootTile';
 
 export class RootNode {
   readNode() {
@@ -39,8 +40,6 @@ export class RootNode {
   }
 
   readTile() {
-    unsupported('Tile nodes');
-
     const { bufferIterator, valueType } = GridSharedContext.getContext(this);
 
     const vec = new Vector3(
@@ -49,20 +48,9 @@ export class RootNode {
       bufferIterator.readFloat('int32')
     );
     const value = bufferIterator.readFloat(valueType);
-    const active = readBool();
+    const active = bufferIterator.readBool();
 
-    this.push({
-      child: null,
-      tile: {
-        value,
-        active: !value ? false : active,
-      },
-      origin: vec,
-      isChild: () => !!child,
-      isTile: () => !!tile,
-      isTileOff: () => tile && !tile.active,
-      isTileOn: () => tile && tile.active,
-    });
+    this.table.push(new RootTile({ origin: vec, value, active }));
   }
 
   readInternalNode() {
