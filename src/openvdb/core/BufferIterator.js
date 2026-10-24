@@ -3,21 +3,30 @@ import {
   boolSize,
   boolType,
   charSize,
+  doubleSize,
   doubleType,
+  floatSize,
   floatType,
+  halfFloatType,
   int32Type,
   int64Type,
+  pointDataIndex32,
+  pointDataIndex64,
   stringType,
   uint32Size,
+  uint64Size,
   vec3dType,
   vec3iType,
   vec3sType,
-  floatingPointPrecisionLUT,
 } from '../math/memory';
 import { Vector3 } from '../math/vector';
 
+// NOTE VDB files are little-endian
+const littleEndian = true;
+
 export class BufferIterator {
   source = null;
+  view = null;
   offset = 0;
 
   constructor(source) {
@@ -27,34 +36,119 @@ export class BufferIterator {
     }
 
     this.source = source;
+    this.view = new DataView(source.buffer, source.byteOffset, source.byteLength);
   }
 
   reset() {
     this.offset = 0;
   }
 
+  readUint8() {
+    const value = this.view.getUint8(this.offset);
+    this.offset += 1;
+
+    return value;
+  }
+
+  readUint16() {
+    const value = this.view.getUint16(this.offset, littleEndian);
+    this.offset += 2;
+
+    return value;
+  }
+
+  readUint32() {
+    const value = this.view.getUint32(this.offset, littleEndian);
+    this.offset += uint32Size;
+
+    return value;
+  }
+
+  readInt32() {
+    const value = this.view.getInt32(this.offset, littleEndian);
+    this.offset += uint32Size;
+
+    return value;
+  }
+
+  // NOTE 64-bit integers convert to Number. Values above 2^53 lose precision.
+  readInt64() {
+    const value = Number(this.view.getBigInt64(this.offset, littleEndian));
+    this.offset += uint64Size;
+
+    return value;
+  }
+
+  readUint64() {
+    const value = Number(this.view.getBigUint64(this.offset, littleEndian));
+    this.offset += uint64Size;
+
+    return value;
+  }
+
+  // NOTE IEEE 754 binary16. DataView.getFloat16 is not available in all runtimes.
+  readFloat16() {
+    const bits = this.readUint16();
+    const sign = bits & 0x8000 ? -1 : 1;
+    const exponent = (bits >> 10) & 0x1f;
+    const fraction = bits & 0x3ff;
+
+    if (exponent === 0) {
+      return sign * 2 ** -14 * (fraction / 1024);
+    }
+
+    if (exponent === 0x1f) {
+      return fraction ? NaN : sign * Infinity;
+    }
+
+    return sign * 2 ** (exponent - 15) * (1 + fraction / 1024);
+  }
+
+  readFloat32() {
+    const value = this.view.getFloat32(this.offset, littleEndian);
+    this.offset += floatSize;
+
+    return value;
+  }
+
+  readFloat64() {
+    const value = this.view.getFloat64(this.offset, littleEndian);
+    this.offset += doubleSize;
+
+    return value;
+  }
+
+  // NOTE Reads 1, 2 and 4 bytes as unsigned, 8 bytes as signed int64
   readBytes(count) {
-    let buffer = 0;
+    switch (count) {
+      case 1:
+        return this.readUint8();
+      case 2:
+        return this.readUint16();
+      case uint32Size:
+        return this.readUint32();
+      case uint64Size:
+        return this.readInt64();
+      default: {
+        let value = 0;
 
-    this.source.slice(this.offset, this.offset + count).forEach((byte, index) => {
-      buffer = buffer | (byte << (8 * index));
-    });
+        for (let index = 0; index < count; index++) {
+          value += this.view.getUint8(this.offset + index) * 2 ** (8 * index);
+        }
 
-    this.offset += count;
+        this.offset += count;
 
-    return buffer;
+        return value;
+      }
+    }
   }
 
   readRawBytes(count) {
-    const raw = [];
-
-    this.source.slice(this.offset, this.offset + count).forEach((byte, index) => {
-      raw.push(byte);
-    });
+    const raw = this.source.slice(this.offset, this.offset + count);
 
     this.offset += count;
 
-    return Uint8Array.from(raw);
+    return raw;
   }
 
   readBool() {
@@ -103,8 +197,6 @@ export class BufferIterator {
   }
 
   readFloat(precision = doubleType) {
-    const precisionLUT = floatingPointPrecisionLUT[precision];
-
     if ([vec3sType, vec3iType, vec3dType].includes(precision)) {
       const valueType = {
         [vec3sType]: floatType,
@@ -119,44 +211,25 @@ export class BufferIterator {
       );
     }
 
-    if (!precisionLUT) {
-      unsupported(`Unknown value type: ${precision}`);
+    switch (precision) {
+      case halfFloatType:
+        return this.readFloat16();
+      case floatType:
+        return this.readFloat32();
+      case doubleType:
+        return this.readFloat64();
+      case int32Type:
+        return this.readInt32();
+      case int64Type:
+        return this.readInt64();
+      case pointDataIndex32:
+        return this.readUint32();
+      case pointDataIndex64:
+        return this.readUint64();
+      default:
+        unsupported(`Unknown value type: ${precision}`);
+        throw new Error(`BufferIterator: unknown value type "${precision}".`);
     }
-
-    let binary = [];
-    Array(precisionLUT.size)
-      .fill(0)
-      .forEach(() => {
-        binary.unshift(this.readBytes(charSize));
-      });
-    binary = binary.map((i) => `00000000${i.toString(2)}`.substr(-8)).join('');
-
-    if ([int32Type, int64Type].includes(precision)) {
-      // NOTE https://stackoverflow.com/questions/37022434/how-do-i-parse-a-twos-complement-string-to-a-number
-      return ~~parseInt(binary, 2);
-    }
-
-    const sign = binary.slice(0, 1) === '1' ? -1 : 1;
-    const exponent = parseInt(binary.slice(1, precisionLUT.exp + 1), 2) - precisionLUT.bias;
-    const mantissa = '1' + binary.slice(precisionLUT.exp + 1, precision.size);
-
-    // NOTE https://stackoverflow.com/questions/37109968/how-to-convert-binary-fraction-to-decimal
-    let v1 = exponent < 0 ? 0.0 : mantissa.substr(0, exponent + 1);
-    let v2 =
-      '0.' +
-      Array(exponent < 0 ? -exponent - 1 : 0)
-        .fill('0')
-        .join('') +
-      mantissa.substr(exponent < 0 ? 0.0 : exponent + 1);
-
-    v1 = parseInt(v1, 2);
-    v2 = parseInt(v2.replace('.', ''), 2) / Math.pow(2, (v2.split('.')[1] || '').length);
-
-    if (v1 === 0 && v2 === 0) {
-      return 0;
-    }
-
-    return sign * (v1 + v2);
   }
 
   readVector3(precision = doubleType) {
