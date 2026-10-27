@@ -293,29 +293,47 @@ export class ChildNode {
     const { bufferIterator } = GridSharedContext.getContext(this);
     const compressedBytesCount = bufferIterator.readBytes(uint64Size);
 
+    let bytes;
+
     if (compressedBytesCount <= 0) {
       // NOTE Data is not compressed, size is the negative byte count
-      return bufferIterator.readRawBytes(-compressedBytesCount);
+      bytes = bufferIterator.readRawBytes(-compressedBytesCount);
+    } else {
+      const compressedBytes = bufferIterator.readRawBytes(compressedBytesCount);
+
+      try {
+        bytes = codec.decode(compressedBytes);
+      } catch (error) {
+        console.warn('readCompressedData', 'uncompress', 'error', {
+          error,
+          compressedBytes,
+        });
+
+        return new Uint8Array(byteCount);
+      }
     }
 
-    const compressedBytes = bufferIterator.readRawBytes(compressedBytesCount);
-
-    try {
-      return codec.decode(compressedBytes);
-    } catch (error) {
-      console.warn('readCompressedData', 'uncompress', 'error', {
-        error,
-        compressedBytes,
+    if (bytes.length !== byteCount) {
+      console.warn('readCompressedData', 'size', 'error', {
+        expected: byteCount,
+        found: bytes.length,
       });
 
       return new Uint8Array(byteCount);
     }
+
+    return bytes;
   }
 
   readData(count) {
     const { bufferIterator, valueType, useHalf, compression } = GridSharedContext.getContext(this);
     const dataType = (useHalf && halfValueTypeMap[valueType]) || valueType;
     const byteCount = count * valueTypeSizeMap[dataType];
+
+    if (count < 1 && dataType !== valueType) {
+      // NOTE Half data with no values has no chunk header, same as HalfReader in Compression.h
+      return createValueBuffer(valueType, 0);
+    }
 
     let bytes;
 
