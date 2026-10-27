@@ -13,7 +13,6 @@ const unitBox = new Three.Box3(
   new Three.Vector3(0.5, 0.5, 0.5),
 );
 const viewBox = new Three.Box3();
-const cameraBox = new Three.Box3();
 const casterBox = new Three.Box3();
 const cascadeBox = new Three.Box3();
 const frustum = new Three.Frustum();
@@ -82,7 +81,7 @@ export class FrameRenderer {
     depth: 24,
     subSteps: 32,
     near: 0.1,
-    far: 512.0,
+    far: Infinity,
     jitter: false,
     temporal: true,
     temporalBlend: 0.2,
@@ -130,9 +129,17 @@ export class FrameRenderer {
     frameTargetSize: { value: new Three.Vector2(1.0, 1.0) },
   };
 
+  // NOTE Shadow grid data for the density pass. Each volume samples its own visible position.
+  densityShadowUniforms = {
+    frameTransmittanceMap0: { value: null },
+    frameTransmittanceMap1: { value: null },
+    frameUseShadows: { value: false },
+    frameCameraMatrixWorld: { value: new Three.Matrix4() },
+  };
+
   injectMaterial = new FrameInjectMaterial(this.froxelUniforms);
   integrateMaterial = new FrameIntegrateMaterial(this.froxelUniforms);
-  lightingMaterial = new FrameLightingMaterial({ ...this.froxelUniforms, ...this.gridUniforms });
+  lightingMaterial = new FrameLightingMaterial(this.froxelUniforms);
   transmittanceMaterial = new FrameTransmittanceMaterial(this.gridUniforms);
   depthMaterial = new Three.MeshBasicMaterial({ colorWrite: false, side: Three.DoubleSide });
 
@@ -230,10 +237,6 @@ export class FrameRenderer {
     projectionScreenMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     frustum.setFromProjectionMatrix(projectionScreenMatrix);
 
-    vector3.setFromMatrixPosition(camera.matrixWorld);
-    cameraBox.min.copy(vector3).subScalar(settings.shadowDistance);
-    cameraBox.max.copy(vector3).addScalar(settings.shadowDistance);
-
     let near = Infinity;
     let far = 0.0;
 
@@ -252,7 +255,7 @@ export class FrameRenderer {
         volume.worldBox.copy(unitBox).applyMatrix4(volume.matrixWorld);
 
         // NOTE Volumes out of the view can still cast shadows on visible volumes
-        if (frameLighting && volume.worldBox.intersectsBox(cameraBox)) {
+        if (frameLighting) {
           casters.push({ frameVolume: object, volume });
         }
 
@@ -363,7 +366,7 @@ export class FrameRenderer {
         }
 
         this.densityTarget = createRenderTarget(froxelAtlas.width, froxelAtlas.height, {
-          count: 2,
+          count: 4,
           minFilter: Three.NearestFilter,
           magFilter: Three.NearestFilter,
         });
@@ -594,36 +597,8 @@ export class FrameRenderer {
   renderFrameLighting(renderer, scene, camera, volumes, casters) {
     const lights = this.prepareLightScene(scene, camera, this.lightingMesh);
 
-    // NOTE Density pass. One instanced draw for each volume, one instance for each slice.
-    this.updatePool(
-      this.densityPool,
-      this.densityScene,
-      volumes,
-      camera,
-      (entry, { frameVolume, volume }) => {
-        const rect = this.getFroxelRect(volume, camera);
-
-        if (!rect) {
-          return false;
-        }
-
-        const { first, count } = this.getSliceRange(volume);
-
-        setVolumeUniforms(entry.material.uniforms, frameVolume, volume);
-        entry.material.uniforms.frameRect.value.copy(rect);
-        entry.material.uniforms.frameSliceStart.value = first;
-        entry.geometry.instanceCount = count;
-
-        return true;
-      },
-      () => new FrameDensityMaterial({ ...this.froxelUniforms, ...this.froxelTileUniforms }),
-    );
-
-    renderer.setRenderTarget(this.densityTarget);
-    renderer.clear(true, false, false);
-    renderer.render(this.densityScene, camera);
-
     // NOTE Shadow pass. Extinction of all casters in one world grid, then transmittance to each light.
+    // It is before the density pass. Then the density pass can sample the shadows of each volume.
     const useShadows = casters.length > 0 && this.updateGrid(casters, camera);
 
     if (useShadows) {
@@ -675,15 +650,55 @@ export class FrameRenderer {
       renderer.render(this.transmittanceScene, camera);
     }
 
+    const { densityShadowUniforms } = this;
+
+    densityShadowUniforms.frameUseShadows.value = useShadows;
+    densityShadowUniforms.frameTransmittanceMap0.value = this.transmittanceTarget.textures[0];
+    densityShadowUniforms.frameTransmittanceMap1.value = this.transmittanceTarget.textures[1];
+    densityShadowUniforms.frameCameraMatrixWorld.value.copy(camera.matrixWorld);
+
+    // NOTE Density pass. One instanced draw for each volume, one instance for each slice.
+    this.updatePool(
+      this.densityPool,
+      this.densityScene,
+      volumes,
+      camera,
+      (entry, { frameVolume, volume }) => {
+        const rect = this.getFroxelRect(volume, camera);
+
+        if (!rect) {
+          return false;
+        }
+
+        const { first, count } = this.getSliceRange(volume);
+
+        setVolumeUniforms(entry.material.uniforms, frameVolume, volume);
+        entry.material.uniforms.frameRect.value.copy(rect);
+        entry.material.uniforms.frameSliceStart.value = first;
+        entry.geometry.instanceCount = count;
+
+        return true;
+      },
+      () =>
+        new FrameDensityMaterial({
+          ...this.froxelUniforms,
+          ...this.froxelTileUniforms,
+          ...this.gridUniforms,
+          ...this.densityShadowUniforms,
+        }),
+    );
+
+    renderer.setRenderTarget(this.densityTarget);
+    renderer.clear(true, false, false);
+    renderer.render(this.densityScene, camera);
+
     // NOTE Lighting pass. Each froxel is lit one time from the combined data.
     const lightingUniforms = this.lightingMaterial.frameUniforms;
 
     lightingUniforms.frameDensityAlbedoMap.value = this.densityTarget.textures[0];
     lightingUniforms.frameDensityEmissionMap.value = this.densityTarget.textures[1];
-    lightingUniforms.frameTransmittanceMap0.value = this.transmittanceTarget.textures[0];
-    lightingUniforms.frameTransmittanceMap1.value = this.transmittanceTarget.textures[1];
-    lightingUniforms.frameUseShadows.value = useShadows;
-    lightingUniforms.frameCameraMatrixWorld.value.copy(camera.matrixWorld);
+    lightingUniforms.frameDensityShadowMap0.value = this.densityTarget.textures[2];
+    lightingUniforms.frameDensityShadowMap1.value = this.densityTarget.textures[3];
     lightingUniforms.frameSkyDirection.value.copy(lights.skyDirection);
     lightingUniforms.frameShadowLightCount.value = lights.shadowLights.length;
     lightingUniforms.frameShadowPointOffset.value = lights.pointOffset;
@@ -772,7 +787,8 @@ export class FrameRenderer {
     return Math.min(frameMaxShadowCascades, Math.max(1, Math.round(this.settings.shadowCascades)));
   }
 
-  // NOTE The last cascade fits all casters. Each finer cascade is half the size, around the camera.
+  // NOTE The last cascade fits all casters. Then far volumes get coarse shadows, not no shadows.
+  // Finer cascades are around the camera, in shadowDistance. Each one is half the size of the next.
   // Power-of-two voxels and snapped bounds keep shadows stable when the camera moves.
   updateGrid(casters, camera) {
     const resolution = this.gridUniforms.frameGridResolution.value;
@@ -781,7 +797,6 @@ export class FrameRenderer {
 
     casterBox.makeEmpty();
     casters.forEach(({ volume }) => casterBox.union(volume.worldBox));
-    casterBox.intersect(cameraBox);
 
     if (casterBox.isEmpty()) {
       return false;
@@ -789,13 +804,15 @@ export class FrameRenderer {
 
     vector3.setFromMatrixPosition(camera.matrixWorld);
 
-    const outerHalfSize =
+    const fineHalfSize = Math.min(
+      this.settings.shadowDistance,
       0.5 *
-      Math.max(
-        casterBox.max.x - casterBox.min.x,
-        casterBox.max.y - casterBox.min.y,
-        casterBox.max.z - casterBox.min.z,
-      );
+        Math.max(
+          casterBox.max.x - casterBox.min.x,
+          casterBox.max.y - casterBox.min.y,
+          casterBox.max.z - casterBox.min.z,
+        ),
+    );
 
     let count = 0;
 
@@ -803,7 +820,7 @@ export class FrameRenderer {
       if (cascade === cascades - 1) {
         cascadeBox.copy(casterBox);
       } else {
-        const halfSize = outerHalfSize / Math.pow(2.0, cascades - 1 - cascade);
+        const halfSize = fineHalfSize / Math.pow(2.0, cascades - 1 - cascade);
 
         cascadeBox.min.copy(vector3).subScalar(halfSize);
         cascadeBox.max.copy(vector3).addScalar(halfSize);

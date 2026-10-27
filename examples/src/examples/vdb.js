@@ -4,6 +4,7 @@ import { gui, setGuiFields, dropTarget } from '../utils/gui';
 import { loaders } from '../utils/resources';
 import { SimpleDropzone } from 'simple-dropzone';
 import zip from 'zip-js-esm';
+import { setLoading } from '../utils/loading';
 
 let animation, volumePivot, targetScene;
 let dropId = 0;
@@ -80,6 +81,8 @@ const removeAnimation = () => {
   animation.dispose();
   animation = null;
   volumePivot = null;
+
+  setLoading('vdb', false);
 };
 
 // NOTE VDB files do not store an up axis. Z-up files (EmberGen, Blender) turn -90 degrees on X.
@@ -91,11 +94,12 @@ const applyUpAxis = () => {
 
 const createAnimation = (urls) => {
   removeAnimation();
+  setLoading('vdb', true);
 
   const startTime = performance.now();
   const releaseUrls = () => urls.forEach((url) => URL.revokeObjectURL(url));
 
-  animation = new OpenVDB.VDBAnimationLoader()
+  const loadingAnimation = new OpenVDB.VDBAnimationLoader()
     .setOptions({
       resolution: 100,
       progressive: true,
@@ -108,6 +112,7 @@ const createAnimation = (urls) => {
       urls,
       () => {
         releaseUrls();
+        setLoading('vdb', false);
         console.info('VDB animation converted', `${(performance.now() - startTime).toFixed(0)}ms`);
       },
       ({ loadedFrames, totalFrames }) => {
@@ -123,10 +128,17 @@ const createAnimation = (urls) => {
       },
       (error) => {
         releaseUrls();
-        dropTarget.innerHTML = '[Error - please try again]';
+
+        if (loadingAnimation === animation) {
+          setLoading('vdb', false);
+          dropTarget.innerHTML = '[Error - please try again]';
+        }
+
         console.error(error);
       },
     );
+
+  animation = loadingAnimation;
 
   applyVolumeParams();
   applyPlaybackParams();
@@ -192,6 +204,7 @@ const loadFiles = (files) => {
 
   if (urls.length === 0) {
     dropTarget.innerHTML = '[No .VDB files - please try again]';
+    setLoading('vdb', false);
 
     return;
   }
@@ -217,6 +230,7 @@ dropTarget.addEventListener(
     const currentDropId = ++dropId;
 
     removeAnimation();
+    setLoading('vdb', true);
 
     dropTarget.innerHTML = '[Unzipping...]';
 
@@ -232,6 +246,7 @@ dropTarget.addEventListener(
       })
       .catch((error) => {
         if (currentDropId === dropId) {
+          setLoading('vdb', false);
           dropTarget.innerHTML = '[Error - please try again]';
         }
 
@@ -253,11 +268,13 @@ dropzone.on('drop', ({ files }) => {
 
 dropzone.on('dropstart', () => {
   removeAnimation();
+  setLoading('vdb', true);
 
   dropTarget.innerHTML = '[Loading VDB file - please wait...]';
 });
 
 dropzone.on('droperror', ({ message }) => {
+  setLoading('vdb', false);
   dropTarget.innerHTML = '[Error - please try again]';
 
   console.error({ message });

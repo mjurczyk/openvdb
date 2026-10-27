@@ -14,6 +14,8 @@ let activeDemo = 'vdb';
 
 export const setActiveDemo = (id) => {
   activeDemo = id;
+
+  dropTarget.style.display = id === 'vdb' ? '' : 'none';
 };
 
 const guiBaseFields = () => [
@@ -23,13 +25,10 @@ const guiBaseFields = () => [
       {
         id: 'demo',
         name: 'Example',
+        // NOTE Only FrameVolume demos are listed. The other demos stay in examples/ but are hidden.
         options: {
-          'Bunny': 'bunny',
-          'Clouds': 'clouds',
-          'Bbox': 'bbox',
-          'GLTF to Volume': 'gltf',
-          'Custom VDB': 'vdb',
           'Rendering Frame': 'frame',
+          'Custom VDB': 'vdb',
         },
         defaultValue: activeDemo,
         onChange: (value) => {

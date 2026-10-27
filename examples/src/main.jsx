@@ -7,6 +7,7 @@ import { setActiveDemo } from './utils/gui';
 import { exampleGLTF } from './examples/gltf';
 import { exampleBunny } from './examples/bunny';
 import { exampleClouds } from './examples/clouds';
+import { exampleFrame } from './examples/frame';
 
 export const camera = new Three.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.01, 10000.0);
 export const scene = new Three.Scene();
@@ -47,8 +48,8 @@ const animate = () => {
   stats.end();
 };
 
-setActiveDemo('clouds');
+setActiveDemo('frame');
 
 init();
 animate();
-exampleClouds({ scene });
+exampleFrame({ scene });

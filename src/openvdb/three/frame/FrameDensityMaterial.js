@@ -1,15 +1,30 @@
 import * as Three from 'three';
-import { froxelPars, volumePars, noisePars, tileQuadVertexShader, createVolumeUniforms } from './frameShaderChunks';
+import {
+  froxelPars,
+  volumePars,
+  gridPars,
+  noisePars,
+  tileQuadVertexShader,
+  createVolumeUniforms,
+} from './frameShaderChunks';
 
 const fragmentShader = `
   precision highp float;
 
   layout(location = 0) out highp vec4 frameDensityAlbedo;
   layout(location = 1) out highp vec4 frameDensityEmission;
+  layout(location = 2) out highp vec4 frameDensityShadow0;
+  layout(location = 3) out highp vec4 frameDensityShadow1;
 
   ${froxelPars}
   ${volumePars}
+  ${gridPars}
   ${noisePars}
+
+  uniform sampler2D frameTransmittanceMap0;
+  uniform sampler2D frameTransmittanceMap1;
+  uniform bool frameUseShadows;
+  uniform mat4 frameCameraMatrixWorld;
 
   void main() {
     vec2 tile = floor(gl_FragCoord.xy / froxelGrid.xy);
@@ -73,9 +88,28 @@ const fragmentShader = `
     vec3 albedo = frameSampleAlbedo(visiblePosition, lod);
     vec3 emission = frameSampleEmission(visiblePosition, lod) + frameScatterColor;
 
+    // NOTE Shadows at the visible position of this volume, not of other volumes in the froxel
+    vec4 shadow0 = vec4(1.0);
+    vec4 shadow1 = vec4(1.0);
+
+    if (frameUseShadows) {
+      vec3 viewPosition = mix(viewNear, viewFar, visibleT);
+      vec3 worldPosition = (frameCameraMatrixWorld * vec4(viewPosition, 1.0)).xyz;
+
+      frameSampleShadows(
+        frameTransmittanceMap0,
+        frameTransmittanceMap1,
+        worldPosition,
+        shadow0,
+        shadow1
+      );
+    }
+
     // NOTE Values are weighted by extinction. Additive blending then gives extinction-weighted means.
     frameDensityAlbedo = vec4(albedo * extinction, extinction);
     frameDensityEmission = vec4(emission * extinction, visibleT * extinction);
+    frameDensityShadow0 = shadow0 * extinction;
+    frameDensityShadow1 = shadow1 * extinction;
   }
 `;
 

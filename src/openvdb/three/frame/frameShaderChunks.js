@@ -243,6 +243,41 @@ export const gridPars = `
     return mix(sample0, sample1, blend);
   }
 
+  // NOTE Transmittance of the shadow slots at a world position. 1.0 outside the grid.
+  void frameSampleShadows(
+    sampler2D map0,
+    sampler2D map1,
+    vec3 worldPosition,
+    out vec4 shadow0,
+    out vec4 shadow1
+  ) {
+    shadow0 = vec4(1.0);
+    shadow1 = vec4(1.0);
+
+    int cascade = frameFindCascade(worldPosition, 0);
+
+    if (cascade < 0) {
+      return;
+    }
+
+    vec3 gridUvw = frameGridUvw(cascade, worldPosition);
+
+    shadow0 = frameSampleGrid(map0, cascade, gridUvw);
+    shadow1 = frameSampleGrid(map1, cascade, gridUvw);
+
+    // NOTE Blend to the next cascade near the sides of this cascade. Then cascade borders are not visible.
+    vec3 sideDistance = min(gridUvw, 1.0 - gridUvw);
+    float blend = 1.0 - smoothstep(0.0, 0.1, min(sideDistance.x, min(sideDistance.y, sideDistance.z)));
+    int nextCascade = blend > 0.0 ? frameFindCascade(worldPosition, cascade + 1) : -1;
+
+    if (nextCascade >= 0) {
+      vec3 nextUvw = frameGridUvw(nextCascade, worldPosition);
+
+      shadow0 = mix(shadow0, frameSampleGrid(map0, nextCascade, nextUvw), blend);
+      shadow1 = mix(shadow1, frameSampleGrid(map1, nextCascade, nextUvw), blend);
+    }
+  }
+
   // NOTE Cascade and grid position of an atlas pixel
   int frameGetGridCell(vec2 fragCoord, out vec3 gridUvw) {
     float resolution = frameGridResolution;
