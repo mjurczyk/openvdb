@@ -158,7 +158,7 @@ Froxel grid settings are global, in `frameRenderer.settings`:
   * `'volume'` - each volume is lit alone. Shadows come only from the same volume. Good for a small number of dense volumes with sharp edges.
 * `shadowResolution` - (default: `64`) voxels on each axis of each shadow grid cascade (`'frame'` lighting only).
 * `shadowCascades` - (default: `3`, max `4`) shadow grid cascades. The last cascade fits all volumes. Each finer cascade is half the size, around the camera. Shadows are dense near the camera and sparse far away (`'frame'` lighting only).
-* `shadowDistance` - (default: `512`) the shadow grid includes only volumes in this distance from the camera (`'frame'` lighting only).
+* `shadowDistance` - (default: `512`) the finer shadow grid cascades cover only this distance from the camera. The last cascade covers all volumes, with coarser voxels (`'frame'` lighting only).
 
 3D textures of `FrameVolume` have mipmaps. Large froxels far away sample a lower mip level, so small details fade to transparent.
 

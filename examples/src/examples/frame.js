@@ -2,8 +2,8 @@ import * as Three from 'three';
 import * as OpenVDB from '../../../src/openvdb/three';
 import { setGuiFields } from '../utils/gui';
 import { loadAndCacheVDB, loaders } from '../utils/resources';
+import { setLoading } from '../utils/loading';
 
-// NOTE A/B comparison: the same source as FrameVolume (froxel frame) or FogVolume (per-object march)
 // NOTE One cloud is converted one time. All cloud field volumes use its raw density data.
 const cloudFieldResolution = 64;
 let cloudFieldData = null;
@@ -44,6 +44,35 @@ const getCloudFieldData = () => {
   });
 };
 
+// NOTE Stress test: one bunny is converted one time, in a cube box.
+// All grid volumes use its raw density data.
+const bunnyGridResolution = 100;
+const bunnyGridSize = 10;
+let bunnyGridData = null;
+
+const getBunnyGridData = (vdb, center, size) => {
+  if (bunnyGridData) {
+    return Promise.resolve(bunnyGridData);
+  }
+
+  return new Promise((resolve) => {
+    // NOTE Raw density data must be a cube. Then the texture has the same texel count on all sides.
+    const side = Math.max(size.x, size.y, size.z);
+    const bbox = new Three.Box3().setFromCenterAndSize(center, new Three.Vector3(side, side, side));
+
+    const converter = new OpenVDB.FrameVolume(
+      vdb,
+      { resolution: bunnyGridResolution, bbox },
+      () => {
+        bunnyGridData = { data: converter.volumes[0].densityMap3D.image.data, side };
+        converter.dispose();
+
+        resolve(bunnyGridData);
+      },
+    );
+  });
+};
+
 // NOTE Fixed random sequence. The cloud field is the same after each rebuild.
 const createRandom = (seed) => () => {
   seed = (seed * 16807) % 2147483647;
@@ -53,7 +82,6 @@ const createRandom = (seed) => () => {
 
 export const exampleFrame = ({ scene }) => {
   const params = {
-    renderer: 'frame',
     source: 'bunny',
     baseColor: '#ffffff',
     absorbance: 1.0,
@@ -162,21 +190,12 @@ export const exampleFrame = ({ scene }) => {
   }, 1000 / 60);
 
   const applyVolumeParams = (volume) => {
-    if (volume.isFrameVolume) {
-      volume.baseColor.set(params.baseColor);
-      volume.absorbance = params.absorbance;
-      volume.densityScale = params.densityScale;
-      volume.opacity = params.opacity;
-      volume.extinction = params.extinction;
-      volume.shadowSteps = params.shadowSteps;
-    } else {
-      volume.materials.forEach((material) => {
-        material.baseColor = params.baseColor;
-        material.absorbance = params.absorbance;
-        material.densityScale = params.densityScale;
-        material.opacity = params.opacity;
-      });
-    }
+    volume.baseColor.set(params.baseColor);
+    volume.absorbance = params.absorbance;
+    volume.densityScale = params.densityScale;
+    volume.opacity = params.opacity;
+    volume.extinction = params.extinction;
+    volume.shadowSteps = params.shadowSteps;
   };
 
   const applyParams = () => {
@@ -191,26 +210,10 @@ export const exampleFrame = ({ scene }) => {
 
     entries.forEach(({ pivot, volume }) => {
       scene.remove(pivot);
-
-      if (!volume.isFrameVolume) {
-        volume.materials.forEach((material) => material.densityMap3D?.dispose());
-      }
-
       volume.dispose();
     });
 
     entries = [];
-  };
-
-  const createVolume = (source, props) => {
-    if (params.renderer === 'frame') {
-      return new OpenVDB.FrameVolume(source, {
-        ...props,
-        lights: props.frameLights,
-      });
-    }
-
-    return new OpenVDB.FogVolume(source, props);
   };
 
   // NOTE The pivot turns the volume around its own center
@@ -232,6 +235,13 @@ export const exampleFrame = ({ scene }) => {
     const currentBuildId = ++buildId;
 
     removeVolumes();
+    setLoading('frame', true);
+
+    const onBuilt = () => {
+      if (currentBuildId === buildId) {
+        setLoading('frame', false);
+      }
+    };
 
     if (params.source === 'cloudField') {
       getCloudFieldData().then((data) => {
@@ -242,11 +252,9 @@ export const exampleFrame = ({ scene }) => {
         const random = createRandom(7);
 
         for (let i = 0; i < params.fieldVolumes; i++) {
-          const volume = createVolume(data, {
+          const volume = new OpenVDB.FrameVolume(data, {
             resolution: cloudFieldResolution,
-            steps: 100,
-            frameLights:
-              OpenVDB.frameLights.useEnvironment | OpenVDB.frameLights.useDirectionalLights,
+            lights: OpenVDB.frameLights.useEnvironment | OpenVDB.frameLights.useDirectionalLights,
           });
 
           volume.scale.set(
@@ -263,20 +271,24 @@ export const exampleFrame = ({ scene }) => {
           );
           pivot.rotation.y = random() * Math.PI * 2.0;
         }
+
+        onBuilt();
       });
 
       return;
     }
 
     if (params.source === 'clouds') {
-      const volume = createVolume(new OpenVDB.CloudVolume({ height: 0.2, density: 0.3 }), {
-        resolution: 100,
-        progressive: true,
-        steps: 100,
-        wrap3D: Three.MirroredRepeatWrapping,
-        lights: OpenVDB.lights.useEnvironment | OpenVDB.lights.useDirectionalLights,
-        frameLights: OpenVDB.frameLights.useEnvironment | OpenVDB.frameLights.useDirectionalLights,
-      });
+      const volume = new OpenVDB.FrameVolume(
+        new OpenVDB.CloudVolume({ height: 0.2, density: 0.3 }),
+        {
+          resolution: 100,
+          progressive: true,
+          wrap3D: Three.MirroredRepeatWrapping,
+          lights: OpenVDB.frameLights.useEnvironment | OpenVDB.frameLights.useDirectionalLights,
+        },
+        onBuilt,
+      );
       volume.scale.setScalar(400.0);
 
       addVolume(volume, new Three.Vector3()).position.y = 100.0;
@@ -296,8 +308,47 @@ export const exampleFrame = ({ scene }) => {
       const center = worldBbox.getCenter(new Three.Vector3());
       const size = worldBbox.getSize(new Three.Vector3());
 
+      if (params.source === 'bunnyGrid') {
+        getBunnyGridData(vdb, center, size).then(({ data, side }) => {
+          if (currentBuildId !== buildId) {
+            return;
+          }
+
+          const spacing = side * 1.1;
+          const offset = ((bunnyGridSize - 1) * spacing) / 2.0;
+
+          for (let x = 0; x < bunnyGridSize; x++) {
+            for (let z = 0; z < bunnyGridSize; z++) {
+              const volume = new OpenVDB.FrameVolume(data, { resolution: bunnyGridResolution });
+              volume.scale.setScalar(side);
+
+              addVolume(volume, new Three.Vector3()).position.set(
+                x * spacing - offset,
+                0.0,
+                z * spacing - offset,
+              );
+            }
+          }
+
+          onBuilt();
+        });
+
+        return;
+      }
+
+      // NOTE The build is done when all bunnies are converted
+      let bunniesLeft = params.source === 'twoBunnies' ? 2 : 1;
+
+      const onBunnyConverted = () => {
+        bunniesLeft--;
+
+        if (bunniesLeft === 0) {
+          onBuilt();
+        }
+      };
+
       const createBunny = () =>
-        createVolume(vdb, { resolution: 100, progressive: true, steps: 1000 });
+        new OpenVDB.FrameVolume(vdb, { resolution: 100, progressive: true }, onBunnyConverted);
 
       // NOTE Center the first bunny at the scene origin
       const firstPivot = addVolume(createBunny(), center);
@@ -444,26 +495,13 @@ export const exampleFrame = ({ scene }) => {
       folder: 'Rendering',
       children: [
         {
-          id: 'renderer',
-          name: 'Renderer',
-          defaultValue: params.renderer,
-          options: {
-            'Frame (FrameVolume)': 'frame',
-            'Per-object (FogVolume)': 'fog',
-          },
-          onChange: (value) => {
-            params.renderer = value;
-
-            rebuild();
-          },
-        },
-        {
           id: 'source',
           name: 'Source',
           defaultValue: params.source,
           options: {
             'Bunny Cloud': 'bunny',
             'Two Bunnies': 'twoBunnies',
+            '100 Bunnies (stress test)': 'bunnyGrid',
             Clouds: 'clouds',
             'Cloud Field': 'cloudField',
           },
@@ -483,7 +521,7 @@ export const exampleFrame = ({ scene }) => {
         },
         {
           id: 'froxelWidth',
-          name: 'Froxels X (frame)',
+          name: 'Froxels X',
           defaultValue: OpenVDB.frameRenderer.settings.width,
           min: 4,
           max: 1280,
@@ -491,7 +529,7 @@ export const exampleFrame = ({ scene }) => {
         },
         {
           id: 'froxelHeight',
-          name: 'Froxels Y (frame)',
+          name: 'Froxels Y',
           defaultValue: OpenVDB.frameRenderer.settings.height,
           min: 4,
           max: 760,
@@ -499,7 +537,7 @@ export const exampleFrame = ({ scene }) => {
         },
         {
           id: 'froxelDepth',
-          name: 'Slices (frame)',
+          name: 'Slices',
           defaultValue: OpenVDB.frameRenderer.settings.depth,
           min: 8,
           max: 512,
@@ -521,7 +559,7 @@ export const exampleFrame = ({ scene }) => {
         },
         {
           id: 'lighting',
-          name: 'Lighting (frame)',
+          name: 'Lighting',
           defaultValue: params.lighting,
           options: {
             'Combined (shared shadows)': 'frame',
@@ -533,7 +571,7 @@ export const exampleFrame = ({ scene }) => {
         },
         {
           id: 'shadowResolution',
-          name: 'Shadow Grid (frame)',
+          name: 'Shadow Grid',
           defaultValue: OpenVDB.frameRenderer.settings.shadowResolution,
           min: 16,
           max: 160,
@@ -541,7 +579,7 @@ export const exampleFrame = ({ scene }) => {
         },
         {
           id: 'jitter',
-          name: 'Jitter (frame)',
+          name: 'Jitter',
           defaultValue: OpenVDB.frameRenderer.settings.jitter,
           onChange: (value) => {
             OpenVDB.frameRenderer.settings.jitter = value;
@@ -549,7 +587,7 @@ export const exampleFrame = ({ scene }) => {
         },
         {
           id: 'temporal',
-          name: 'Temporal (frame)',
+          name: 'Temporal',
           defaultValue: OpenVDB.frameRenderer.settings.temporal,
           onChange: (value) => {
             OpenVDB.frameRenderer.settings.temporal = value;
@@ -557,7 +595,7 @@ export const exampleFrame = ({ scene }) => {
         },
         {
           id: 'temporalBlend',
-          name: 'Temporal Blend (frame)',
+          name: 'Temporal Blend',
           defaultValue: OpenVDB.frameRenderer.settings.temporalBlend,
           min: 0.01,
           max: 1.0,
@@ -567,7 +605,7 @@ export const exampleFrame = ({ scene }) => {
         },
         {
           id: 'shadowCascades',
-          name: 'Shadow Cascades (frame)',
+          name: 'Shadow Cascades',
           defaultValue: OpenVDB.frameRenderer.settings.shadowCascades,
           min: 1,
           max: 4,
@@ -575,7 +613,7 @@ export const exampleFrame = ({ scene }) => {
         },
         {
           id: 'froxelSubSteps',
-          name: 'Sub-steps (frame)',
+          name: 'Sub-steps',
           defaultValue: OpenVDB.frameRenderer.settings.subSteps,
           min: 1,
           max: 32,
@@ -618,7 +656,7 @@ export const exampleFrame = ({ scene }) => {
         },
         {
           id: 'extinction',
-          name: 'Extinction (frame)',
+          name: 'Extinction',
           defaultValue: params.extinction,
           min: 1.0,
           max: 1000.0,
@@ -626,7 +664,7 @@ export const exampleFrame = ({ scene }) => {
         },
         {
           id: 'shadowSteps',
-          name: 'Shadow Steps (frame)',
+          name: 'Shadow Steps',
           defaultValue: params.shadowSteps,
           min: 0,
           max: 128,

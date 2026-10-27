@@ -31,6 +31,38 @@
         user-select: none;
       }
       
+      #loading {
+        position: absolute;
+        top: 12px;
+        left: 50%;
+        transform: translateX(-50%);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        background-color: #111111;
+        border-radius: 4px;
+        color: #cccccc;
+        z-index: 2;
+        padding: 8px 12px;
+        user-select: none;
+        pointer-events: none;
+      }
+
+      .loading-spinner {
+        width: 12px;
+        height: 12px;
+        border: 2px solid #444444;
+        border-top-color: #cccccc;
+        border-radius: 50%;
+        animation: loading-spin 0.8s linear infinite;
+      }
+
+      @keyframes loading-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
       .bottom-tab {
         position: absolute;
         display: inline-flex;
@@ -59,11 +91,15 @@
         margin: 0px 8px;
       }
     </style>
-    <script type="module" crossorigin src="/openvdb/assets/index.a1ac1f0e.js"></script>
+    <script type="module" crossorigin src="/openvdb/assets/index.d41dbf11.js"></script>
   </head>
   <body>
     <div id="root"></div>
     <div id="dropzone"></div>
+    <div id="loading" style="display: none;">
+      <div class="loading-spinner"></div>
+      Loading VDB - please wait
+    </div>
     <div class="bottom-tab">
       <div>
         <a href="https://github.com/mjurczyk/openvdb" target="_blank">

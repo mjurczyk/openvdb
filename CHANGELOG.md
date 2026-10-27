@@ -7,6 +7,8 @@ Core:
 - Add `bbox`, `emissiveScale` and `temperatureRange` props to `FrameVolume`
 - `FrameVolume` texture size follows the box shape. Texels are cubes. `resolution` is the texel count of the longest side
 - Fix `FrameVolume` emission: temperature in Kelvin, emitted power increases with temperature^4
+- Fix volumes past `shadowDistance` with no shadows in `'frame'` lighting. The last shadow cascade covers all volumes
+- Fix lit streaks between overlapping volumes in `'frame'` lighting. Each volume samples shadows at its own visible position
 
 Examples:
 
