@@ -7,6 +7,7 @@ import { GridSharedContext } from './GridSharedContext';
 import { log2dimMap, totalMap } from './ChildNode';
 import { Accessor } from './Accessor';
 import { parseCompressionFlags } from './Compression';
+import { Vector3 } from '../math/vector';
 
 export class GridDescriptor {
   static halfFloatGridPrefix = '_HalfFloat';
@@ -195,16 +196,15 @@ export class GridDescriptor {
   valueCache = {};
   accessor = new Accessor(this);
 
-  getValue(position) {
-    const roundedPosition = position.clone().round();
+  // NOTE Scratch vector for lookups. Nodes do not keep the position after a call.
+  roundedPosition = new Vector3();
 
-    return this.accessor.getValue(roundedPosition);
+  getValue(position) {
+    return this.accessor.getValue(this.roundedPosition.copy(position).round());
   }
 
   isActive(position) {
-    const roundedPosition = position.clone().round();
-
-    return this.accessor.isActive(roundedPosition);
+    return this.accessor.isActive(this.roundedPosition.copy(position).round());
   }
 
   // NOTE Level sets store signed distance values, not density
@@ -213,8 +213,6 @@ export class GridDescriptor {
   }
 
   getLeafAt(position) {
-    const roundedPosition = position.clone().round();
-
-    return this.accessor.getLeafAt(roundedPosition);
+    return this.accessor.getLeafAt(this.roundedPosition.copy(position).round());
   }
 }
