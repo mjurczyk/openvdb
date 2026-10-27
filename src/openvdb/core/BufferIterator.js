@@ -10,8 +10,10 @@ import {
   halfFloatType,
   int32Type,
   int64Type,
+  maskType,
   pointDataIndex32,
   pointDataIndex64,
+  pointIndex32,
   stringType,
   uint32Size,
   uint64Size,
@@ -216,6 +218,10 @@ export class BufferIterator {
         return this.readInt32();
       case int64Type:
         return this.readInt64();
+      case boolType:
+      case maskType:
+        return this.readUint8();
+      case pointIndex32:
       case pointDataIndex32:
         return this.readUint32();
       case pointDataIndex64:

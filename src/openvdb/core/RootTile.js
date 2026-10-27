@@ -1,16 +1,15 @@
 import { Vector3 } from '../math/vector';
-import { rootChildDim } from './ChildNode';
 
 // NOTE Root tile has one value for the full extent of a top-level internal node
 export class RootTile {
   leavesCount = 0;
 
-  constructor({ origin, value, active, background }) {
+  constructor({ origin, value, active, background, dim }) {
     this.origin = origin;
     this.value = value;
     this.active = active;
     this.background = background;
-    this.dim = rootChildDim;
+    this.dim = dim;
   }
 
   readBuffers() {

@@ -56,7 +56,7 @@ export function leafTextureKernel() {
 
     const leafDim = 1 << leafLog2Dim;
     const leafNumValues = 1 << (3 * leafLog2Dim);
-    const leafNumWords = leafNumValues >> 5;
+    const leafNumWords = Math.ceil(leafNumValues / 32);
 
     // NOTE Current leaf in the chunk. Level set leaves use value mask words, fog leaves use values.
     let leafWords = null;
@@ -403,7 +403,7 @@ const getDensity = (value, active, isLevelSet) =>
 function* packChunks(grid, leafLog2Dim, background) {
   const isLevelSet = grid.isLevelSet();
   const leafNumValues = 1 << (3 * leafLog2Dim);
-  const leafNumWords = leafNumValues >> 5;
+  const leafNumWords = Math.ceil(leafNumValues / 32);
   const backgroundDensity = getDensity(grid.root.background, false, isLevelSet);
 
   let chunk;
@@ -505,19 +505,24 @@ function* packChunks(grid, leafLog2Dim, background) {
 
   createChunk();
 
-  // NOTE Root children use absolute origins. Root tiles are not internal nodes.
+  // NOTE Root children use absolute origins. Root tiles are not internal nodes. Trees with one level have leaves in the root.
   for (const node of grid.root.table) {
     const { x, y, z } = node.origin;
 
     if (node.isInternalNode()) {
       yield* walkInternalNode(node, x, y, z);
+      continue;
+    }
+
+    if (node.isLeaf()) {
+      addLeaf(node, x, y, z);
     } else {
       addTile(x, y, z, node.dim, node.value, node.active);
+    }
 
-      if (isFull()) {
-        yield chunk;
-        createChunk();
-      }
+    if (isFull()) {
+      yield chunk;
+      createChunk();
     }
   }
 
@@ -612,7 +617,7 @@ export const buildLeafTexture = ({
   radius,
   onProgress,
 }) => {
-  const leafLog2Dim = 3;
+  const { leafLog2Dim } = grid.treeLayout;
   const isLevelSet = grid.isLevelSet();
   const totalVoxels = grid.leavesCount * (1 << (3 * leafLog2Dim));
 
