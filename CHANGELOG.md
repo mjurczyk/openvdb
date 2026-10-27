@@ -1,3 +1,18 @@
+# v0.4.x
+
+Core:
+
+- Add `VDBAnimationLoader`: loads a VDB sequence as a `FrameVolumeAnimation`. All frames use the same props and one shared box
+- Add `FrameVolumeAnimation`: `play`, `pause`, `stop`, `frame`, `fps`, `loop`, `update(delta)`. Volume props apply to all frames
+- Add `bbox`, `emissiveScale` and `temperatureRange` props to `FrameVolume`
+- `FrameVolume` texture size follows the box shape. Texels are cubes. `resolution` is the texel count of the longest side
+- Fix `FrameVolume` emission: temperature in Kelvin, emitted power increases with temperature^4
+
+Examples:
+
+- `vdb` example uses `FrameVolume` and plays VDB sequences from a ZIP or a folder
+- Add Up Axis and Emissive Grid fields to the `vdb` example
+
 # v0.3.x
 
 Core:

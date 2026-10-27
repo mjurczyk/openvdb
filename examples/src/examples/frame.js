@@ -297,7 +297,7 @@ export const exampleFrame = ({ scene }) => {
       const size = worldBbox.getSize(new Three.Vector3());
 
       const createBunny = () =>
-        createVolume(vdb, { resolution: 300, progressive: true, steps: 1000 });
+        createVolume(vdb, { resolution: 100, progressive: true, steps: 1000 });
 
       // NOTE Center the first bunny at the scene origin
       const firstPivot = addVolume(createBunny(), center);

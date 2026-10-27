@@ -18,6 +18,7 @@
     "simple-dropzone": "^0.8.1",
     "styled-components": "^5.3.6",
     "three": "^0.186.1",
-    "vite": "^3.1.0"
+    "vite": "^3.1.0",
+    "zip-js-esm": "^1.1.1"
   }
 }

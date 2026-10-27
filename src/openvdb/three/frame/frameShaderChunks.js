@@ -67,6 +67,7 @@ export const volumePars = `
   uniform float frameAbsorbance;
   uniform float frameOpacity;
   uniform float frameEmissiveIntensity;
+  uniform vec2 frameTemperatureRange;
   uniform vec3 frameOffset3D;
   uniform int frameWrap3D;
 
@@ -88,9 +89,11 @@ export const volumePars = `
     return uv;
   }
 
-  // NOTE Mip level for a footprint of the given size in local units
+  // NOTE Mip level for a footprint of the given size in local units of the longest box side
   float frameLod(float localSize) {
-    return max(0.0, log2(localSize * float(textureSize(frameDensityMap, 0).x)));
+    vec3 texels = vec3(textureSize(frameDensityMap, 0));
+
+    return max(0.0, log2(localSize * max(texels.x, max(texels.y, texels.z))));
   }
 
   // NOTE Returns extinction for each world unit
@@ -146,18 +149,16 @@ export const volumePars = `
     return albedo;
   }
 
-  // NOTE Blackbody radiation source - https://www.shadertoy.com/view/4tdGWM
+  // NOTE Blackbody color, temperature in Kelvin. Source - https://www.shadertoy.com/view/4tdGWM
   vec3 frameBlackBody(float temperature) {
     if (temperature <= 0.0) {
       return vec3(0.0);
     }
 
-    float temperatureScaled = temperature * 1000.0;
-
     vec3 radiation = vec3(
-      1.0 / (exp(19E3 * 1.0 / temperatureScaled) - 1.0),
-      3.375 / (exp(19E3 * 1.5 / temperatureScaled) - 1.0),
-      8.0 / (exp(19E3 * 2.0 / temperatureScaled) - 1.0)
+      1.0 / (exp(19E3 * 1.0 / temperature) - 1.0),
+      3.375 / (exp(19E3 * 1.5 / temperature) - 1.0),
+      8.0 / (exp(19E3 * 2.0 / temperature) - 1.0)
     );
 
     float peak = max(radiation.r, max(radiation.g, radiation.b));
@@ -170,9 +171,13 @@ export const volumePars = `
       return vec3(0.0);
     }
 
-    float temperature = textureLod(frameEmissiveMap, frameWrapUv(localPosition + 0.5 + frameOffset3D), lod).r;
+    float value = textureLod(frameEmissiveMap, frameWrapUv(localPosition + 0.5 + frameOffset3D), lod).r;
+    float temperature = mix(frameTemperatureRange.x, frameTemperatureRange.y, value);
 
-    return frameBlackBody(temperature) * frameEmissiveIntensity;
+    // NOTE Emitted power increases with temperature^4 (Stefan-Boltzmann). Range top gives 1.0.
+    float power = pow(temperature / max(frameTemperatureRange.y, 1.0), 4.0);
+
+    return frameBlackBody(temperature) * power * frameEmissiveIntensity;
   }
 `;
 
@@ -289,6 +294,7 @@ export const createVolumeUniforms = () => ({
   frameAbsorbance: { value: 1.0 },
   frameOpacity: { value: 1.0 },
   frameEmissiveIntensity: { value: 1.0 },
+  frameTemperatureRange: { value: new Three.Vector2(0.0, 6500.0) },
   frameOffset3D: { value: new Three.Vector3() },
   frameWrap3D: { value: Three.ClampToEdgeWrapping },
 });
@@ -313,6 +319,7 @@ export const setVolumeUniforms = (uniforms, frameVolume, volume) => {
   uniforms.frameAbsorbance.value = frameVolume.absorbance;
   uniforms.frameOpacity.value = frameVolume.opacity;
   uniforms.frameEmissiveIntensity.value = frameVolume.emissiveIntensity;
+  uniforms.frameTemperatureRange.value.copy(frameVolume.temperatureRange);
   uniforms.frameOffset3D.value.copy(frameVolume.offset3D);
   uniforms.frameWrap3D.value = frameVolume.wrap3D;
 };

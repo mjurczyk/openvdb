@@ -1,101 +1,258 @@
 import * as Three from 'three';
 import * as OpenVDB from '../../../src/openvdb/three';
-import { setGuiFields, dropTarget } from '../utils/gui';
-import { loadAndCacheVDB, loaders } from '../utils/resources';
+import { gui, setGuiFields, dropTarget } from '../utils/gui';
+import { loaders } from '../utils/resources';
 import { SimpleDropzone } from 'simple-dropzone';
+import zip from 'zip-js-esm';
 
-let fogVolume, targetScene, loadedVDB;
+let animation, volumePivot, targetScene;
+let dropId = 0;
+let lastFiles = null;
 
-// NOTE Texture build options. Change them in the GUI to compare builds on the same VDB.
-const textureSettings = {
-  textureBuild: 'sample',
-  textureFilter: 'nearest',
-  textureType: 'uint8',
+// NOTE Conversion settings for each emissive grid name
+const emissivePresets = {
+  none: null,
+  // NOTE Approximately the 99th percentile of the flames grid in the ground explosion sample
+  flames: { emissiveScale: 6.0, temperatureMax: 6500.0 },
+  // NOTE Kelvin values. The maximum of the temperature grid in the dark portal sample.
+  temperature: { emissiveScale: 5052.0, temperatureMax: 5052.0 },
 };
 
-const removeFogVolume = () => {
-  if (!fogVolume) {
+const params = {
+  baseColor: '#ffffff',
+  absorbance: 1.0,
+  densityScale: 1.0,
+  opacity: 1.0,
+  extinction: 300.0,
+  shadowSteps: 32,
+  emissiveIntensity: 1.0,
+  temperatureMin: 0.0,
+  temperatureMax: 6500.0,
+  upAxis: 'y',
+  emissiveGrid: 'flames',
+  lighting: 'frame',
+  animateLights: true,
+  playing: true,
+  fps: 24,
+  loop: true,
+};
+
+const getController = (id) =>
+  gui.controllersRecursive().find((controller) => controller.property === id);
+
+const applyVolumeParams = () => {
+  if (!animation) {
     return;
   }
 
-  if (fogVolume.parent) fogVolume.parent.remove(fogVolume);
-
-  fogVolume.materials.forEach(material => {
-    material.densityMap3D.dispose();
-
-    if (material.emissiveMap3D) material.emissiveMap3D.dispose();
-  });
-
-  fogVolume.dispose();
-  fogVolume = null;
+  animation.baseColor = params.baseColor;
+  animation.absorbance = params.absorbance;
+  animation.densityScale = params.densityScale;
+  animation.opacity = params.opacity;
+  animation.extinction = params.extinction;
+  animation.shadowSteps = params.shadowSteps;
+  animation.emissiveIntensity = params.emissiveIntensity;
+  animation.temperatureRange = [params.temperatureMin, params.temperatureMax];
 };
 
-const createFogVolume = (vdb) => {
-  removeFogVolume();
+const applyPlaybackParams = () => {
+  if (!animation) {
+    return;
+  }
 
-  const settings = { ...textureSettings };
+  animation.fps = params.fps;
+  animation.loop = params.loop;
+
+  if (params.playing) {
+    animation.play();
+  } else {
+    animation.pause();
+  }
+};
+
+const removeAnimation = () => {
+  if (!animation) {
+    return;
+  }
+
+  if (volumePivot.parent) volumePivot.parent.remove(volumePivot);
+
+  animation.dispose();
+  animation = null;
+  volumePivot = null;
+};
+
+// NOTE VDB files do not store an up axis. Z-up files (EmberGen, Blender) turn -90 degrees on X.
+const applyUpAxis = () => {
+  if (volumePivot) {
+    volumePivot.rotation.x = params.upAxis === 'z' ? -Math.PI / 2.0 : 0.0;
+  }
+};
+
+const createAnimation = (urls) => {
+  removeAnimation();
+
   const startTime = performance.now();
+  const releaseUrls = () => urls.forEach((url) => URL.revokeObjectURL(url));
 
-  fogVolume = new OpenVDB.FogVolume(vdb, {
-    resolution: 200,
-    steps: 1000,
-    baseColor: 0xffffff,
-    absorbance: 1.0,
-    progressive: true,
-    emissiveGrid: vdb.grids?.temperature,
-    radius: 2.0,
-    ...settings,
-  }, () => {
-    console.info('FogVolume converted', settings, `${(performance.now() - startTime).toFixed(0)}ms`);
-  });
+  animation = new OpenVDB.VDBAnimationLoader()
+    .setOptions({
+      resolution: 100,
+      progressive: true,
+      ...(emissivePresets[params.emissiveGrid] && {
+        emissiveGrid: params.emissiveGrid,
+        emissiveScale: emissivePresets[params.emissiveGrid].emissiveScale,
+      }),
+    })
+    .load(
+      urls,
+      () => {
+        releaseUrls();
+        console.info('VDB animation converted', `${(performance.now() - startTime).toFixed(0)}ms`);
+      },
+      ({ loadedFrames, totalFrames }) => {
+        dropTarget.innerHTML =
+          loadedFrames < totalFrames
+            ? `[Converting frame ${loadedFrames + 1} / ${totalFrames}...]`
+            : '[Drop .VDB / .ZIP here]';
 
-  // NOTE Center fog volume
-  const sampleGrid = vdb.grids[Object.keys(vdb.grids)[0]];
-  const worldBbox = new Three.Box3();
-  worldBbox.set(...sampleGrid.getPreciseWorldBbox());
-  const worldOffset = new Three.Vector3();
-  worldBbox.getSize(worldOffset).multiplyScalar(0.5);
-  fogVolume.position.y -= worldOffset.y;
+        // NOTE The box is known after the first frame. Center it at the scene origin.
+        animation.position.copy(animation.bbox.getCenter(new Three.Vector3())).negate();
+
+        getController('frame')?.max(Math.max(1, loadedFrames - 1));
+      },
+      (error) => {
+        releaseUrls();
+        dropTarget.innerHTML = '[Error - please try again]';
+        console.error(error);
+      },
+    );
+
+  applyVolumeParams();
+  applyPlaybackParams();
+
+  // NOTE The pivot turns the volume around its center
+  volumePivot = new Three.Group();
+  volumePivot.add(animation);
+  applyUpAxis();
 
   if (targetScene) {
-    targetScene.add(fogVolume);
+    targetScene.add(volumePivot);
   }
 };
 
-const setTextureSetting = (id, value) => {
-  if (textureSettings[id] === value) {
+// NOTE Reads the VDB entries one at a time. Reader errors reject the promise.
+const unzipVDBs = (file, onProgress) =>
+  new Promise((resolve, reject) => {
+    zip.useWebWorkers = false;
+
+    zip.createReader(
+      new zip.BlobReader(file),
+      (reader) => {
+        reader.getEntries((entries) => {
+          const vdbEntries = entries.filter(
+            ({ directory, filename }) =>
+              !directory &&
+              filename.toLowerCase().endsWith('.vdb') &&
+              !filename.split('/').pop().startsWith('.'),
+          );
+          const files = new Map();
+
+          const readEntry = (index) => {
+            if (index >= vdbEntries.length) {
+              reader.close();
+              resolve(files);
+
+              return;
+            }
+
+            onProgress(index, vdbEntries.length);
+
+            vdbEntries[index].getData(new zip.BlobWriter(), (blob) => {
+              files.set(vdbEntries[index].filename, blob);
+              readEntry(index + 1);
+            });
+          };
+
+          readEntry(0);
+        });
+      },
+      reject,
+    );
+  });
+
+// NOTE The frame order is the natural file name order
+const loadFiles = (files) => {
+  lastFiles = files;
+
+  const urls = [...files]
+    .filter(([name]) => name.toLowerCase().endsWith('.vdb'))
+    .sort(([nameA], [nameB]) => nameA.localeCompare(nameB, undefined, { numeric: true }))
+    .map(([, file]) => URL.createObjectURL(file));
+
+  if (urls.length === 0) {
+    dropTarget.innerHTML = '[No .VDB files - please try again]';
+
     return;
   }
 
-  textureSettings[id] = value;
+  dropTarget.innerHTML = '[Loaded! Parsing...]';
 
-  if (loadedVDB) {
-    createFogVolume(loadedVDB);
-  }
+  createAnimation(urls);
 };
+
+// NOTE simple-dropzone unpacks a ZIP with no progress and no errors. The demo unpacks a single ZIP.
+dropTarget.addEventListener(
+  'drop',
+  (event) => {
+    const files = Array.from(event.dataTransfer.files || []);
+
+    if (files.length !== 1 || !files[0].name.toLowerCase().endsWith('.zip')) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopImmediatePropagation();
+
+    const currentDropId = ++dropId;
+
+    removeAnimation();
+
+    dropTarget.innerHTML = '[Unzipping...]';
+
+    unzipVDBs(files[0], (index, count) => {
+      if (currentDropId === dropId) {
+        dropTarget.innerHTML = `[Unzipping ${index + 1} / ${count}...]`;
+      }
+    })
+      .then((vdbFiles) => {
+        if (currentDropId === dropId) {
+          loadFiles(vdbFiles);
+        }
+      })
+      .catch((error) => {
+        if (currentDropId === dropId) {
+          dropTarget.innerHTML = '[Error - please try again]';
+        }
+
+        console.error(error);
+      });
+  },
+  true,
+);
 
 const dropzone = new SimpleDropzone(dropTarget, document.createElement('input'));
 
 dropTarget.innerHTML = '[Drop .VDB / .ZIP here]';
 
 dropzone.on('drop', ({ files }) => {
-  let file = [...files];
+  dropId++;
 
-  const fileName = file[0][0];
-  const fileSource = URL.createObjectURL(file[0][1]);
-
-  dropTarget.innerHTML = '[Loaded! Parsing...]';
-
-  loadAndCacheVDB(fileName, fileSource).then(vdb => {
-    dropTarget.innerHTML = '[Drop .VDB / .ZIP here]';
-
-    loadedVDB = vdb;
-    createFogVolume(vdb);
-  });
+  loadFiles(files);
 });
 
 dropzone.on('dropstart', () => {
-  removeFogVolume();
+  removeAnimation();
 
   dropTarget.innerHTML = '[Loading VDB file - please wait...]';
 });
@@ -103,312 +260,372 @@ dropzone.on('dropstart', () => {
 dropzone.on('droperror', ({ message }) => {
   dropTarget.innerHTML = '[Error - please try again]';
 
-  console.error({message});
+  console.error({ message });
 });
 
 export const exampleVDB = ({ scene }) => {
   targetScene = scene;
 
-  const debugMesh = new Three.Mesh(
-    new Three.SphereGeometry(20.0, 32.0, 32.0),
-    new Three.MeshStandardMaterial({ color: 0xffffff })
-  );
-  scene.add(debugMesh);
+  // NOTE Light rig. The "Lights" field shows one light setup at a time.
+  const lightHelpers = [];
 
-  const debugObstacle = new Three.Mesh(
-    new Three.SphereGeometry(20.0, 32.0, 32.0),
-    new Three.MeshPhongMaterial({ color: 0xffffff })
-  );
-  debugObstacle.position.set(-200.0, 0.0, 200.0);
-  scene.add(debugObstacle);
-
-  // Lights
-
-  const addPointLight = (color, x, y, z) => {
-    const pivot = new Three.Group();
-    const light = new Three.PointLight(color, 0.5);
-    light.position.set(x, y, z);
-    light.add(new Three.Mesh(
-      new Three.SphereGeometry(1.0, 32, 32),
-      new Three.MeshBasicMaterial({ color: color })
-    ));
-
-    pivot.add(light);
-    scene.add(pivot);
-
-    return [ light, pivot ];
-  };
-
-  const addSpotLight = (color, x, y, z) => {
-    const pivot = new Three.Group();
-    const light = new Three.SpotLight(color, 0.5, null, 0.2, 0.6);
-    light.position.set(x, y, z);
-    light.add(new Three.Mesh(
-      new Three.SphereGeometry(1.0, 32, 32),
-      new Three.MeshBasicMaterial({ color: color })
-    ));
-
-    pivot.add(light);
-    scene.add(pivot);
-
-    return [ light, pivot ];
-  };
-
-  const addDirectionalLight = (color, x, y, z) => {
-    const light = new Three.DirectionalLight(color, 0.5);
-    light.position.set(x, y, z);
-    
+  const addLightHelper = (light, radius = 1.0) => {
     const helper = new Three.Mesh(
-      new Three.SphereGeometry(1.0, 32, 32),
-      new Three.MeshBasicMaterial({ color: color })
+      new Three.SphereGeometry(radius, 16, 16),
+      new Three.MeshBasicMaterial({ color: light.color }),
     );
-    helper.position.set(x, y, z);
 
-    scene.add(light);
-    scene.add(helper);
-
-    return [ light, helper ];
+    light.add(helper);
+    lightHelpers.push(helper);
   };
 
-  const [ spotLight, spotLightPivot ] = addSpotLight(0xff00ff, 50.0, 80.0, 0.0);
-  const [ topSpotLight ] = addSpotLight(0xff0000, 0.0, 80, 0.0);
+  const addPivotLight = (light, x, y, z) => {
+    const pivot = new Three.Group();
 
-  const [ pointLight, pointLightPivot ] = addPointLight(0xff00ff, 50.0, 80.0, 0.0);
-  const [ topPointLight ] = addPointLight(0xff0000, 0.0, 80, 0.0);
-  
-  const [ debugMeshLight, debugMeshLightPivot ] = addPointLight(0xffff88, 0.0, 0.0, 0.0);
-  debugObstacle.add(debugMeshLightPivot);
+    light.position.set(x, y, z);
+    addLightHelper(light);
+    pivot.add(light);
+    scene.add(pivot);
 
-  const [ fogVolumeLight ] = addPointLight(0xff00ff, 0.0, -10.0, 0.0);
-  fogVolumeLight.children = [];
+    return pivot;
+  };
 
-  const [ directionalLight, directionalHelper ] = addDirectionalLight(0xff0000, 0.0, 0.0, -80.0);
+  const sun = new Three.DirectionalLight(0xffffff, 1.0);
+  sun.position.set(100.0, 200.0, 100.0);
+  addLightHelper(sun, 3.0);
+  scene.add(sun);
 
-  const hemiSphereLight = new Three.HemisphereLight(0xff0000, 0x0000ff, 1.0);
-  scene.add(hemiSphereLight);
+  const hemiLight = new Three.HemisphereLight(0x88aaff, 0x443322, 0.5);
+  scene.add(hemiLight);
+
+  const ambientLight = new Three.AmbientLight(0xffffff, 0.3);
+  scene.add(ambientLight);
+
+  const orbitPointLight = new Three.PointLight(0xff00ff, 1.0);
+  const topPointLight = new Three.PointLight(0xff00ff, 1.0);
+  const insidePointLight = new Three.PointLight(0xff00ff, 1.0);
+  const orbitPointPivot = addPivotLight(orbitPointLight, 50.0, 80.0, 0.0);
+  addPivotLight(topPointLight, 0.0, 80.0, 0.0);
+  addPivotLight(insidePointLight, 0.0, -10.0, 0.0);
+
+  const orbitSpotLight = new Three.SpotLight(0xff00ff, 1.0, 0.0, 0.2, 0.6);
+  const topSpotLight = new Three.SpotLight(0xff00ff, 1.0, 0.0, 0.2, 0.6);
+  const orbitSpotPivot = addPivotLight(orbitSpotLight, 50.0, 80.0, 0.0);
+  addPivotLight(topSpotLight, 0.0, 80.0, 0.0);
+
+  const lightSetups = {
+    sunHemi: [sun, hemiLight],
+    dir: [sun],
+    hemi: [hemiLight],
+    point: [orbitPointLight, topPointLight],
+    pointInside: [insidePointLight],
+    spot: [orbitSpotLight, topSpotLight],
+    ambient: [ambientLight],
+    all: [
+      sun,
+      hemiLight,
+      ambientLight,
+      orbitPointLight,
+      topPointLight,
+      orbitSpotLight,
+      topSpotLight,
+    ],
+    none: [],
+  };
+
+  const coloredLights = [
+    sun,
+    orbitPointLight,
+    topPointLight,
+    insidePointLight,
+    orbitSpotLight,
+    topSpotLight,
+  ];
 
   setInterval(() => {
-    spotLightPivot.rotateY(0.005);
-    pointLightPivot.rotateX(0.005);
-  }, 1);
+    if (params.animateLights) {
+      orbitPointPivot.rotateX(0.005);
+      orbitSpotPivot.rotateY(0.005);
+    }
+  }, 1000 / 60);
+
+  let lastTime = performance.now();
+
+  setInterval(() => {
+    const now = performance.now();
+
+    if (animation) {
+      const previousFrame = animation.frame;
+
+      animation.update((now - lastTime) / 1000.0);
+
+      if (animation.frame !== previousFrame) {
+        getController('frame')?.setValue(animation.frame);
+      }
+    }
+
+    lastTime = now;
+  }, 1000 / 60);
+
+  const setParam = (key) => (value) => {
+    params[key] = value;
+
+    applyVolumeParams();
+  };
+
+  const setFrameSetting = (key) => (value) => {
+    OpenVDB.frameRenderer.settings[key] = Math.round(value);
+  };
 
   setGuiFields([
     {
       folder: 'Scene',
       children: [
         {
-          id: 'showMesh',
-          name: 'Show Debug Mesh',
-          defaultValue: false,
-          onChange: (value) => {
-            if (fogVolume) fogVolume.visible = !value;
-
-            debugMesh.visible = !!value;
-          }
-        },
-        {
           id: 'environment',
           name: 'EnvMap',
           defaultValue: 'uv-1',
           options: {
+            'Night Realistic': 'night',
             'Fiery Sky': 'fiery-sky-1',
             'Magic Forest': 'magic-forest-5',
-            'UV': 'uv-1'
+            UV: 'uv-1',
           },
           onChange: (value) => {
-            loaders.rgbe.load(`./assets/${value}-HDR.hdr`, env => {
+            loaders.rgbe.load(`./assets/${value}-HDR.hdr`, (env) => {
               env.mapping = Three.EquirectangularReflectionMapping;
               scene.environment = env;
             });
-          
-            loaders.texture.load(`./assets/${value}-8K.jpg`, env => {
+
+            loaders.texture.load(`./assets/${value}-8K.jpg`, (env) => {
               env.mapping = Three.EquirectangularRefractionMapping;
               env.colorSpace = Three.SRGBColorSpace;
               scene.background = env;
             });
-          }
+          },
         },
         {
           id: 'lightSetup',
           name: 'Lights',
-          defaultValue: 'hemi',
+          defaultValue: 'sunHemi',
           options: {
-            'Hemisphere Light': 'hemi',
-            'Spot Lights': 'spot',
+            'Sun + Hemisphere': 'sunHemi',
+            Directional: 'dir',
+            Hemisphere: 'hemi',
             'Point Lights': 'point',
-            'Directional Light': 'dir',
-            'Sun': 'sun',
-            'Glow': 'glow',
-            'None': 'none',
+            'Point Light Inside': 'pointInside',
+            'Spot Lights': 'spot',
+            Ambient: 'ambient',
+            All: 'all',
+            None: 'none',
           },
           onChange: (value) => {
-            pointLight.visible = value === 'point';
-            topPointLight.visible = value === 'point';
+            const visibleLights = lightSetups[value];
 
-            spotLight.visible = value === 'spot';
-            topSpotLight.visible = value === 'spot';
-
-            directionalLight.visible = value === 'dir';
-            hemiSphereLight.visible = value === 'dir';
-
-            hemiSphereLight.visible = value === 'hemi';
-
-            debugMeshLight.visible = value === 'sun';
-
-            fogVolumeLight.visible = value === 'glow';
-          }
+            [...lightSetups.all, insidePointLight].forEach((light) => {
+              light.visible = visibleLights.includes(light);
+            });
+          },
         },
         {
           id: 'lightColor',
           name: 'Light Color',
           defaultValue: '#ff00ff',
           onChange: (value) => {
-            spotLight.color.set(value);
-            spotLight.children[0].material.color.set(value);
-
-            directionalLight.color.set(value);
-            directionalHelper.material.color.set(value);
-
-            pointLight.color.set(value);
-            pointLight.children[0].material.color.set(value);
-
-            fogVolumeLight.color.set(value);
-          }
+            coloredLights
+              .filter((light) => light !== sun)
+              .forEach((light) => light.color.set(value));
+            lightHelpers.forEach((helper) => helper.material.color.copy(helper.parent.color));
+          },
         },
         {
           id: 'lightIntensity',
           name: 'Light Intensity',
           defaultValue: 1.0,
           min: 0.0,
-          max: 1.0,
+          max: 5.0,
           onChange: (value) => {
-            spotLight.intensity = value;
-            topSpotLight.intensity = value;
-
-            directionalLight.intensity = value;
-            hemiSphereLight.intensity = value;
-
-            pointLight.intensity = value;
-            topPointLight.intensity = value;
-
-            fogVolumeLight.intensity = value;
-          }
-        }
-      ]
-    },
-    {
-      folder: 'Texture Build',
-      children: [
-        {
-          id: 'textureBuild',
-          name: 'Build',
-          defaultValue: textureSettings.textureBuild,
-          options: {
-            'Sample (default)': 'sample',
-            'Leaves': 'leaves',
+            coloredLights.forEach((light) => {
+              light.intensity = value;
+            });
           },
-          onChange: (value) => setTextureSetting('textureBuild', value)
         },
         {
-          id: 'textureFilter',
-          name: 'Filter (Leaves)',
-          defaultValue: textureSettings.textureFilter,
-          options: {
-            'Nearest (default)': 'nearest',
-            'Trilinear': 'trilinear',
-            'Max': 'max',
+          id: 'hemiIntensity',
+          name: 'Hemisphere Intensity',
+          defaultValue: hemiLight.intensity,
+          min: 0.0,
+          max: 5.0,
+          onChange: (value) => {
+            hemiLight.intensity = value;
           },
-          onChange: (value) => setTextureSetting('textureFilter', value)
         },
         {
-          id: 'textureType',
-          name: 'Texture Type',
-          defaultValue: textureSettings.textureType,
-          options: {
-            'Uint8 (default)': 'uint8',
-            'Half Float': 'half',
-            'Float': 'float',
+          id: 'ambientIntensity',
+          name: 'Ambient Intensity',
+          defaultValue: ambientLight.intensity,
+          min: 0.0,
+          max: 5.0,
+          onChange: (value) => {
+            ambientLight.intensity = value;
           },
-          onChange: (value) => setTextureSetting('textureType', value)
-        }
-      ]
+        },
+      ],
     },
     {
-      folder: 'Fog Volume',
+      folder: 'Animation',
       children: [
         {
-          id: 'wrap3D',
-          name: '3D Wrapping',
-          defaultValue: Three.MirroredRepeatWrapping,
+          id: 'playing',
+          name: 'Play',
+          defaultValue: params.playing,
+          onChange: (value) => {
+            params.playing = value;
+
+            applyPlaybackParams();
+          },
+        },
+        {
+          id: 'fps',
+          name: 'FPS',
+          defaultValue: params.fps,
+          min: 1,
+          max: 60,
+          onChange: (value) => {
+            params.fps = Math.round(value);
+
+            applyPlaybackParams();
+          },
+        },
+        {
+          id: 'loop',
+          name: 'Loop',
+          defaultValue: params.loop,
+          onChange: (value) => {
+            params.loop = value;
+
+            applyPlaybackParams();
+          },
+        },
+        {
+          id: 'frame',
+          name: 'Frame',
+          defaultValue: 0,
+          min: 0,
+          max: 1,
+          onChange: (value) => {
+            if (animation) animation.frame = value;
+          },
+        },
+      ],
+    },
+    {
+      folder: 'Volume',
+      children: [
+        {
+          id: 'upAxis',
+          name: 'Up Axis',
+          defaultValue: params.upAxis,
           options: {
-            'Three.ClampToEdgeWrapping': Three.ClampToEdgeWrapping,
-            'Three.RepeatWrapping': Three.RepeatWrapping,
-            'Three.MirroredRepeatWrapping': Three.MirroredRepeatWrapping,
+            Y: 'y',
+            Z: 'z',
           },
           onChange: (value) => {
-            if (!fogVolume) return;
+            params.upAxis = value;
 
-            fogVolume.material.wrap3D = value;
-          }
+            applyUpAxis();
+          },
+        },
+        {
+          id: 'emissiveGrid',
+          name: 'Emissive Grid',
+          defaultValue: params.emissiveGrid,
+          options: {
+            None: 'none',
+            flames: 'flames',
+            temperature: 'temperature',
+          },
+          onChange: (value) => {
+            if (value === params.emissiveGrid) {
+              return;
+            }
+
+            params.emissiveGrid = value;
+
+            if (emissivePresets[value]) {
+              getController('temperatureMax')?.setValue(emissivePresets[value].temperatureMax);
+            }
+
+            // NOTE The emissive grid is set at conversion. Convert the last files again.
+            if (lastFiles) {
+              dropId++;
+              loadFiles(lastFiles);
+            }
+          },
         },
         {
           id: 'fogColor',
-          name: 'Fog Color',
-          defaultValue: '#ffffff',
-          onChange: (value) => {
-            if (fogVolume) fogVolume.materials.forEach(material => material.baseColor = value);
-            debugMesh.material.color.set(value);
-          }
-        },
-        {
-          id: 'scatterColor',
-          name: 'Scatter Color',
-          defaultValue: '#000000',
-          onChange: (value) => {
-            if (fogVolume) fogVolume.materials.forEach(material => material.scatterColor = value);
-          }
+          name: 'Base Color',
+          defaultValue: params.baseColor,
+          onChange: setParam('baseColor'),
         },
         {
           id: 'absorbance',
           name: 'Absorbance',
-          defaultValue: 0.98,
+          defaultValue: params.absorbance,
           min: 0.0,
           max: 1.0,
-          onChange: (value) => {
-            if (fogVolume) fogVolume.materials.forEach(material => material.absorbance = value);
-          }
+          onChange: setParam('absorbance'),
         },
         {
           id: 'densityScale',
           name: 'Density Scale',
-          defaultValue: 1.0,
+          defaultValue: params.densityScale,
           min: 0.0,
           max: 1.0,
-          onChange: (value) => {
-            if (fogVolume) fogVolume.materials.forEach(material => material.densityScale = value);
-          }
+          onChange: setParam('densityScale'),
         },
         {
           id: 'opacity',
           name: 'Opacity',
-          defaultValue: 1.0,
+          defaultValue: params.opacity,
           min: 0.0,
           max: 1.0,
-          onChange: (value) => {
-            if (fogVolume) fogVolume.materials.forEach(material => material.opacity = value);
-          }
+          onChange: setParam('opacity'),
         },
         {
-          id: 'steps',
-          name: 'Steps',
-          defaultValue: 1000.0,
-          min: 10.0,
+          id: 'extinction',
+          name: 'Extinction',
+          defaultValue: params.extinction,
+          min: 1.0,
           max: 1000.0,
-          onChange: (value) => {
-            if (fogVolume) fogVolume.materials.forEach(material => material.steps = value);
-          }
-        }
-      ]
-    }
+          onChange: setParam('extinction'),
+        },
+        {
+          id: 'emissiveIntensity',
+          name: 'Emissive Intensity',
+          defaultValue: params.emissiveIntensity,
+          min: 0.0,
+          max: 50.0,
+          onChange: setParam('emissiveIntensity'),
+        },
+        {
+          id: 'temperatureMin',
+          name: 'Temperature Min (K)',
+          defaultValue: params.temperatureMin,
+          min: 0.0,
+          max: 3000.0,
+          onChange: setParam('temperatureMin'),
+        },
+        {
+          id: 'temperatureMax',
+          name: 'Temperature Max (K)',
+          defaultValue: params.temperatureMax,
+          min: 1000.0,
+          max: 12000.0,
+          onChange: setParam('temperatureMax'),
+        },
+      ],
+    },
   ]);
 };
