@@ -7,7 +7,7 @@ import { setLoading } from '../utils/loading';
 // NOTE Longest side of each volume in scene units
 const displaySize = 100.0;
 
-// NOTE Sequences have one .wvdb file per frame, listed in frames.json. The examples have no .vdb files of them.
+// NOTE Sequences have one .wvdb file per frame, listed in frames.json
 const sequences = {
   ground_explosion: {
     frames: './assets/ground_explosion/frames.json',
@@ -35,11 +35,6 @@ const getController = (id) =>
 export const exampleWVDB = ({ scene }) => {
   const params = {
     asset: 'ground_explosion',
-    format: 'wvdb',
-    maxLod: 'all',
-    extinction: getExtinction('ground_explosion'),
-    densityScale: 1.0,
-    rotate: true,
   };
 
   let entry = null;
@@ -65,30 +60,16 @@ export const exampleWVDB = ({ scene }) => {
 
   let lastTime = performance.now();
 
+  // NOTE Sequences play in a FrameVolumeAnimation
   setInterval(() => {
     const now = performance.now();
 
-    if (entry) {
-      if (params.rotate) {
-        entry.pivot.rotation.y += 0.005;
-      }
-
-      // NOTE Sequences play in a FrameVolumeAnimation
-      entry.volume?.update?.((now - lastTime) / 1000.0);
-    }
-
+    entry?.volume?.update?.((now - lastTime) / 1000.0);
     lastTime = now;
   }, 1000 / 60);
 
   const setStatus = (text) => {
     getController('status')?.setValue(text);
-  };
-
-  const applyVolumeParams = () => {
-    if (entry?.volume) {
-      entry.volume.extinction = params.extinction;
-      entry.volume.densityScale = params.densityScale;
-    }
   };
 
   const removeVolume = () => {
@@ -112,14 +93,14 @@ export const exampleWVDB = ({ scene }) => {
     up.rotation.x = upAxis === 'z' ? -Math.PI / 2.0 : 0.0;
     volume.scale.setScalar(scale);
     volume.position.copy(bbox.getCenter(new Three.Vector3())).multiplyScalar(-scale);
+    volume.extinction = getExtinction(params.asset);
 
     entry.volume = volume;
     up.add(volume);
     entry.pivot.add(up);
-    applyVolumeParams();
   };
 
-  // NOTE LOD 0 of all frames loads first. Then the animation plays, and finer LODs load frame by frame.
+  // NOTE LOD 0 of all frames decodes first. Then the animation plays, and finer LODs follow.
   const loadSequence = (currentBuildId, startTime) => {
     const sequence = sequences[params.asset];
     const times = [];
@@ -138,49 +119,45 @@ export const exampleWVDB = ({ scene }) => {
           return;
         }
 
-        const loader = new OpenVDB.WVDBAnimationLoader().setOptions({
-          emissiveGrid: sequence.emissiveGrid,
-          emissiveScale: sequence.emissiveScale,
-        });
+        const animation = new OpenVDB.WVDBAnimationLoader()
+          .setOptions({
+            emissiveGrid: sequence.emissiveGrid,
+            emissiveScale: sequence.emissiveScale,
+          })
+          .load(
+            frames.map((frame) => `${folder}${frame}`),
+            () => {
+              if (currentBuildId !== buildId) {
+                return;
+              }
 
-        if (params.maxLod !== 'all') {
-          loader.setMaxLod(Number(params.maxLod));
-        }
+              addVolume(animation, animation.bbox, sequence.upAxis);
+              animation.play();
+            },
+            ({ lod, loadedFrames, totalFrames }) => {
+              if (currentBuildId !== buildId) {
+                return;
+              }
 
-        const animation = loader.load(
-          frames.map((frame) => `${folder}${frame}`),
-          () => {
-            if (currentBuildId !== buildId) {
-              return;
-            }
+              if (loadedFrames === totalFrames) {
+                times[lod] = Math.round(performance.now() - startTime);
+              }
 
-            addVolume(animation, animation.bbox, sequence.upAxis);
-            animation.play();
-          },
-          ({ lod, loadedFrames, totalFrames }) => {
-            if (currentBuildId !== buildId) {
-              return;
-            }
+              const lodTimes = times
+                .map((time, index) => (time === undefined ? null : `LOD ${index}: ${time} ms`))
+                .filter(Boolean)
+                .join(', ');
+              const loading =
+                loadedFrames < totalFrames ? ` | LOD ${lod}: ${loadedFrames} / ${totalFrames}` : '';
 
-            if (loadedFrames === totalFrames) {
-              times[lod] = Math.round(performance.now() - startTime);
-            }
+              setStatus(`${lodTimes}${loading}`);
 
-            const lodTimes = times
-              .map((time, index) => (time === undefined ? null : `LOD ${index}: ${time} ms`))
-              .filter(Boolean)
-              .join(', ');
-            const loading =
-              loadedFrames < totalFrames ? ` | LOD ${lod}: ${loadedFrames} / ${totalFrames}` : '';
-
-            setStatus(`${lodTimes}${loading}`);
-
-            if (lod === 0 && loadedFrames === totalFrames) {
-              setLoading('wvdb', false);
-            }
-          },
-          onError,
-        );
+              if (lod === 0 && loadedFrames === totalFrames) {
+                setLoading('wvdb', false);
+              }
+            },
+            onError,
+          );
 
         // NOTE New frames get these values too
         animation.baseColor = sequence.baseColor;
@@ -192,16 +169,10 @@ export const exampleWVDB = ({ scene }) => {
       .catch(onError);
   };
 
-  const loadWVDB = (currentBuildId, startTime) => {
+  const loadFile = (currentBuildId, startTime) => {
     const times = [];
 
-    const loader = new OpenVDB.WVDBLoader();
-
-    if (params.maxLod !== 'all') {
-      loader.setMaxLod(Number(params.maxLod));
-    }
-
-    entry.volumeData = loader.load(
+    entry.volumeData = new OpenVDB.WVDBLoader().load(
       `./assets/${params.asset}.wvdb`,
       (volumeData) => {
         if (currentBuildId !== buildId) {
@@ -245,44 +216,6 @@ export const exampleWVDB = ({ scene }) => {
     );
   };
 
-  const loadVDB = (currentBuildId, startTime) => {
-    new OpenVDB.VDBLoader().load(
-      `./assets/${params.asset}.vdb`,
-      (vdb) => {
-        if (currentBuildId !== buildId) {
-          return;
-        }
-
-        const parseTime = Math.round(performance.now() - startTime);
-        const bbox = new Three.Box3().set(
-          ...Object.values(vdb.grids)[0].getPreciseWorldBbox(),
-        );
-
-        setStatus(`Loaded and parsed: ${parseTime} ms`);
-
-        // NOTE Same resolution as the baked file
-        const volume = new OpenVDB.FrameVolume(vdb, { resolution: 128, progressive: true }, () => {
-          if (currentBuildId !== buildId) {
-            return;
-          }
-
-          const convertTime = Math.round(performance.now() - startTime);
-
-          setStatus(`Loaded and parsed: ${parseTime} ms, converted: ${convertTime} ms`);
-          setLoading('wvdb', false);
-        });
-
-        addVolume(volume, bbox);
-      },
-      null,
-      (error) => {
-        console.error('VDBLoader', { error });
-        setStatus('Could not load the VDB file.');
-        setLoading('wvdb', false);
-      },
-    );
-  };
-
   const rebuild = () => {
     const currentBuildId = ++buildId;
     const startTime = performance.now();
@@ -296,30 +229,9 @@ export const exampleWVDB = ({ scene }) => {
     setStatus('Loading...');
 
     if (sequences[params.asset]) {
-      if (params.format === 'wvdb') {
-        loadSequence(currentBuildId, startTime);
-      } else {
-        setStatus('The examples have only .wvdb files of this sequence.');
-        setLoading('wvdb', false);
-      }
-    } else if (params.format === 'wvdb') {
-      loadWVDB(currentBuildId, startTime);
+      loadSequence(currentBuildId, startTime);
     } else {
-      loadVDB(currentBuildId, startTime);
-    }
-  };
-
-  const setParam = (key, rebuildVolume) => (value) => {
-    params[key] = value;
-
-    if (!ready) {
-      return;
-    }
-
-    if (rebuildVolume) {
-      rebuild();
-    } else {
-      applyVolumeParams();
+      loadFile(currentBuildId, startTime);
     }
   };
 
@@ -339,72 +251,17 @@ export const exampleWVDB = ({ scene }) => {
             Smoke: 'smoke',
           },
           onChange: (value) => {
-            // NOTE Each asset has its own default extinction
-            if (ready) {
-              getController('extinction')?.setValue(getExtinction(value));
-            }
+            params.asset = value;
 
-            setParam('asset', true)(value);
+            if (ready) {
+              rebuild();
+            }
           },
-        },
-        {
-          id: 'format',
-          name: 'Format',
-          defaultValue: params.format,
-          options: {
-            '.wvdb (streamed)': 'wvdb',
-            '.vdb (source)': 'vdb',
-          },
-          onChange: setParam('format', true),
-        },
-        {
-          id: 'maxLod',
-          name: 'Max LOD (.wvdb)',
-          defaultValue: params.maxLod,
-          options: {
-            All: 'all',
-            'LOD 0': '0',
-            'LOD 1': '1',
-            'LOD 2': '2',
-          },
-          onChange: setParam('maxLod', true),
-        },
-        {
-          id: 'reload',
-          name: 'Reload',
-          defaultValue: () => rebuild(),
         },
         {
           id: 'status',
           name: 'Status',
           defaultValue: '',
-        },
-      ],
-    },
-    {
-      folder: 'Volume',
-      children: [
-        {
-          id: 'extinction',
-          name: 'Extinction',
-          defaultValue: params.extinction,
-          min: 1.0,
-          max: 500.0,
-          onChange: setParam('extinction'),
-        },
-        {
-          id: 'densityScale',
-          name: 'Density Scale',
-          defaultValue: params.densityScale,
-          min: 0.0,
-          max: 4.0,
-          onChange: setParam('densityScale'),
-        },
-        {
-          id: 'rotate',
-          name: 'Rotate',
-          defaultValue: params.rotate,
-          onChange: setParam('rotate'),
         },
       ],
     },

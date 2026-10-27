@@ -1,3 +1,9 @@
+# Unreleased
+
+- Fix `.wvdb` LOD 1 and LOD 2 on hosts that compress responses (for example GitHub Pages). The loaders use no Range requests. Each file is one request, and the reader decodes the LODs from its bytes
+- `WVDBAnimationLoader` downloads all files at the same time (`setConcurrency`, default: all), so LOD 0 of a sequence arrives sooner
+- `wvdb` example: only the Asset field and the Status line
+
 # v0.5.1
 
 - The npm package of the `wvdb` CLI is `webvdb` (`npm install -g webvdb`, or `npx webvdb`). npm does not allow the package name `wvdb`. The command, the folder `src/wvdb` and the file format `.wvdb` stay the same
@@ -14,7 +20,7 @@ Breaking: the library is split into 3 packages, each in its own folder of `src/`
 - `wvdb` keeps empty grids and frames, so sequences keep their frame numbers. One box for all grids of a file, and for all frames of a folder or ZIP
 - `WVDBLoader.setGridScales`: emission grids keep their range, same as `emissiveScale`. Vector grids load as RGBA for `baseColorGrid`
 - `wvdb` converts files in parallel on worker threads (`--jobs`)
-- Add `WVDBAnimationLoader`: `.wvdb` sequences in LOD passes (LOD 0 of all frames first, then finer LODs with Range requests)
+- Add `WVDBAnimationLoader`: `.wvdb` sequences in LOD passes (LOD 0 of all frames first, then finer LODs)
 - `.wvdb` textures grow per LOD (32³, 64³, 128³) instead of the final size from the start. All readers share up to 4 workers
 - `OpenVDBReader.read( bytes, { metadataOnly: true } )`: grid metadata and transforms only, no trees
 

@@ -143,7 +143,7 @@ Loads a `.wvdb` file (see [WVDB files](#wvdb-files)) as a stream. `onLoad( volum
 
 - `WVDBAnimationLoader( manager ).setOptions( props ).load( urls, onLoad, onProgress, onError ): FrameVolumeAnimation`
 
-Loads a `.wvdb` sequence (one file per frame) as a `FrameVolumeAnimation`. LOD 0 of all frames loads first, then `onLoad( animation )` is called and the animation can play. Then LOD 1 of all frames, and so on. Finer LODs request only their own bytes (HTTP Range). `props` are `FrameVolume` props for all frames. `emissiveGrid`, `baseColorGrid` and `maskGrid` are grid names, `emissiveScale` also scales the emission grid. `onProgress({ lod, loadedFrames, totalFrames })` is called when a frame gets a LOD. Also `setMaxLod( lod )` and `setConcurrency( files )` (default `6`).
+Loads a `.wvdb` sequence (one file per frame) as a `FrameVolumeAnimation`. All files download at the same time, one request each (no Range requests). LOD 0 of all frames decodes first, then `onLoad( animation )` is called and the animation can play. Then LOD 1 of all frames, and so on. `props` are `FrameVolume` props for all frames. `emissiveGrid`, `baseColorGrid` and `maskGrid` are grid names, `emissiveScale` also scales the emission grid. `onProgress({ lod, loadedFrames, totalFrames })` is called when a frame gets a LOD. Also `setMaxLod( lod )` (the downloads stop after that LOD) and `setConcurrency( files )` (files that download at the same time, default: all).
 
 ```js
 new OpenVDB.WVDBLoader().load('./assets/bunny_cloud.wvdb', (volumeData) => {
