@@ -8,6 +8,9 @@ import { perlin3Noise, simplex3Noise, worley3Noise } from '../math/noise';
 import { VolumeBasicMaterial } from './VolumeBasicMaterial';
 import { VolumeNormalMaterial } from './VolumeNormalMaterial';
 import { lights } from '../utils/lights';
+import { FrameVolume } from './frame/FrameVolume';
+import { frameRenderer } from './frame/FrameRenderer';
+import { frameLights } from './frame/FrameInjectMaterial';
 
 export {
   // NOTE Loaders
@@ -37,4 +40,9 @@ export {
 
   // NOTE Light helpers
   lights,
+
+  // NOTE Rendering frame (froxel renderer, alternative to FogVolume)
+  FrameVolume,
+  frameRenderer,
+  frameLights,
 };

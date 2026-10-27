@@ -143,6 +143,47 @@ Converts given `OpenVDBReader` to a volumetric `Three.Object3D`. `onConverted` a
 
 ---
 
+### FrameVolume (experimental)
+
+- `FrameVolume( vdb: OpenVDB.OpenVDBReader | OpenVDB.GridDescriptor | Array<OpenVDB.GridDescriptor>, { resolution, progressive, ... }, onConverted: () => void, onProgress: ({ convertedVoxels, totalVoxels, convertedGrids, totalGrids }) => void ): Three.Object3D`
+
+Alternative to `VolumeToFog`. It does not ray march each volume. For each frame, all visible `FrameVolume` objects are written into one frustum-aligned voxel grid (froxels). Then one fullscreen pass marches that grid. Overlapping volumes mix correctly. It works with a normal `renderer.render(scene, camera)` call. `VolumeToFog` does not change.
+
+* `resolution: number` - (default: `100`) resolution of the 3D texture of each grid.
+* `progressive: boolean` - set to `true` to render the volume while it is converted.
+* `extinction: number` - (default: `100.0`) extinction of density `1.0` for each unit of the volume box (the largest side).
+* `absorbance: number` - (default: `1.0`) scales the self-shadowing. `0.0` gives no shadows.
+* `densityScale`, `densityCutoff`, `opacity`, `baseColor`, `scatterColor`, `offset3D`, `wrap3D` - same as `VolumeToFog`.
+* `emissiveGrid`, `baseColorGrid`, `maskGrid` - same as `VolumeToFog`. `emissiveIntensity` (default: `1.0`) scales the emission.
+* `lights` - bitmask of light types (`frameLights.useAmbientLights | frameLights.useDirectionalLights | frameLights.usePointLights | frameLights.useSpotLights | frameLights.useHemisphereLights | frameLights.useEnvironment`). Bit values are the same as `lights`.
+* `shadowSteps: number` - (default: `32`) steps of the shadow march toward each light, inside the volume.
+
+All properties can be changed after creation, for example `frameVolume.extinction = 50.0` or `frameVolume.baseColor.set(0xff00ff)`.
+
+Froxel grid settings are global, in `frameRenderer.settings`:
+
+* `width`, `height` - (default: `256`, `256`) froxels on the screen axes.
+* `depth` - (default: `100`) depth slices. Slices are exponential: thin near the camera, thick far away. Slices fit the visible volumes.
+* `subSteps` - (default: `16`) density samples along the view ray in each slice. Each froxel is lit at the visibility-weighted mean position of its samples, then stored as slice color and alpha.
+* `near`, `far` - (default: `1.0`, `512.0`) limits of the slice range in view depth.
+* `jitter` - (default: `true`) moves sub-steps and shadow samples by a small random amount each frame. Banding becomes fine noise.
+* `temporal` - (default: `true`) blends each frame with the reprojected froxels of the previous frames. This removes the jitter noise. The history is clamped to the current froxels to limit ghosting.
+* `temporalBlend` - (default: `0.1`) weight of the new frame. Lower values are smoother, higher values react faster to motion.
+* `lighting` - (default: `'volume'`) lighting model:
+  * `'volume'` - each volume is lit alone. Shadows come only from the same volume. Good for a small number of dense volumes with sharp edges.
+  * `'frame'` - all volumes are written into the froxels first (density and material only). World-space shadow grid cascades hold the extinction of all volumes, also volumes out of the view. Transmittance to each light is calculated one time in the grid. Then each froxel is lit one time. Volumes shadow each other, and the number of render calls does not grow with the number of volumes. Good for many overlapping volumes, for example cloud fields.
+* `shadowResolution` - (default: `64`) voxels on each axis of each shadow grid cascade (`'frame'` lighting only).
+* `shadowCascades` - (default: `3`, max `4`) shadow grid cascades. The last cascade fits all volumes. Each finer cascade is half the size, around the camera. Shadows are dense near the camera and sparse far away (`'frame'` lighting only).
+* `shadowDistance` - (default: `512`) the shadow grid includes only volumes in this distance from the camera (`'frame'` lighting only).
+
+3D textures of `FrameVolume` have mipmaps. Large froxels far away sample a lower mip level, so small details fade to transparent.
+
+With `'frame'` lighting, the first directional, point and spot lights (6 in total) cast shadows. Hemisphere lights, light probes and the environment use the shadow grid in the up and down directions. Ambient light has no shadow. `lights` and `shadowSteps` are not used, `scatterColor` is added as emission, and `absorbance` scales the shadow of each volume.
+
+Limits: with `'volume'` lighting, volumes do not shadow other volumes. Point and spot lights have no distance falloff (same as `VolumeToFog`). Logarithmic depth buffers are not supported.
+
+---
+
 ### VolumeToLevelSet
 
 - `VolumeToLevelSet( vdb: OpenVDB.OpenVDBReader | OpenVDB.GridDescriptor | Array<OpenVDB.GridDescriptor>, onConverted: () => void, onProgress: () => void ): Three.Object3D`
