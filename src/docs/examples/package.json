@@ -23,7 +23,6 @@
   },
   "dependencies": {
     "openvdb": "^0.5.0",
-    "three-openvdb": "^0.5.0",
-    "three-wvdb-loader": "^0.5.0"
+    "three-openvdb": "^0.5.0"
   }
 }

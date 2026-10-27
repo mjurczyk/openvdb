@@ -1,10 +1,9 @@
 # v0.5.x
 
-Breaking: the library is split into 4 packages, each in its own folder of `src/`.
+Breaking: the library is split into 3 packages, each in its own folder of `src/`.
 
 - `openvdb` (`src/openvdb`): VDB reader, grid lookup, volume math, primitives, noise. No dependencies. `Vector3`, `Matrix3` and `Matrix4` are own classes with the same fields as three.js
-- `three-openvdb` (`src/three-openvdb`): all three.js code. Replaces `openvdb/three`
-- `three-wvdb-loader` (`src/three-wvdb-loader`): `WVDBLoader` and `WVDBReader`. Load `.wvdb` files as a stream, each LOD replaces the previous one
+- `three-openvdb` (`src/three-openvdb`): all three.js code. Replaces `openvdb/three`. Also `WVDBLoader` and `WVDBReader`: load `.wvdb` files as a stream, each LOD replaces the previous one
 - `wvdb` (`src/wvdb`): CLI. Converts a `.vdb` file, a folder or a ZIP of `.vdb` files into `.wvdb` files. Needs only Node.js
 - Add `.wvdb` files: small, streamed files made from VDB files. Quantized 8³ bricks, sparse layout, progressive LODs, scalar and vector grids. Format helpers in `openvdb`, spec in `src/docs/wvdb/README.md`
 - `wvdb` keeps empty grids and frames, so sequences keep their frame numbers. One box for all grids of a file, and for all frames of a folder or ZIP
@@ -24,6 +23,7 @@ Examples:
 - Examples moved to `src/docs/examples`. gh-pages: `git subtree push --prefix src/docs/examples/dist origin gh-pages`
 - Add `wvdb` example: streams `.wvdb` files, compares with `.vdb`, shows LOD times
 - `vdb` example plays `.wvdb` sequences (folder or ZIP) with `WVDBAnimationLoader`
+- `wvdb` example is the default. It has the Ground Explosion sequence by JangaFX (EmberGen, CC0) as 200 `.wvdb` files
 
 # v0.4.x
 

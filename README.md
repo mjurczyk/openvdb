@@ -11,8 +11,7 @@ Packages (each in its own folder of `src/`):
 | Package | Folder | Depends on | Use |
 | --- | --- | --- | --- |
 | `openvdb` | `src/openvdb` | nothing | Reads VDB files. Grid lookup, volume math, primitives, noise, WVDB format helpers. No renderer. |
-| `three-openvdb` | `src/three-openvdb` | `openvdb`, `three` | three.js rendering: loaders, `FrameVolume`, `FogVolume`, materials. |
-| `three-wvdb-loader` | `src/three-wvdb-loader` | `openvdb`, `three` | three.js loader for streamed `.wvdb` files. |
+| `three-openvdb` | `src/three-openvdb` | `openvdb`, `three` | three.js rendering: `.vdb` and `.wvdb` loaders, `FrameVolume`, `FogVolume`, materials. |
 | `wvdb` | `src/wvdb` | `openvdb` (bundled), Node.js | CLI: converts VDB files, folders and ZIP files into `.wvdb` files. |
 
 Examples (gh-pages) are in `src/docs/examples`. The WVDB format is described in `src/docs/wvdb/README.md`.
@@ -130,7 +129,7 @@ Loads VDB model. onLoad is called when VDB is loaded and parsed. onError is call
 
 ---
 
-### WVDBLoader (`three-wvdb-loader`)
+### WVDBLoader
 
 - `WVDBLoader( manager: Three.LoadingManager )`
 
@@ -147,9 +146,7 @@ Loads a `.wvdb` file (see [WVDB files](#wvdb-files)) as a stream. `onLoad( volum
 Loads a `.wvdb` sequence (one file per frame) as a `FrameVolumeAnimation`. LOD 0 of all frames loads first, then `onLoad( animation )` is called and the animation can play. Then LOD 1 of all frames, and so on. Finer LODs request only their own bytes (HTTP Range). `props` are `FrameVolume` props for all frames. `emissiveGrid`, `baseColorGrid` and `maskGrid` are grid names, `emissiveScale` also scales the emission grid. `onProgress({ lod, loadedFrames, totalFrames })` is called when a frame gets a LOD. Also `setMaxLod( lod )` and `setConcurrency( files )` (default `6`).
 
 ```js
-import { WVDBLoader } from 'three-wvdb-loader';
-
-new WVDBLoader().load('./assets/bunny_cloud.wvdb', (volumeData) => {
+new OpenVDB.WVDBLoader().load('./assets/bunny_cloud.wvdb', (volumeData) => {
   const grid = volumeData.grids.density;
   const volume = new OpenVDB.FrameVolume(grid.data, { resolution: grid.resolution, bbox: grid.bbox });
 
@@ -350,3 +347,5 @@ To avoid re-coding same things over again, parts of the library may be based / t
   - [nodeca/pako](https://github.com/issues): ZLIB compression
 
 Be sure to ⭐️ those!
+
+Example sequence: Ground Explosion by [JangaFX](https://jangafx.com) ([EmberGen](https://jangafx.com/software/embergen/)), CC0. More free VDBs: [jangafx.com](https://jangafx.com/software/embergen/download/free-vdb-animations/).

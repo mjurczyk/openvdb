@@ -4,7 +4,6 @@ import { gui, setGuiFields, dropTarget } from '../utils/gui';
 import { loaders } from '../utils/resources';
 import { SimpleDropzone } from 'simple-dropzone';
 import zip from 'zip-js-esm';
-import { WVDBAnimationLoader } from 'three-wvdb-loader';
 import { setLoading } from '../utils/loading';
 
 let animation, volumePivot, targetScene;
@@ -174,7 +173,7 @@ const createWVDBAnimation = (urls) => {
 
   wvdbUrls = urls;
 
-  const loadingAnimation = new WVDBAnimationLoader()
+  const loadingAnimation = new OpenVDB.WVDBAnimationLoader()
     .setOptions({
       ...(preset && {
         emissiveGrid: params.emissiveGrid,

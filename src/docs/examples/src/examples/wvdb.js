@@ -3,10 +3,28 @@ import * as OpenVDB from 'three-openvdb';
 import { gui, setGuiFields } from '../utils/gui';
 import { loaders } from '../utils/resources';
 import { setLoading } from '../utils/loading';
-import { WVDBLoader } from 'three-wvdb-loader';
 
 // NOTE Longest side of each volume in scene units
 const displaySize = 100.0;
+
+// NOTE Sequences have one .wvdb file per frame, listed in frames.json. The examples have no .vdb files of them.
+const sequences = {
+  ground_explosion: {
+    frames: './assets/ground_explosion/frames.json',
+    // NOTE EmberGen files are Z-up
+    upAxis: 'z',
+    emissiveGrid: 'flames',
+    // NOTE Approximately the 99th percentile of the flames grid
+    emissiveScale: 6.0,
+    baseColor: '#333333',
+    extinction: 450.0,
+    fps: 60,
+  },
+};
+
+const defaultExtinction = 100.0;
+
+const getExtinction = (asset) => sequences[asset]?.extinction ?? defaultExtinction;
 
 const formatBytes = (bytes) =>
   bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1024 / 1024).toFixed(2)} MB`;
@@ -16,10 +34,10 @@ const getController = (id) =>
 
 export const exampleWVDB = ({ scene }) => {
   const params = {
-    asset: 'bunny_cloud',
+    asset: 'ground_explosion',
     format: 'wvdb',
     maxLod: 'all',
-    extinction: 100.0,
+    extinction: getExtinction('ground_explosion'),
     densityScale: 1.0,
     rotate: true,
   };
@@ -45,10 +63,21 @@ export const exampleWVDB = ({ scene }) => {
     scene.background = env;
   });
 
+  let lastTime = performance.now();
+
   setInterval(() => {
-    if (params.rotate && entry) {
-      entry.pivot.rotation.y += 0.005;
+    const now = performance.now();
+
+    if (entry) {
+      if (params.rotate) {
+        entry.pivot.rotation.y += 0.005;
+      }
+
+      // NOTE Sequences play in a FrameVolumeAnimation
+      entry.volume?.update?.((now - lastTime) / 1000.0);
     }
+
+    lastTime = now;
   }, 1000 / 60);
 
   const setStatus = (text) => {
@@ -73,23 +102,100 @@ export const exampleWVDB = ({ scene }) => {
     entry = null;
   };
 
-  // NOTE Fits the box to displaySize and puts its center at the scene origin
-  const addVolume = (volume, bbox) => {
+  // NOTE Fits the box to displaySize and puts its center at the scene origin.
+  // Z-up volumes turn -90 degrees on X.
+  const addVolume = (volume, bbox, upAxis = 'y') => {
     const size = bbox.getSize(new Three.Vector3());
     const scale = displaySize / Math.max(size.x, size.y, size.z);
+    const up = new Three.Group();
 
+    up.rotation.x = upAxis === 'z' ? -Math.PI / 2.0 : 0.0;
     volume.scale.setScalar(scale);
     volume.position.copy(bbox.getCenter(new Three.Vector3())).multiplyScalar(-scale);
 
     entry.volume = volume;
-    entry.pivot.add(volume);
+    up.add(volume);
+    entry.pivot.add(up);
     applyVolumeParams();
+  };
+
+  // NOTE LOD 0 of all frames loads first. Then the animation plays, and finer LODs load frame by frame.
+  const loadSequence = (currentBuildId, startTime) => {
+    const sequence = sequences[params.asset];
+    const times = [];
+    const folder = sequence.frames.slice(0, sequence.frames.lastIndexOf('/') + 1);
+
+    const onError = (error) => {
+      console.error('WVDBAnimationLoader', { error });
+      setStatus('Could not load the WVDB sequence.');
+      setLoading('wvdb', false);
+    };
+
+    fetch(sequence.frames)
+      .then((response) => response.json())
+      .then(({ frames }) => {
+        if (currentBuildId !== buildId) {
+          return;
+        }
+
+        const loader = new OpenVDB.WVDBAnimationLoader().setOptions({
+          emissiveGrid: sequence.emissiveGrid,
+          emissiveScale: sequence.emissiveScale,
+        });
+
+        if (params.maxLod !== 'all') {
+          loader.setMaxLod(Number(params.maxLod));
+        }
+
+        const animation = loader.load(
+          frames.map((frame) => `${folder}${frame}`),
+          () => {
+            if (currentBuildId !== buildId) {
+              return;
+            }
+
+            addVolume(animation, animation.bbox, sequence.upAxis);
+            animation.play();
+          },
+          ({ lod, loadedFrames, totalFrames }) => {
+            if (currentBuildId !== buildId) {
+              return;
+            }
+
+            if (loadedFrames === totalFrames) {
+              times[lod] = Math.round(performance.now() - startTime);
+            }
+
+            const lodTimes = times
+              .map((time, index) => (time === undefined ? null : `LOD ${index}: ${time} ms`))
+              .filter(Boolean)
+              .join(', ');
+            const loading =
+              loadedFrames < totalFrames ? ` | LOD ${lod}: ${loadedFrames} / ${totalFrames}` : '';
+
+            setStatus(`${lodTimes}${loading}`);
+
+            if (lod === 0 && loadedFrames === totalFrames) {
+              setLoading('wvdb', false);
+            }
+          },
+          onError,
+        );
+
+        // NOTE New frames get these values too
+        animation.baseColor = sequence.baseColor;
+        animation.fps = sequence.fps;
+
+        // NOTE The animation is in entry before it shows, so removeVolume stops its downloads
+        entry.volume = animation;
+      })
+      .catch(onError);
   };
 
   const loadWVDB = (currentBuildId, startTime) => {
     const times = [];
 
-    const loader = new WVDBLoader();
+    const loader = new OpenVDB.WVDBLoader();
 
     if (params.maxLod !== 'all') {
       loader.setMaxLod(Number(params.maxLod));
@@ -189,7 +295,14 @@ export const exampleWVDB = ({ scene }) => {
     setLoading('wvdb', true);
     setStatus('Loading...');
 
-    if (params.format === 'wvdb') {
+    if (sequences[params.asset]) {
+      if (params.format === 'wvdb') {
+        loadSequence(currentBuildId, startTime);
+      } else {
+        setStatus('The examples have only .wvdb files of this sequence.');
+        setLoading('wvdb', false);
+      }
+    } else if (params.format === 'wvdb') {
       loadWVDB(currentBuildId, startTime);
     } else {
       loadVDB(currentBuildId, startTime);
@@ -219,12 +332,20 @@ export const exampleWVDB = ({ scene }) => {
           name: 'Asset',
           defaultValue: params.asset,
           options: {
+            'Ground Explosion (sequence, EmberGen)': 'ground_explosion',
             'Bunny Cloud': 'bunny_cloud',
             'Venus Statue (level set)': 'venusstatue',
             'Utah Teapot (level set)': 'utahteapot',
             Smoke: 'smoke',
           },
-          onChange: setParam('asset', true),
+          onChange: (value) => {
+            // NOTE Each asset has its own default extinction
+            if (ready) {
+              getController('extinction')?.setValue(getExtinction(value));
+            }
+
+            setParam('asset', true)(value);
+          },
         },
         {
           id: 'format',

@@ -7,4 +7,4 @@ OpenVDB file reader and volume math in JavaScript. No dependencies, no renderer.
 - `perlin3Noise`, `simplex3Noise`, `worley3Noise` - noise helpers.
 - WVDB format helpers (`readWVDBHeader`, `encodeWVDBPage`, `decodeWVDBPage`, ...) - see `src/docs/wvdb/README.md`.
 
-Rendering with three.js: `three-openvdb`. Streamed `.wvdb` files: `wvdb` (CLI) and `three-wvdb-loader`.
+Rendering with three.js: `three-openvdb`. Streamed `.wvdb` files: `wvdb` (CLI) and the `.wvdb` loaders of `three-openvdb`.

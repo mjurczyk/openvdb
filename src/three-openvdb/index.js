@@ -21,6 +21,9 @@ import { frameRenderer } from './frame/FrameRenderer';
 import { frameLights } from './frame/FrameInjectMaterial';
 import { FrameVolumeAnimation } from './frame/FrameVolumeAnimation';
 import { VDBAnimationLoader } from './frame/VDBAnimationLoader';
+import { WVDBLoader } from './wvdb/WVDBLoader';
+import { WVDBAnimationLoader } from './wvdb/WVDBAnimationLoader';
+import { WVDBReader } from './wvdb/WVDBReader';
 
 export {
   // NOTE Loaders
@@ -57,4 +60,9 @@ export {
   frameLights,
   FrameVolumeAnimation,
   VDBAnimationLoader,
+
+  // NOTE Streamed .wvdb files (made with the wvdb CLI)
+  WVDBLoader,
+  WVDBAnimationLoader,
+  WVDBReader,
 };

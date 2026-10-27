@@ -8,7 +8,7 @@ WVDB (`.wvdb`) is a delivery format made from a VDB file. It keeps only what a w
 
 - The VDB file stays the source of truth. A `.wvdb` file is made again from it at any time. Its header stores the SHA-256 of the source VDB and the bake options. The same input and options give the same bytes.
 - The artist uses the `wvdb` CLI: `npx wvdb explosion.vdb`, a folder, or a ZIP of a sequence. It needs only Node.js. No three.js, no browser.
-- The web developer loads `.wvdb` files with `three-wvdb-loader` (or reads them with the `openvdb` format helpers in other engines).
+- The web developer loads `.wvdb` files with `WVDBLoader` / `WVDBAnimationLoader` of `three-openvdb` (or reads them with the `openvdb` format helpers in other engines).
 
 Results with the default options (128³, 3 LODs, 8 bits, sparse):
 
@@ -99,11 +99,11 @@ A reader needs only the header to allocate memory and to know where each chunk e
 
 - `src/openvdb/wvdb/format.js` - format only, no dependencies: constants, `writeWVDBFile`, `readWVDBHeader`, `getWVDBChunks`, `encodeWVDBPage`, `decodeWVDBPage`, `encodeWVDBMask`, `decodeWVDBMask`.
 - `src/wvdb` - the CLI: VDB input (file, folder, ZIP), sampling, LODs, bricks. Files convert in parallel on worker threads (`--jobs`). The sequence box comes from grid metadata only (`OpenVDBReader.read( source, { metadataOnly: true } )`). The ground_explosion sequence converts in about 45 seconds on 10 cores.
-- `src/three-wvdb-loader` - the three.js loader.
+- `src/three-openvdb/wvdb` - the three.js loaders and reader.
 
 ## c) The three.js kernel
 
-`three-wvdb-loader` gives each grid one `Uint8Array` texture: density for scalar grids, RGBA for vector grids. Each LOD gives a new texture at its own size (32³, then 64³, then 128³). `FrameVolume` and `FogVolume` of `three-openvdb` use it as raw data (`emissiveGrid`, `baseColorGrid` and `maskGrid` too). `volumeData.attach( volume )` connects the textures of the volume to their grids. When a LOD arrives, each texture gets the new data. When the size changes, the texture is disposed first, so three.js allocates GPU memory of the new size.
+`WVDBLoader` gives each grid one `Uint8Array` texture: density for scalar grids, RGBA for vector grids. Each LOD gives a new texture at its own size (32³, then 64³, then 128³). `FrameVolume` and `FogVolume` use it as raw data (`emissiveGrid`, `baseColorGrid` and `maskGrid` too). `volumeData.attach( volume )` connects the textures of the volume to their grids. When a LOD arrives, each texture gets the new data. When the size changes, the texture is disposed first, so three.js allocates GPU memory of the new size.
 
 Single file (`WVDBLoader`):
 

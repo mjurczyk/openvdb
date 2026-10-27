@@ -2,20 +2,19 @@
   "name": "openvdb-workspace",
   "version": "0.5.0",
   "private": true,
-  "description": "OpenVDB for JavaScript: openvdb (core), three-openvdb (three.js rendering), three-wvdb-loader (three.js .wvdb loader), wvdb (CLI).",
+  "description": "OpenVDB for JavaScript: openvdb (core), three-openvdb (three.js rendering and .wvdb loaders), wvdb (CLI).",
   "workspaces": [
     "src/openvdb",
     "src/three-openvdb",
-    "src/three-wvdb-loader",
     "src/wvdb",
     "src/docs/examples"
   ],
   "scripts": {
-    "build": "npm run build -w openvdb -w three-openvdb -w three-wvdb-loader -w wvdb",
+    "build": "npm run build -w openvdb -w three-openvdb -w wvdb",
     "bake:examples": "node ./build/wvdb/cli.mjs src/docs/examples/public/assets/bunny_cloud.vdb && node ./build/wvdb/cli.mjs src/docs/examples/public/assets/venusstatue.vdb && node ./build/wvdb/cli.mjs src/docs/examples/public/assets/utahteapot.vdb && node ./build/wvdb/cli.mjs src/docs/examples/public/assets/smoke.vdb",
     "build:examples": "npm run build -w openvdb-examples",
     "dev": "npm run dev -w openvdb-examples",
-    "release": "npm run build && npm publish ./build/openvdb && npm publish ./build/three-openvdb && npm publish ./build/three-wvdb-loader && npm publish ./build/wvdb"
+    "release": "npm run build && npm publish ./build/openvdb && npm publish ./build/three-openvdb && npm publish ./build/wvdb"
   },
   "author": {
     "name": "mjurczyk",
