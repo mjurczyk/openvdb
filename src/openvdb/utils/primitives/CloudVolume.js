@@ -5,6 +5,18 @@ import { GridTransform } from '../../core/GridTransform';
 import { perlin3Noise, worley3Noise } from '../../math/noise';
 import { getUuid } from '../uuid';
 
+const scaledNoise = (position, scale, noiseSource) => {
+  const scaledX = (position.x * scale) % scale;
+  const scaledY = (position.y * scale) % scale;
+  const scaledZ = (position.z * scale) % scale;
+
+  const dx = Math.abs(scaledX - 0.5);
+  const dy = Math.abs(scaledY - 0.5);
+  const dz = Math.abs(scaledZ - 0.5);
+
+  return noiseSource(dx, dy, dz);
+};
+
 export class CloudVolume extends GridDescriptor {
   static halfFloatGridPrefix = GridDescriptor.halfFloatGridPrefix;
 
@@ -78,27 +90,26 @@ export class CloudVolume extends GridDescriptor {
     return this.getWorldBbox();
   }
 
+  // NOTE Scratch vector for samples
+  samplePosition = new Vector3();
+
   getValue(xyz) {
-    const position = new Vector3(xyz.x + 0.5, xyz.y + 0.5, xyz.z + 0.5);
+    const position = this.samplePosition.set(xyz.x + 0.5, xyz.y + 0.5, xyz.z + 0.5);
 
-    const scaledNoise = (scale, noiseSource) => {
-      const scaledX = (position.x * scale) % scale;
-      const scaledY = (position.y * scale) % scale;
-      const scaledZ = (position.z * scale) % scale;
-
-      const dx = Math.abs(scaledX - 0.5);
-      const dy = Math.abs(scaledY - 0.5);
-      const dz = Math.abs(scaledZ - 0.5);
-    
-      return noiseSource(dx, dy, dz);
-    };
-    
     if (position.y < this.height) {
       const yOffset = this.height - position.y;
 
-      const noise = scaledNoise(20.0, worley3Noise) + scaledNoise(100.0, worley3Noise) * 0.25 + scaledNoise(10.0, perlin3Noise);
+      const noise =
+        scaledNoise(position, 20.0, worley3Noise) +
+        scaledNoise(position, 100.0, worley3Noise) * 0.25 +
+        scaledNoise(position, 10.0, perlin3Noise);
 
-      return noise < this.density ? (0.5 + scaledNoise(100.0, perlin3Noise) + scaledNoise(100.0, worley3Noise)) * yOffset : 0.0;
+      return noise < this.density
+        ? (0.5 +
+            scaledNoise(position, 100.0, perlin3Noise) +
+            scaledNoise(position, 100.0, worley3Noise)) *
+            yOffset
+        : 0.0;
     }
 
     return 0.0;
