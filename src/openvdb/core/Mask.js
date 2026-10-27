@@ -1,116 +1,68 @@
+import { uint32Size } from '../math/memory';
 import { GridSharedContext } from './GridSharedContext';
+
+const popcount = (word) => {
+  word -= (word >>> 1) & 0x55555555;
+  word = (word & 0x33333333) + ((word >>> 2) & 0x33333333);
+
+  return Math.imul((word + (word >>> 4)) & 0x0f0f0f0f, 0x01010101) >>> 24;
+};
 
 export class Mask {
   readMask(targetNode) {
     const { bufferIterator } = GridSharedContext.getContext(this);
 
-    this.dim = 1 << targetNode.log2dim;
     this.size = 1 << (3 * targetNode.log2dim);
-    this.wordCount = this.size >> 6;
-    this.words = [];
 
-    Array(this.wordCount)
-      .fill(0)
-      .forEach(() => {
-        const fillShift = Array(8).fill('0').join('');
-        let byte = Array(8)
-          .fill(0)
-          .map(() =>
-            `${fillShift}${bufferIterator.readBytes(1).toString(2).split('-').join('')}`
-              .substr(-8)
-              .split('')
-              .reverse()
-              .join('')
-          );
+    // NOTE Files save masks as little-endian uint64 words. Two little-endian uint32 words keep the same bit offsets.
+    this.words = new Uint32Array(this.size >> 5);
+    this.onCount = 0;
 
-        byte = byte.join('');
-        this.words.push(`${Array(64).fill('0').join('')}${byte}`.substr(-64));
-      });
-
-    this.onCache = this.countOn();
-    this.offCache = this.countOff();
+    for (let wordIndex = 0; wordIndex < this.words.length; wordIndex++) {
+      this.words[wordIndex] = bufferIterator.readBytes(uint32Size);
+      this.onCount += popcount(this.words[wordIndex]);
+    }
   }
 
   countOn() {
-    if (this.onCache !== undefined) {
-      return this.onCache;
-    }
-
-    let count = 0;
-
-    this.words.forEach((word) => {
-      count += word.split('').filter((bit) => bit === '1').length;
-    });
-
-    return count;
+    return this.onCount;
   }
 
   countOff() {
-    if (this.offCache !== undefined) {
-      return this.offCache;
-    }
-
-    return this.size - this.countOn();
+    return this.size - this.onCount;
   }
 
   forEachOn(callback) {
-    if (this.countOn() === 0) {
-      return;
-    }
-
-    if (!callback) {
-      return;
-    }
-
-    let wordIndex = 0;
-    let bitIndex = 0;
-
-    for (wordIndex = 0; wordIndex < this.words.length; wordIndex++) {
-      const word = this.words[wordIndex].split('');
-
-      for (bitIndex = 0; bitIndex < word.length; bitIndex++) {
-        if (word[bitIndex] === '1') {
-          const offset = wordIndex * 64 + bitIndex;
-
-          if (callback({ wordIndex, bitIndex, offset }) === 0.0) {
-            bitIndex = word.length;
-            wordIndex = this.words.length;
-          }
-        }
-      }
-    }
+    this.forEachBit(false, callback);
   }
 
   forEachOff(callback) {
-    if (this.countOff() === 0) {
-      return;
-    }
+    this.forEachBit(true, callback);
+  }
 
+  forEachBit(inverted, callback) {
     if (!callback) {
       return;
     }
 
-    let wordIndex = 0;
-    let bitIndex = 0;
+    for (let wordIndex = 0; wordIndex < this.words.length; wordIndex++) {
+      let word = inverted ? ~this.words[wordIndex] : this.words[wordIndex];
 
-    for (wordIndex = 0; wordIndex < this.words.length; wordIndex++) {
-      const word = this.words[wordIndex].split('');
+      while (word !== 0) {
+        const bitIndex = 31 - Math.clz32(word & -word);
+        const offset = (wordIndex << 5) | bitIndex;
 
-      for (bitIndex = 0; bitIndex < word.length; bitIndex++) {
-        if (word[bitIndex] === '0') {
-          const offset = wordIndex * 64 + bitIndex;
+        word &= word - 1;
 
-          if (callback({ wordIndex, bitIndex, offset }) === 0) {
-            bitIndex = word.length;
-            wordIndex = this.words.length;
-          }
+        if (callback({ wordIndex, bitIndex, offset }) === 0) {
+          return;
         }
       }
     }
   }
 
   isOn(offset) {
-    return this.words[offset >> 6][offset & 63] === '1';
+    return ((this.words[offset >> 5] >>> (offset & 31)) & 1) !== 0;
   }
 
   isOff(offset) {
