@@ -11,6 +11,8 @@ import { lights } from '../utils/lights';
 import { FrameVolume } from './frame/FrameVolume';
 import { frameRenderer } from './frame/FrameRenderer';
 import { frameLights } from './frame/FrameInjectMaterial';
+import { FrameVolumeAnimation } from './frame/FrameVolumeAnimation';
+import { VDBAnimationLoader } from './frame/VDBAnimationLoader';
 
 export {
   // NOTE Loaders
@@ -45,4 +47,6 @@ export {
   FrameVolume,
   frameRenderer,
   frameLights,
+  FrameVolumeAnimation,
+  VDBAnimationLoader,
 };

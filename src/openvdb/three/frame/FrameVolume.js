@@ -8,8 +8,8 @@ const frameRenderOrder = 1000000;
 
 const allLights = Object.values(frameLights).reduce((mask, flag) => mask | flag, 0);
 
-const createTexture3D = (data, resolution, format) => {
-  const texture = new Three.Data3DTexture(data, resolution, resolution, resolution);
+const createTexture3D = (data, dimensions, format) => {
+  const texture = new Three.Data3DTexture(data, dimensions.x, dimensions.y, dimensions.z);
   texture.format = format;
   texture.minFilter = Three.LinearMipmapLinearFilter;
   texture.magFilter = Three.LinearFilter;
@@ -20,13 +20,13 @@ const createTexture3D = (data, resolution, format) => {
   return texture;
 };
 
-// NOTE Level sets store signed distance. Active voxels give density 1.0.
-const sampleDensity = (grid, position) => {
+// NOTE Level sets store signed distance. Active voxels give density 1.0. Scale maps to 1.0.
+const sampleDensity = (grid, position, scale = 1.0) => {
   if (grid.isLevelSet?.()) {
     return grid.isActive(position) ? 1.0 : 0.0;
   }
 
-  return Three.MathUtils.clamp(grid.getValue(position), 0.0, 1.0);
+  return Three.MathUtils.clamp(grid.getValue(position) / scale, 0.0, 1.0);
 };
 
 const sampleColor = (grid, position, target) => {
@@ -53,6 +53,7 @@ export class FrameVolume extends Three.Group {
     super();
 
     const {
+      // NOTE Texels on the longest box side
       resolution = 100,
       progressive = false,
       emissiveGrid,
@@ -66,10 +67,16 @@ export class FrameVolume extends Three.Group {
       absorbance = 1.0,
       opacity = 1.0,
       emissiveIntensity = 1.0,
+      // NOTE Emissive grid value that maps to the top of the temperature range
+      emissiveScale = 1.0,
+      // NOTE Kelvin values for emissive values 0.0 and emissiveScale
+      temperatureRange = [0.0, 6500.0],
       offset3D = new Three.Vector3(),
       wrap3D = Three.ClampToEdgeWrapping,
       lights = allLights,
       shadowSteps = 32,
+      // NOTE World box for all grids. Animation frames share one box. Then voxels do not move.
+      bbox: sharedBbox,
     } = props;
 
     this.baseColor = new Three.Color(baseColor);
@@ -80,6 +87,8 @@ export class FrameVolume extends Three.Group {
     this.absorbance = absorbance;
     this.opacity = opacity;
     this.emissiveIntensity = emissiveIntensity;
+    this.emissiveScale = emissiveScale;
+    this.temperatureRange = new Three.Vector2().fromArray(temperatureRange);
     this.offset3D = new Three.Vector3().copy(offset3D);
     this.wrap3D = wrap3D;
     this.lights = lights;
@@ -111,8 +120,10 @@ export class FrameVolume extends Three.Group {
         (grid instanceof Uint8Array || grid instanceof GridDescriptor)
     );
 
-    const voxelCount = Math.pow(resolution, 3);
     const tasks = [];
+    const hasRawAuxGrids = [emissiveGrid, baseColorGrid, maskGrid].some(
+      (grid) => grid instanceof Uint8Array
+    );
 
     grids.forEach((grid) => {
       const volume = {
@@ -131,23 +142,14 @@ export class FrameVolume extends Three.Group {
         ready: false,
       };
 
-      if (grid instanceof Uint8Array) {
-        // NOTE Raw density data fills the unit box
-        volume.densityMap3D = createTexture3D(grid, resolution, Three.RedFormat);
-      } else {
-        volume.densityMap3D = createTexture3D(
-          new Uint8Array(voxelCount),
-          resolution,
-          Three.RedFormat
-        );
-      }
-
       const bbox = new Three.Box3(
         new Three.Vector3(-0.5, -0.5, -0.5),
         new Three.Vector3(0.5, 0.5, 0.5)
       );
 
-      if (grid instanceof GridDescriptor) {
+      if (sharedBbox) {
+        bbox.copy(sharedBbox);
+      } else if (grid instanceof GridDescriptor) {
         bbox.set(...grid.getPreciseWorldBbox());
       }
 
@@ -156,13 +158,32 @@ export class FrameVolume extends Three.Group {
 
       volume.matrix.compose(center, new Three.Quaternion(), size);
 
+      // NOTE Raw data is a resolution^3 cube. Other grids get cube-shaped texels.
+      // The longest box side has resolution texels.
+      const dimensions =
+        grid instanceof Uint8Array || hasRawAuxGrids
+          ? new Three.Vector3(resolution, resolution, resolution)
+          : size
+              .clone()
+              .multiplyScalar(resolution / Math.max(size.x, size.y, size.z))
+              .round()
+              .max(new Three.Vector3(1, 1, 1));
+
+      const voxelCount = dimensions.x * dimensions.y * dimensions.z;
+
+      volume.densityMap3D = createTexture3D(
+        grid instanceof Uint8Array ? grid : new Uint8Array(voxelCount),
+        dimensions,
+        Three.RedFormat
+      );
+
       const auxGrids = {};
 
       if (emissiveGrid) {
         auxGrids.emissive = emissiveGrid;
         volume.emissiveMap3D = createTexture3D(
           emissiveGrid instanceof Uint8Array ? emissiveGrid : new Uint8Array(voxelCount),
-          resolution,
+          dimensions,
           Three.RedFormat
         );
       }
@@ -171,7 +192,7 @@ export class FrameVolume extends Three.Group {
         auxGrids.baseColor = baseColorGrid;
         volume.baseColorMap3D = createTexture3D(
           baseColorGrid instanceof Uint8Array ? baseColorGrid : new Uint8Array(voxelCount * 4),
-          resolution,
+          dimensions,
           Three.RGBAFormat
         );
       }
@@ -180,7 +201,7 @@ export class FrameVolume extends Three.Group {
         auxGrids.mask = maskGrid;
         volume.maskMap3D = createTexture3D(
           maskGrid instanceof Uint8Array ? maskGrid : new Uint8Array(voxelCount),
-          resolution,
+          dimensions,
           Three.RedFormat
         );
       }
@@ -189,14 +210,19 @@ export class FrameVolume extends Three.Group {
 
       this.volumes.push(volume);
 
-      tasks.push({ volume, task: this.convert(volume, grid, auxGrids, center, size, resolution) });
+      tasks.push({
+        volume,
+        voxelCount,
+        task: this.convert(volume, grid, auxGrids, center, size, dimensions),
+      });
     });
 
     let convertedGrids = 0;
     let convertedVoxels = 0;
+    let convertedGridVoxels = 0;
 
     const totalGrids = tasks.length;
-    const totalVoxels = totalGrids * voxelCount;
+    const totalVoxels = tasks.reduce((sum, { voxelCount }) => sum + voxelCount, 0);
 
     const updateTextures = (volume) => {
       ['densityMap3D', 'emissiveMap3D', 'baseColorMap3D', 'maskMap3D'].forEach((key) => {
@@ -220,16 +246,20 @@ export class FrameVolume extends Three.Group {
         }
 
         convertedVoxels += value;
+        convertedGridVoxels += value;
       }
 
       if (current) {
-        if (progressive || convertedVoxels >= (convertedGrids + 1) * voxelCount) {
+        const gridConverted = convertedGridVoxels >= current.voxelCount;
+
+        if (progressive || gridConverted) {
           updateTextures(current.volume);
         }
 
-        if (convertedVoxels >= (convertedGrids + 1) * voxelCount) {
+        if (gridConverted) {
           current.volume.ready = true;
           convertedGrids++;
+          convertedGridVoxels = 0;
         }
       }
 
@@ -252,9 +282,11 @@ export class FrameVolume extends Three.Group {
   }
 
   // NOTE Yields the number of converted voxels after each row
-  *convert(volume, grid, auxGrids, center, size, resolution) {
+  *convert(volume, grid, auxGrids, center, size, dimensions) {
+    const { x: width, y: height, z: depth } = dimensions;
+
     if (grid instanceof Uint8Array) {
-      yield Math.pow(resolution, 3);
+      yield width * height * depth;
 
       return;
     }
@@ -271,21 +303,23 @@ export class FrameVolume extends Three.Group {
 
     const toIndex = (target) => target.transform.applyInverseTransformMap(position.copy(world));
 
-    for (let z = 0; z < resolution; z++) {
-      for (let y = 0; y < resolution; y++) {
-        for (let x = 0; x < resolution; x++) {
-          const index = x + y * resolution + z * resolution * resolution;
+    for (let z = 0; z < depth; z++) {
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          const index = x + y * width + z * width * height;
 
           world.set(
-            (x + 0.5) / resolution - 0.5,
-            (y + 0.5) / resolution - 0.5,
-            (z + 0.5) / resolution - 0.5
+            (x + 0.5) / width - 0.5,
+            (y + 0.5) / height - 0.5,
+            (z + 0.5) / depth - 0.5
           ).multiply(size).add(center);
 
           density[index] = sampleDensity(grid, toIndex(grid)) * 255.0;
 
           if (emissive) {
-            emissive[index] = sampleDensity(auxGrids.emissive, toIndex(auxGrids.emissive)) * 255.0;
+            emissive[index] =
+              sampleDensity(auxGrids.emissive, toIndex(auxGrids.emissive), this.emissiveScale) *
+              255.0;
           }
 
           if (mask) {
@@ -302,7 +336,7 @@ export class FrameVolume extends Three.Group {
           }
         }
 
-        yield resolution;
+        yield width;
       }
     }
   }
