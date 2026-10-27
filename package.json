@@ -1,8 +1,8 @@
 {
   "name": "openvdb-workspace",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "private": true,
-  "description": "OpenVDB for JavaScript: openvdb (core), three-openvdb (three.js rendering and .wvdb loaders), wvdb (CLI).",
+  "description": "OpenVDB for JavaScript: openvdb (core), three-openvdb (three.js rendering and .wvdb loaders), webvdb (CLI).",
   "workspaces": [
     "src/openvdb",
     "src/three-openvdb",
@@ -10,11 +10,11 @@
     "src/docs/examples"
   ],
   "scripts": {
-    "build": "npm run build -w openvdb -w three-openvdb -w wvdb",
-    "bake:examples": "node ./build/wvdb/cli.mjs src/docs/examples/public/assets/bunny_cloud.vdb && node ./build/wvdb/cli.mjs src/docs/examples/public/assets/venusstatue.vdb && node ./build/wvdb/cli.mjs src/docs/examples/public/assets/utahteapot.vdb && node ./build/wvdb/cli.mjs src/docs/examples/public/assets/smoke.vdb",
+    "build": "npm run build -w openvdb -w three-openvdb -w webvdb",
+    "bake:examples": "node ./build/webvdb/cli.mjs src/docs/examples/public/assets/bunny_cloud.vdb && node ./build/webvdb/cli.mjs src/docs/examples/public/assets/venusstatue.vdb && node ./build/webvdb/cli.mjs src/docs/examples/public/assets/utahteapot.vdb && node ./build/webvdb/cli.mjs src/docs/examples/public/assets/smoke.vdb",
     "build:examples": "npm run build -w openvdb-examples",
     "dev": "npm run dev -w openvdb-examples",
-    "release": "npm run build && npm publish ./build/openvdb && npm publish ./build/three-openvdb && npm publish ./build/wvdb"
+    "release": "npm run build && npm publish ./build/openvdb && npm publish ./build/three-openvdb && npm publish ./build/webvdb"
   },
   "author": {
     "name": "mjurczyk",

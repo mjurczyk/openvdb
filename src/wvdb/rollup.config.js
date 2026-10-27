@@ -5,14 +5,14 @@ import { cleanOutputDir, copyPackageFiles, getOutputDir } from '../../rollup.sha
 export default {
   input: './cli.js',
   output: {
-    file: `${getOutputDir('wvdb')}/cli.mjs`,
+    file: `${getOutputDir('webvdb')}/cli.mjs`,
     format: 'esm',
     banner: '#!/usr/bin/env node',
   },
   external: [/^node:/],
   plugins: [
-    cleanOutputDir('wvdb'),
+    cleanOutputDir('webvdb'),
     nodeResolve(),
-    copyPackageFiles('wvdb', { bin: { wvdb: './cli.mjs' }, dependencies: {} }),
+    copyPackageFiles('webvdb', { bin: { wvdb: './cli.mjs' }, dependencies: {} }),
   ],
 };

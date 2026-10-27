@@ -12,7 +12,7 @@ Packages (each in its own folder of `src/`):
 | --- | --- | --- | --- |
 | `openvdb` | `src/openvdb` | nothing | Reads VDB files. Grid lookup, volume math, primitives, noise, WVDB format helpers. No renderer. |
 | `three-openvdb` | `src/three-openvdb` | `openvdb`, `three` | three.js rendering: `.vdb` and `.wvdb` loaders, `FrameVolume`, `FogVolume`, materials. |
-| `wvdb` | `src/wvdb` | `openvdb` (bundled), Node.js | CLI: converts VDB files, folders and ZIP files into `.wvdb` files. |
+| `webvdb` | `src/wvdb` | `openvdb` (bundled), Node.js | `wvdb` CLI: converts VDB files, folders and ZIP files into `.wvdb` files. |
 
 Examples (gh-pages) are in `src/docs/examples`. The WVDB format is described in `src/docs/wvdb/README.md`.
 
@@ -282,13 +282,15 @@ Generates a 1x1x1 volume with values defined using a `valueFunction`. `valueFunc
 
 ## WVDB files
 
-VDB files are large (10-500 MB), so they are slow on the web. The VDB file stays the source of truth. The `wvdb` CLI makes a small `.wvdb` file from it. It needs only Node.js (no three.js, no browser). The web page loads only the `.wvdb` file.
+VDB files are large (10-500 MB), so they are slow on the web. The VDB file stays the source of truth. The `wvdb` CLI (npm package `webvdb`) makes a small `.wvdb` file from it. It needs only Node.js (no three.js, no browser). The web page loads only the `.wvdb` file.
 
 ```sh
-npx wvdb bunny_cloud.vdb
+npm install -g webvdb           # or run once: npx webvdb <input>
+
+wvdb bunny_cloud.vdb
 # bunny_cloud.vdb (80.17 MB) -> bunny_cloud.wvdb (405.1 KB)
-npx wvdb ./explosion_VDB        # folder of .vdb files -> ./explosion_VDB_wvdb/
-npx wvdb ./explosion_VDB.zip    # ZIP of .vdb files -> ./explosion_VDB_wvdb/
+wvdb ./explosion_VDB        # folder of .vdb files -> ./explosion_VDB_wvdb/
+wvdb ./explosion_VDB.zip    # ZIP of .vdb files -> ./explosion_VDB_wvdb/
 ```
 
 Options: `--output`, `--grids <a,b>`, `--resolution` (default `128`, texels per side of the finest LOD), `--lods` (default `3`), `--bits` (`8` or `16`, default `8`), `--layout` (`sparse` or `dense`, default `sparse`), `--page-bricks` (default `1024`), `--jobs` (files converted at the same time, default: CPU core count).
