@@ -5,9 +5,46 @@ import { Vector3 } from '../math/vector';
 import { VolumeBasicMaterial } from './VolumeBasicMaterial';
 import { updateFrameDepth } from '../utils/depth';
 import { getDensity } from '../utils/density';
+import {
+  createScalarTexture3D,
+  createTextureData,
+  getTextureScale,
+  readTexel,
+  textureTypes,
+  writeTexel,
+} from '../utils/densityTexture';
+import {
+  buildLeafTexture,
+  canBuildFromLeaves,
+  textureBuilds,
+  textureFilters,
+} from '../utils/leafTexture';
+
+// NOTE Center of texel (0, 0, 0) and the step between texels, in grid index space
+const getTextureMapping = (grid, resolution) => {
+  const center = new Vector3();
+  const size = new Vector3();
+  const step = new Vector3();
+  const start = new Vector3();
+  const bbox = new Bbox();
+
+  bbox.set(...grid.getPreciseWorldBbox());
+  bbox.getCenter(center);
+  bbox.getSize(size);
+
+  step.copy(size).multiplyScalar(1.0 / resolution);
+  grid.transform.applyInverseJacobian(step);
+
+  start.copy(center).sub(size.clone().multiplyScalar(0.5));
+  grid.transform.applyInverseTransformMap(start);
+  start.add(step.clone().multiplyScalar(0.5));
+
+  return { center, size, start, step };
+};
 
 export class VolumeToFog extends Three.Group {
   processes = [];
+  leafBuilds = [];
   materials = [];
 
   isFogVolume = true;
@@ -27,7 +64,12 @@ export class VolumeToFog extends Three.Group {
       baseColorGrid,
       maskGrid,
       radius,
+      textureBuild = textureBuilds.sample,
+      textureFilter = textureFilters.nearest,
+      textureType = textureTypes.uint8,
     } = materialProps;
+
+    const textureScale = getTextureScale(textureType);
 
     this.frustumCulled = false;
 
@@ -54,21 +96,21 @@ export class VolumeToFog extends Three.Group {
       grids = grids.filter(match => match !== emissiveGrid);
 
       if (emissiveGrid instanceof Uint8Array) {
-        emissiveTexture3D = new Three.Data3DTexture(emissiveGrid, resolution, resolution, resolution);
+        emissiveTexture3D = createScalarTexture3D(emissiveGrid, resolution, textureTypes.uint8);
       } else {
-        const emissiveData = new Uint8Array(Math.pow(resolution, 3));
-        emissiveTexture3D = new Three.Data3DTexture(emissiveData, resolution, resolution, resolution);
+        const emissiveData = createTextureData(textureType, Math.pow(resolution, 3));
+        emissiveTexture3D = createScalarTexture3D(emissiveData, resolution, textureType);
 
         probeEmissiveValue = (index, target, override) => {
-          return emissiveData[index] = typeof override !== 'undefined' ? override : getDensity(emissiveGrid, target) * 255.;
+          const value =
+            typeof override !== 'undefined'
+              ? override
+              : getDensity(emissiveGrid, target) * textureScale;
+          writeTexel(emissiveData, index, value);
+
+          return value;
         };
       }
-
-      emissiveTexture3D.format = Three.RedFormat;
-      emissiveTexture3D.minFilter = Three.LinearFilter;
-      emissiveTexture3D.magFilter = Three.LinearFilter;
-      emissiveTexture3D.unpackAlignment = 1;
-      emissiveTexture3D.needsUpdate = true;
     }
 
     if (baseColorGrid) {
@@ -127,21 +169,21 @@ export class VolumeToFog extends Three.Group {
 
     if (maskGrid) {
       if (maskGrid instanceof Uint8Array) {
-        maskTexture3D = new Three.Data3DTexture(maskGrid, resolution, resolution, resolution);
+        maskTexture3D = createScalarTexture3D(maskGrid, resolution, textureTypes.uint8);
       } else {
-        const maskData = new Uint8Array(Math.pow(resolution, 3));
-        maskTexture3D = new Three.Data3DTexture(maskData, resolution, resolution, resolution);
+        const maskData = createTextureData(textureType, Math.pow(resolution, 3));
+        maskTexture3D = createScalarTexture3D(maskData, resolution, textureType);
 
         probeMaskValue = (index, target, override) => {
-          return maskData[index] = typeof override !== 'undefined' ? override : getDensity(maskGrid, target) * 255.;
+          const value =
+            typeof override !== 'undefined'
+              ? override
+              : getDensity(maskGrid, target) * textureScale;
+          writeTexel(maskData, index, value);
+
+          return value;
         };
       }
-
-      maskTexture3D.format = Three.RedFormat;
-      maskTexture3D.minFilter = Three.LinearFilter;
-      maskTexture3D.magFilter = Three.LinearFilter;
-      maskTexture3D.unpackAlignment = 1;
-      maskTexture3D.needsUpdate = true;
     }
 
     // NOTE Parse grids
@@ -151,6 +193,79 @@ export class VolumeToFog extends Three.Group {
 
     const totalGrids = grids.length;
     const totalVoxels = totalGrids * Math.pow(resolution, 3);
+
+    // NOTE Leaf build is opt-in. It needs scalar trees for all grids. Uint8Array inputs are used as they are.
+    const isLeafBuildInput = (grid) =>
+      !grid || grid instanceof Uint8Array || canBuildFromLeaves(grid);
+    const useLeafBuild =
+      textureBuild === textureBuilds.leaves &&
+      grids.every((grid) => !(grid instanceof GridDescriptor) || canBuildFromLeaves(grid)) &&
+      isLeafBuildInput(emissiveGrid) &&
+      isLeafBuildInput(maskGrid) &&
+      (!baseColorGrid || baseColorGrid instanceof Uint8Array);
+
+    if (textureBuild === textureBuilds.leaves && !useLeafBuild) {
+      console.warn(
+        'VolumeToFog',
+        'textureBuild',
+        'Primitive or vector grids need the sample build. Using the sample build.'
+      );
+    }
+
+    const leafBuildsDone = [];
+    const leafProgress = [];
+    let leafAuxBuildsStarted = false;
+
+    const reportLeafProgress = () => {
+      if (onProgress) {
+        onProgress({
+          convertedVoxels: leafProgress.reduce((sum, progress) => sum + progress.convertedVoxels, 0),
+          totalVoxels: leafProgress.reduce((sum, progress) => sum + progress.totalVoxels, 0),
+          convertedGrids,
+          totalGrids,
+        });
+      }
+    };
+
+    // NOTE Fills the texture when the build is done. Cancelled builds give no data.
+    const buildFromLeaves = (grid, mapping, texture3D, bleedRadius) => {
+      const progress = { convertedVoxels: 0, totalVoxels: 0 };
+      leafProgress.push(progress);
+
+      const build = buildLeafTexture({
+        grid,
+        resolution,
+        start: mapping.start,
+        step: mapping.step,
+        filter: textureFilter,
+        textureType,
+        radius: bleedRadius,
+        onProgress: ({ convertedVoxels, totalVoxels }) => {
+          progress.convertedVoxels = convertedVoxels;
+          progress.totalVoxels = totalVoxels;
+          reportLeafProgress();
+        },
+      });
+
+      this.leafBuilds.push(build);
+
+      return build.promise
+        .then((data) => {
+          if (!data) {
+            return false;
+          }
+
+          texture3D.image.data = data;
+          texture3D.needsUpdate = true;
+
+          return true;
+        })
+        .catch((error) => {
+          console.error('VolumeToFog', 'buildLeafTexture', { error });
+
+          return false;
+        });
+    };
 
     grids.reverse().forEach(async (grid, gridIndex) => {
       if (grid instanceof Uint8Array) {
@@ -185,13 +300,8 @@ export class VolumeToFog extends Three.Group {
         return;
       }
 
-      const data = new Uint8Array(Math.pow(resolution, 3));
-      const volumeTexture3D = new Three.Data3DTexture(data, resolution, resolution, resolution);
-      volumeTexture3D.format = Three.RedFormat;
-      volumeTexture3D.minFilter = Three.LinearFilter;
-      volumeTexture3D.magFilter = Three.LinearFilter;
-      volumeTexture3D.unpackAlignment = 1;
-      volumeTexture3D.needsUpdate = true;
+      const data = createTextureData(textureType, Math.pow(resolution, 3));
+      const volumeTexture3D = createScalarTexture3D(data, resolution, textureType);
 
       const geometry = new Three.SphereGeometry(1.0);
       const material = new VolumeBasicMaterial({
@@ -208,32 +318,59 @@ export class VolumeToFog extends Three.Group {
 
       this.materials.push(material);
 
+      if (useLeafBuild) {
+        const mapping = getTextureMapping(grid, resolution);
+
+        fog.position.copy(mapping.center);
+        fog.scale.copy(mapping.size);
+
+        if (progressive) {
+          this.add(fog);
+        }
+
+        leafBuildsDone.push(
+          buildFromLeaves(grid, mapping, volumeTexture3D, radius).then((done) => {
+            if (!done) {
+              return;
+            }
+
+            convertedGrids++;
+
+            if (!progressive) {
+              this.add(fog);
+            }
+
+            reportLeafProgress();
+          })
+        );
+
+        // NOTE All grids share the emissive and mask textures. Build them one time, with the first grid mapping.
+        if (!leafAuxBuildsStarted) {
+          leafAuxBuildsStarted = true;
+
+          if (emissiveGrid && !(emissiveGrid instanceof Uint8Array)) {
+            leafBuildsDone.push(buildFromLeaves(emissiveGrid, mapping, emissiveTexture3D, 0));
+          }
+
+          if (maskGrid && !(maskGrid instanceof Uint8Array)) {
+            leafBuildsDone.push(buildFromLeaves(maskGrid, mapping, maskTexture3D, 0));
+          }
+        }
+
+        return;
+      }
+
       const baseResolution = resolution;
       const baseResolutionPow2 = Math.pow(baseResolution, 2);
 
       const convertResolution = (resolution) => new Promise((resolve) => {
-        const resolutionInv = 1.0 / resolution;
         const resolutionPow2 = Math.pow(resolution, 2);
         const resolutionPow3 = Math.pow(resolution, 3);
 
-        const target = new Vector3(0.0, 0.0, 0.0);
-        const size = new Vector3(0.0, 0.0, 0.0);
-        const step = new Vector3(0.0, 0.0, 0.0);
-        const bbox = new Bbox();
+        const { center, size, start: target, step } = getTextureMapping(grid, resolution);
 
-        bbox.set(...grid.getPreciseWorldBbox());
-        bbox.getCenter(fog.position);
-        bbox.getSize(fog.scale);
-
-        bbox.getCenter(target);
-        bbox.getSize(size);
-
-        step.copy(size).multiplyScalar(resolutionInv);
-        grid.transform.applyInverseJacobian(step);
-
-        target.sub(size.clone().multiplyScalar(0.5));
-        grid.transform.applyInverseTransformMap(target);
-        target.add(step.clone().multiplyScalar(0.5));
+        fog.position.copy(center);
+        fog.scale.copy(size);
 
         let x = 0;
         let y = 0;
@@ -278,22 +415,22 @@ export class VolumeToFog extends Three.Group {
                       sz,
                     ) / (radius / 2.0)));
 
-                    const dataValue = offset * value * 255.;
+                    const dataValue = offset * value * textureScale;
 
-                    data[targetIndex] += dataValue;
-                    data[targetIndex] = Math.min(data[targetIndex], 255.);
+                    writeTexel(data, targetIndex, readTexel(data, targetIndex) + dataValue);
+                    writeTexel(data, targetIndex, Math.min(readTexel(data, targetIndex), textureScale));
 
-                    probeEmissiveValue && probeEmissiveValue(targetIndex, null, emissiveValue * offset * 255.);
+                    probeEmissiveValue && probeEmissiveValue(targetIndex, null, emissiveValue * offset * textureScale);
                     probeBaseColorValue && probeBaseColorValue(targetIndex, null, baseColorValue * offset);
-                    probeMaskValue && probeMaskValue(targetIndex, null, maskValue * offset * 255.);
+                    probeMaskValue && probeMaskValue(targetIndex, null, maskValue * offset * textureScale);
                   }
                 }
               }
             } else {
-              const dataValue = value * 255.;
+              const dataValue = value * textureScale;
 
-              data[baseIndex] += dataValue;
-              data[baseIndex] = Math.min(data[baseIndex], 255.);
+              writeTexel(data, baseIndex, readTexel(data, baseIndex) + dataValue);
+              writeTexel(data, baseIndex, Math.min(readTexel(data, baseIndex), textureScale));
             }
 
             convertedVoxels++;
@@ -390,9 +527,20 @@ export class VolumeToFog extends Three.Group {
 
       await convertResolution(resolution);
     });
+
+    if (useLeafBuild) {
+      Promise.all(leafBuildsDone).then(() => {
+        if (this.processes && onConverted) {
+          onConverted();
+        }
+      });
+    }
   }
 
   dispose() {
+    this.leafBuilds.forEach((build) => build.cancel());
+    this.leafBuilds = [];
+
     if (!this.processes) {
       return;
     }
