@@ -140,6 +140,9 @@ Converts given `OpenVDBReader` to a volumetric `Three.Object3D`. `onConverted` a
 * `baseColorGrid` - VDB grid equivalent of `baseColor`.
 * `maskGrid` - static VDB grid mask applied to each voxel. Not affected by UV offset.
 * `lights` - bitmask of light types affecting the volume (`lights.useDirectionalLights | lights.usePointLights | lights.useSpotLights | lights.useHemisphereLights | lights.useEnvironment`)
+* `textureBuild: 'sample' | 'leaves'` - (default: `'sample'`) `'sample'` reads the grid `resolution³` times. `'leaves'` reads leaves and tiles one time, in a Web Worker when available. `'leaves'` needs VDB grids with scalar values; primitives and `baseColorGrid` grids use `'sample'`. With `'leaves'`, `radius` applies to the density texture only.
+* `textureFilter: 'nearest' | 'trilinear' | 'max'` - (default: `'nearest'`) texel value for `textureBuild: 'leaves'`. `'nearest'` gives the same result as `'sample'`. `'trilinear'` interpolates voxels at the texel center. `'max'` keeps the largest voxel in the texel, so thin shapes stay visible at low resolutions.
+* `textureType: 'uint8' | 'half' | 'float'` - (default: `'uint8'`) data type of the density, emissive, and mask textures. `'float'` needs `OES_texture_float_linear` for linear filtering.
 
 ---
 

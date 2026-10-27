@@ -4,7 +4,75 @@ import { setGuiFields, dropTarget } from '../utils/gui';
 import { loadAndCacheVDB, loaders } from '../utils/resources';
 import { SimpleDropzone } from 'simple-dropzone';
 
-let fogVolume, targetScene;
+let fogVolume, targetScene, loadedVDB;
+
+// NOTE Texture build options. Change them in the GUI to compare builds on the same VDB.
+const textureSettings = {
+  textureBuild: 'sample',
+  textureFilter: 'nearest',
+  textureType: 'uint8',
+};
+
+const removeFogVolume = () => {
+  if (!fogVolume) {
+    return;
+  }
+
+  if (fogVolume.parent) fogVolume.parent.remove(fogVolume);
+
+  fogVolume.materials.forEach(material => {
+    material.densityMap3D.dispose();
+
+    if (material.emissiveMap3D) material.emissiveMap3D.dispose();
+  });
+
+  fogVolume.dispose();
+  fogVolume = null;
+};
+
+const createFogVolume = (vdb) => {
+  removeFogVolume();
+
+  const settings = { ...textureSettings };
+  const startTime = performance.now();
+
+  fogVolume = new OpenVDB.FogVolume(vdb, {
+    resolution: 200,
+    steps: 1000,
+    baseColor: 0xffffff,
+    absorbance: 1.0,
+    progressive: true,
+    emissiveGrid: vdb.grids?.temperature,
+    radius: 2.0,
+    ...settings,
+  }, () => {
+    console.info('FogVolume converted', settings, `${(performance.now() - startTime).toFixed(0)}ms`);
+  });
+
+  // NOTE Center fog volume
+  const sampleGrid = vdb.grids[Object.keys(vdb.grids)[0]];
+  const worldBbox = new Three.Box3();
+  worldBbox.set(...sampleGrid.getPreciseWorldBbox());
+  const worldOffset = new Three.Vector3();
+  worldBbox.getSize(worldOffset).multiplyScalar(0.5);
+  fogVolume.position.y -= worldOffset.y;
+
+  if (targetScene) {
+    targetScene.add(fogVolume);
+  }
+};
+
+const setTextureSetting = (id, value) => {
+  if (textureSettings[id] === value) {
+    return;
+  }
+
+  textureSettings[id] = value;
+
+  if (loadedVDB) {
+    createFogVolume(loadedVDB);
+  }
+};
 
 const dropzone = new SimpleDropzone(dropTarget, document.createElement('input'));
 
@@ -21,44 +89,13 @@ dropzone.on('drop', ({ files }) => {
   loadAndCacheVDB(fileName, fileSource).then(vdb => {
     dropTarget.innerHTML = '[Drop .VDB / .ZIP here]';
 
-    fogVolume = new OpenVDB.FogVolume(vdb, {
-      resolution: 200,
-      steps: 1000,
-      baseColor: 0xffffff,
-      absorbance: 1.0,
-      progressive: true,
-      emissiveGrid: vdb.grids?.temperature,
-      radius: 2.0,
-    });
-    
-    // NOTE Center fog volume
-    const sampleGrid = vdb.grids[Object.keys(vdb.grids)[0]];
-    const worldBbox = new Three.Box3();
-    worldBbox.set(...sampleGrid.getPreciseWorldBbox());
-    const worldOffset = new Three.Vector3();
-    worldBbox.getSize(worldOffset).multiplyScalar(0.5);
-    fogVolume.position.y -= worldOffset.y;
-
-    if (targetScene) {
-      targetScene.add(fogVolume);
-    }
+    loadedVDB = vdb;
+    createFogVolume(vdb);
   });
 });
 
 dropzone.on('dropstart', () => {
-  if (fogVolume) {
-    if (fogVolume.parent) fogVolume.parent.remove(fogVolume);
-    fogVolume.geometry.dispose();
-
-    fogVolume.materials.forEach(material => {
-      material.densityMap3D.dispose();
-
-      if (material.emissiveMap3D) material.emissiveMap3D.dispose();
-    });
-
-    fogVolume.dispose();
-    fogVolume = null;
-  }
+  removeFogVolume();
 
   dropTarget.innerHTML = '[Loading VDB file - please wait...]';
 });
@@ -256,6 +293,43 @@ export const exampleVDB = ({ scene }) => {
 
             fogVolumeLight.intensity = value;
           }
+        }
+      ]
+    },
+    {
+      folder: 'Texture Build',
+      children: [
+        {
+          id: 'textureBuild',
+          name: 'Build',
+          defaultValue: textureSettings.textureBuild,
+          options: {
+            'Sample (default)': 'sample',
+            'Leaves': 'leaves',
+          },
+          onChange: (value) => setTextureSetting('textureBuild', value)
+        },
+        {
+          id: 'textureFilter',
+          name: 'Filter (Leaves)',
+          defaultValue: textureSettings.textureFilter,
+          options: {
+            'Nearest (default)': 'nearest',
+            'Trilinear': 'trilinear',
+            'Max': 'max',
+          },
+          onChange: (value) => setTextureSetting('textureFilter', value)
+        },
+        {
+          id: 'textureType',
+          name: 'Texture Type',
+          defaultValue: textureSettings.textureType,
+          options: {
+            'Uint8 (default)': 'uint8',
+            'Half Float': 'half',
+            'Float': 'float',
+          },
+          onChange: (value) => setTextureSetting('textureType', value)
         }
       ]
     },
