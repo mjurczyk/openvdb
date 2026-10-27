@@ -69,6 +69,7 @@ export class OpenVDBReader {
     const { bufferIterator, version } = GridSharedContext.getContext(this);
     // NOTE Files before version 212 do not store this flag. They always have grid offsets.
     this.hasGridOffsets = version >= 212 ? bufferIterator.readBytes(charSize) !== 0 : true;
+    GridSharedContext.getContext(this).hasGridOffsets = this.hasGridOffsets;
 
     // NOTE Files before version 220 always use zip. From version 222, each grid stores its flags.
     let compression = compressionFlags.zip | compressionFlags.activeMask;
@@ -106,29 +107,40 @@ export class OpenVDBReader {
   readGrids() {
     const { bufferIterator } = GridSharedContext.getContext(this);
 
-    let grids = {};
+    this.grids = {};
 
-    this.grids = grids;
+    // NOTE Files without grid offsets have the same layout, but grid positions are 0
+    const gridCount = bufferIterator.readBytes(uint32Size);
 
-    if (!this.hasGridOffsets) {
-      // TODO Handle case without grid offsets
-      // File.cc:364
-      unsupported('VDB without grid offsets');
-    } else {
-      const gridCount = bufferIterator.readBytes(uint32Size);
+    for (let index = 0; index < gridCount; index++) {
+      const gridDescriptor = new GridDescriptor(bufferIterator);
+      GridSharedContext.passContext(this, gridDescriptor);
 
-      Array(gridCount)
-        .fill(0)
-        .forEach(() => {
-          const gridDescriptor = new GridDescriptor(bufferIterator);
-          GridSharedContext.passContext(this, gridDescriptor);
+      gridDescriptor.readGrid();
 
-          gridDescriptor.readGrid();
+      GridSharedContext.cleanContext(gridDescriptor);
 
-          GridSharedContext.cleanContext(gridDescriptor);
+      this.grids[gridDescriptor.uniqueName] = gridDescriptor;
 
-          this.grids[gridDescriptor.uniqueName] = gridDescriptor;
-        });
+      if (gridDescriptor.isSkipped && !this.hasGridOffsets) {
+        // NOTE Without grid offsets, the end of a skipped grid is not known
+        unsupported('Grids after a skipped grid in a VDB without grid offsets');
+        break;
+      }
     }
+
+    this.connectInstances();
+  }
+
+  // NOTE Instance grids share the tree of the parent grid, same as Archive::connectInstances
+  connectInstances() {
+    Object.values(this.grids).forEach((grid) => {
+      const parent = grid.isInstance() ? this.grids[grid.instanceParentName] : null;
+
+      if (parent) {
+        grid.root = parent.root;
+        grid.leavesCount = parent.leavesCount;
+      }
+    });
   }
 }

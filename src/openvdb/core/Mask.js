@@ -15,11 +15,14 @@ export class Mask {
     this.size = 1 << (3 * targetNode.log2dim);
 
     // NOTE Files save masks as little-endian uint64 words. Two little-endian uint32 words keep the same bit offsets.
-    this.words = new Uint32Array(this.size >> 5);
+    // NOTE Masks of 8 values save one byte, see NodeMask<1>
+    const wordSize = Math.min(uint32Size, this.size >> 3);
+
+    this.words = new Uint32Array(Math.ceil(this.size / 32));
     this.onCount = 0;
 
     for (let wordIndex = 0; wordIndex < this.words.length; wordIndex++) {
-      this.words[wordIndex] = bufferIterator.readBytes(uint32Size);
+      this.words[wordIndex] = bufferIterator.readBytes(wordSize);
       this.onCount += popcount(this.words[wordIndex]);
     }
   }
@@ -48,6 +51,10 @@ export class Mask {
     for (let wordIndex = 0; wordIndex < this.words.length; wordIndex++) {
       let word = inverted ? ~this.words[wordIndex] : this.words[wordIndex];
 
+      if (this.size < 32) {
+        word &= (1 << this.size) - 1;
+      }
+
       while (word !== 0) {
         const bitIndex = 31 - Math.clz32(word & -word);
         const offset = (wordIndex << 5) | bitIndex;
@@ -59,6 +66,17 @@ export class Mask {
         }
       }
     }
+  }
+
+  // NOTE Bool and mask leaves save values as bits
+  toValues() {
+    const values = new Uint8Array(this.size);
+
+    this.forEachOn(({ offset }) => {
+      values[offset] = 1;
+    });
+
+    return values;
   }
 
   isOn(offset) {

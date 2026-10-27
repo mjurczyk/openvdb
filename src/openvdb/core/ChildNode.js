@@ -1,7 +1,10 @@
 import { unsupported } from '../debug';
 import {
+  boolType,
   createValueBuffer,
   halfValueTypeMap,
+  maskType,
+  pointIndex32,
   uint32Size,
   uint64Size,
   valueTypeSizeMap,
@@ -13,51 +16,35 @@ import { GridSharedContext } from './GridSharedContext';
 import { Mask } from './Mask';
 import { Version } from './Version';
 
-// NOTE Assuming 5_4_3 tree
-export const log2dimMap = [5, 4, 3];
-
-export const totalMap = [4, 3, 0];
-
-// NOTE Extent of a top-level internal node, also of a root tile
-export const rootChildLog2Dim = log2dimMap.reduce((total, next) => total + next);
-
-export const rootChildDim = 1 << rootChildLog2Dim;
-
-const nodeTypeMap = ['internal', 'internal', 'leaf'];
-
 const cloneValue = (value) => (value instanceof Vector3 ? value.clone() : value);
 
-const negateValue = (value) => (value instanceof Vector3 ? value.clone().negate() : -value);
+// NOTE Negative of a bool is its inverse, same as math::negative
+const negateValue = (value, valueType) => {
+  if (value instanceof Vector3) {
+    return value.clone().negate();
+  }
+
+  return valueType === boolType || valueType === maskType ? 1 - value : -value;
+};
 
 export class ChildNode {
   readNode(depth = 0, props) {
-    const { version } = GridSharedContext.getContext(this);
+    const { version, treeLayout } = GridSharedContext.getContext(this);
 
     Object.assign(this, props);
 
     this.depth = depth;
-    (this.log2dim = log2dimMap[depth] || 1), (this.nodeType = nodeTypeMap[depth] || 'invalid');
-    this.total =
-      this.log2dim +
-      ((depth) => {
-        let sum = 0;
-
-        totalMap.forEach((value, index) => {
-          if (index >= depth) {
-            sum += value;
-          }
-        });
-
-        return sum;
-      })(depth);
+    this.leaf = depth >= treeLayout.leafDepth;
+    this.log2dim = treeLayout.log2dims[depth];
+    this.nodeType = this.isLeaf() ? 'leaf' : 'internal';
+    this.total = treeLayout.totals[depth];
     this.dim = 1 << this.total;
     this.numValues = 1 << (3 * this.log2dim);
-    this.level = 2 - depth;
-    this.numVoxels = 1 << (3 * this.total);
+    this.level = treeLayout.leafDepth - depth;
     this.background = props.background || 0.0;
     this.offsetMask = this.dim - 1;
 
-    if (depth < 2) {
+    if (this.isInternalNode()) {
       this.childMask = new Mask();
       GridSharedContext.passContext(this, this.childMask);
       this.childMask.readMask(this);
@@ -88,7 +75,7 @@ export class ChildNode {
   }
 
   isLeaf() {
-    return this.depth >= 2;
+    return this.leaf;
   }
 
   isInternalNode() {
@@ -184,7 +171,7 @@ export class ChildNode {
   }
 
   readBuffers() {
-    const { bufferIterator, version } = GridSharedContext.getContext(this);
+    const { bufferIterator, version, valueType } = GridSharedContext.getContext(this);
 
     if (this.isInternalNode()) {
       this.childMask.forEachOn(({ offset }) => {
@@ -195,6 +182,18 @@ export class ChildNode {
         GridSharedContext.cleanContext(child);
       });
 
+      return;
+    }
+
+    if (valueType === boolType) {
+      this.readBoolBuffers();
+      return;
+    }
+
+    if (valueType === maskType) {
+      // NOTE Mask leaves save the value mask again and the origin. Values are the value mask.
+      bufferIterator.skip((this.valueMask.size >> 3) + 3 * uint32Size);
+      this.values = this.valueMask.toValues();
       return;
     }
 
@@ -215,6 +214,40 @@ export class ChildNode {
     for (let index = 1; index < numBuffers; index++) {
       this.readData(this.numValues);
     }
+
+    if (valueType === pointIndex32) {
+      // NOTE Point index leaves save the point indices after the values. They are not used.
+      bufferIterator.skip(bufferIterator.readBytes(uint64Size) * uint32Size);
+    }
+  }
+
+  // NOTE https://github.com/AcademySoftwareFoundation/openvdb/blob/master/openvdb/openvdb/tree/LeafNodeBool.h
+  readBoolBuffers() {
+    const { bufferIterator, version } = GridSharedContext.getContext(this);
+
+    // NOTE Skip the value mask copy and the leaf origin
+    bufferIterator.skip((this.valueMask.size >> 3) + 3 * uint32Size);
+
+    if (Version.greaterEq(version, 217)) {
+      const dataMask = new Mask();
+      GridSharedContext.passContext(this, dataMask);
+      dataMask.readMask(this);
+      GridSharedContext.cleanContext(dataMask);
+
+      this.values = dataMask.toValues();
+      return;
+    }
+
+    // NOTE Old files save zip-compressed bool arrays. Only the first buffer is used.
+    const numBuffers = bufferIterator.readBytes(1);
+
+    for (let index = 0; index < numBuffers; index++) {
+      const bytes = this.readCompressedData(Compression.zlib, this.numValues);
+
+      if (index === 0) {
+        this.values = bytes.map((value) => (value ? 1 : 0));
+      }
+    }
   }
 
   // NOTE https://github.com/AcademySoftwareFoundation/openvdb/blob/master/openvdb/openvdb/io/Compression.h#L496
@@ -231,7 +264,9 @@ export class ChildNode {
     const background = this.background;
     let inactiveVal1 = background;
     let inactiveVal0 =
-      metadata === compressionMetadata.noMaskOrInactiveVals ? background : negateValue(background);
+      metadata === compressionMetadata.noMaskOrInactiveVals
+        ? background
+        : negateValue(background, valueType);
 
     if (
       [
