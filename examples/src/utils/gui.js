@@ -4,6 +4,7 @@ import { exampleBunny } from "../examples/bunny";
 import { exampleClouds } from "../examples/clouds";
 import { exampleGLTF } from "../examples/gltf";
 import { exampleVDB } from "../examples/vdb";
+import { exampleFrame } from "../examples/frame";
 import { scene } from "../main";
 
 export let gui = new GUI();
@@ -28,6 +29,7 @@ const guiBaseFields = () => [
           'Bbox': 'bbox',
           'GLTF to Volume': 'gltf',
           'Custom VDB': 'vdb',
+          'Rendering Frame': 'frame',
         },
         defaultValue: activeDemo,
         onChange: (value) => {
@@ -61,6 +63,8 @@ const guiBaseFields = () => [
               return exampleVDB({ scene });
             case 'gltf':
               return exampleGLTF({ scene });
+            case 'frame':
+              return exampleFrame({ scene });
           }
         }
       }
