@@ -7,7 +7,7 @@ VDB files are the source of truth for volumes (smoke, fire, clouds, level sets).
 WVDB (`.wvdb`) is a delivery format made from a VDB file. It keeps only what a web renderer uses, in an order that lets the renderer show the volume before the download is complete.
 
 - The VDB file stays the source of truth. A `.wvdb` file is made again from it at any time. Its header stores the SHA-256 of the source VDB and the bake options. The same input and options give the same bytes.
-- The artist uses the `wvdb` CLI: `npx wvdb explosion.vdb`, a folder, or a ZIP of a sequence. It needs only Node.js. No three.js, no browser.
+- The artist uses the `wvdb` CLI (npm package `webvdb`): `wvdb explosion.vdb`, a folder, or a ZIP of a sequence. It needs only Node.js. No three.js, no browser.
 - The web developer loads `.wvdb` files with `WVDBLoader` / `WVDBAnimationLoader` of `three-openvdb` (or reads them with the `openvdb` format helpers in other engines).
 
 Results with the default options (128³, 3 LODs, 8 bits, sparse):

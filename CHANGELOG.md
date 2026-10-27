@@ -1,3 +1,8 @@
+# v0.5.1
+
+- The npm package of the `wvdb` CLI is `webvdb` (`npm install -g webvdb`, or `npx webvdb`). npm does not allow the package name `wvdb`. The command, the folder `src/wvdb` and the file format `.wvdb` stay the same
+- All packages are 0.5.1. `three-openvdb` needs `openvdb` 0.5.1
+
 # v0.5.x
 
 Breaking: the library is split into 3 packages, each in its own folder of `src/`.
