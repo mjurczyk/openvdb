@@ -1,19 +1,43 @@
-import { unsupported } from '../debug';
 import { uint32Size } from '../math/memory';
 import { Vector3 } from '../math/vector';
-import { ChildNode, rootChildLog2Dim } from './ChildNode';
+import { ChildNode } from './ChildNode';
 import { GridSharedContext } from './GridSharedContext';
 import { RootTile } from './RootTile';
 
-// NOTE Root keys have 20 bits for each int32 axis, same as NanoVDB CoordToKey. X and Y share one safe integer.
-const getRootKeyXY = (x, y) =>
-  (x >> rootChildLog2Dim) * 0x100000 + ((y >> rootChildLog2Dim) & 0xfffff);
+// NOTE Root keys have (32 - log2dim) bits for each int32 axis. X and Y share one key, Z has a nested map.
+const defaultRootChildLog2Dim = 12;
 
-const getRootKeyZ = (z) => z >> rootChildLog2Dim;
+// NOTE Smallest root child log2 dim with X and Y keys in one safe integer
+const minSafeKeyLog2Dim = 5;
+
+// NOTE Same as NanoVDB CoordToKey. Constant shifts keep lookups in 5_4_3 trees fast.
+const getDefaultKeyXY = (x, y) => (x >> 12) * 0x100000 + ((y >> 12) & 0xfffff);
+
+const getDefaultKeyZ = (z) => z >> 12;
+
+const createKeyFunctions = (log2dim) => {
+  if (log2dim === defaultRootChildLog2Dim) {
+    return { getKeyXY: getDefaultKeyXY, getKeyZ: getDefaultKeyZ };
+  }
+
+  const keyScale = 2 ** (32 - log2dim);
+  const keyMask = keyScale - 1;
+
+  return {
+    getKeyXY:
+      log2dim >= minSafeKeyLog2Dim
+        ? (x, y) => (x >> log2dim) * keyScale + ((y >> log2dim) & keyMask)
+        : (x, y) => `${x >> log2dim},${y >> log2dim}`,
+    getKeyZ: (z) => z >> log2dim,
+  };
+};
 
 export class RootNode {
   readNode() {
-    const { bufferIterator, valueType } = GridSharedContext.getContext(this);
+    const { bufferIterator, valueType, treeLayout } = GridSharedContext.getContext(this);
+
+    this.childDim = treeLayout.rootChildDim;
+    Object.assign(this, createKeyFunctions(treeLayout.rootChildLog2Dim));
 
     this.background = bufferIterator.readFloat(valueType);
     this.numTiles = bufferIterator.readBytes(uint32Size);
@@ -26,11 +50,7 @@ export class RootNode {
   }
 
   readChildren() {
-    if (this.numTiles === 0 && this.numChildren === 0) {
-      unsupported('Empty root node');
-      return;
-    }
-
+    // NOTE Empty grids have no tiles and no children
     this.leavesCount = 0;
 
     Array(this.numTiles)
@@ -57,7 +77,9 @@ export class RootNode {
     const value = bufferIterator.readFloat(valueType);
     const active = bufferIterator.readBool();
 
-    this.addToTable(new RootTile({ origin: vec, value, active, background: this.background }));
+    this.addToTable(
+      new RootTile({ origin: vec, value, active, background: this.background, dim: this.childDim })
+    );
   }
 
   readInternalNode() {
@@ -86,14 +108,14 @@ export class RootNode {
 
   addToTable(node) {
     const { x, y, z } = node.origin;
-    const keyXY = getRootKeyXY(x, y);
+    const keyXY = this.getKeyXY(x, y);
 
     if (!this.tableByKey.has(keyXY)) {
       this.tableByKey.set(keyXY, new Map());
     }
 
     this.table.push(node);
-    this.tableByKey.get(keyXY).set(getRootKeyZ(z), node);
+    this.tableByKey.get(keyXY).set(this.getKeyZ(z), node);
   }
 
   readBuffers() {
@@ -118,9 +140,9 @@ export class RootNode {
   }
 
   getChildAt(position) {
-    const tableZ = this.tableByKey.get(getRootKeyXY(position.x, position.y));
+    const tableZ = this.tableByKey.get(this.getKeyXY(position.x, position.y));
 
-    return tableZ?.get(getRootKeyZ(position.z)) || null;
+    return tableZ?.get(this.getKeyZ(position.z)) || null;
   }
 
   getValue(position, accessor = null) {

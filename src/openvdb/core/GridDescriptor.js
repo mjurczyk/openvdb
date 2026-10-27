@@ -1,41 +1,52 @@
-import { assert, unsupported } from '../debug';
+import { assert, debugLog, unsupported } from '../debug';
 import { Version } from './Version';
-import { floatType, int64Type, uint32Size, valueTypeSizeMap } from '../math/memory';
+import {
+  floatType,
+  int64Type,
+  pointDataIndex32,
+  uint32Size,
+  valueTypeSizeMap,
+} from '../math/memory';
 import { GridTransform } from './GridTransform';
 import { RootNode } from './RootNode';
 import { GridSharedContext } from './GridSharedContext';
-import { log2dimMap, totalMap } from './ChildNode';
 import { Accessor } from './Accessor';
 import { parseCompressionFlags } from './Compression';
 import { Vector3 } from '../math/vector';
+import { TreeLayout } from './TreeLayout';
+import { PointDataBuffers } from './PointDataBuffers';
 
 export class GridDescriptor {
   static halfFloatGridPrefix = '_HalfFloat';
 
   saveAsHalfFloat = false;
   leavesCount = 0;
+  isSkipped = false;
 
   uniqueName;
   gridName;
   gridType;
 
   readGrid() {
-    const { bufferIterator, version } = GridSharedContext.getContext(this);
+    const { bufferIterator, version, hasGridOffsets } = GridSharedContext.getContext(this);
 
     this.readGridHeader();
-    assert('Grid buffer position', this.gridBufferPosition, bufferIterator.offset);
 
-    if (this.gridBufferPosition !== bufferIterator.offset) {
-      bufferIterator.offset = this.gridBufferPosition;
+    // NOTE Without grid offsets, the grid starts right after the header
+    if (hasGridOffsets) {
+      assert('Grid buffer position', this.gridBufferPosition, bufferIterator.offset);
+
+      if (this.gridBufferPosition !== bufferIterator.offset) {
+        bufferIterator.offset = this.gridBufferPosition;
+      }
     }
 
     this.readCompression();
     this.readMetadata();
 
     if (!valueTypeSizeMap[this.getGridValueType()]) {
-      // NOTE Bool, mask and point grids use other value formats
-      unsupported(`Trees of ${this.getGridValueType()} grids`);
-      bufferIterator.offset = this.endBufferPosition;
+      // NOTE For example vec2, string and 64-bit point data grids
+      this.skipGrid(`Trees of ${this.getGridValueType()} grids`);
       return;
     }
 
@@ -45,9 +56,31 @@ export class GridDescriptor {
       this.readBuffers();
     } else {
       this.readGridTransform();
+
+      // NOTE Instance grids save no tree. OpenVDBReader.connectInstances adds the parent tree.
+      if (this.isInstance()) {
+        return;
+      }
+
       this.readTopology();
       this.readBuffers();
     }
+  }
+
+  // NOTE Without grid offsets, the reader cannot find the end of the grid
+  skipGrid(description) {
+    const { bufferIterator, hasGridOffsets } = GridSharedContext.getContext(this);
+
+    unsupported(description);
+    this.isSkipped = true;
+
+    if (hasGridOffsets) {
+      bufferIterator.offset = this.endBufferPosition;
+    }
+  }
+
+  isInstance() {
+    return Boolean(this.instanceParentName);
   }
 
   readGridHeader() {
@@ -61,6 +94,8 @@ export class GridDescriptor {
       this.saveAsHalfFloat = true;
       this.gridType = this.gridType.split(GridDescriptor.halfFloatGridPrefix).join('');
     }
+
+    this.treeLayout = TreeLayout.fromGridType(this.gridType);
 
     if (Version.greaterEq(version, 216)) {
       this.instanceParentName = bufferIterator.readString();
@@ -109,7 +144,7 @@ export class GridDescriptor {
   }
 
   getGridValueType() {
-    // NOTE Grid type has the form Tree_<value type>_5_4_3. OpenVDB does not write value_type metadata.
+    // NOTE Grid type has the form Tree_<value type>_<log2 dims>. OpenVDB does not write value_type metadata.
     const [, treeValueType] = this.gridType.match(/^Tree_(.+?)(_\d+)+$/) || [];
     const value = Object.entries(this.metadata).find(([id]) => id === 'value_type');
 
@@ -132,17 +167,17 @@ export class GridDescriptor {
   }
 
   readTopology() {
-    const { bufferIterator } = GridSharedContext.getContext(this);
+    const { bufferIterator, hasGridOffsets } = GridSharedContext.getContext(this);
 
     GridSharedContext.getContext(this).useHalf = this.saveAsHalfFloat;
     GridSharedContext.getContext(this).valueType = this.getGridValueType();
+    GridSharedContext.getContext(this).treeLayout = this.treeLayout;
 
+    // NOTE Old trees can have more buffers. Leaves save their own buffer count, see ChildNode.readBuffers.
     const topologyBufferCount = bufferIterator.readBytes(uint32Size);
 
     if (topologyBufferCount !== 1) {
-      // NOTE https://github.com/AcademySoftwareFoundation/openvdb/blob/master/openvdb/openvdb/tree/Tree.h#L1120
-      unsupported('Multi-buffer trees');
-      return;
+      debugLog('Multi-buffer tree, auxiliary leaf buffers are not used', topologyBufferCount);
     }
 
     this.root = new RootNode();
@@ -153,24 +188,34 @@ export class GridDescriptor {
 
     GridSharedContext.cleanContext(this.root);
 
-    assert('Block buffer', this.blockBufferPosition, bufferIterator.offset);
+    if (hasGridOffsets) {
+      assert('Block buffer', this.blockBufferPosition, bufferIterator.offset);
+    }
   }
 
   readBuffers() {
-    const { bufferIterator, version } = GridSharedContext.getContext(this);
+    const { bufferIterator, version, hasGridOffsets } = GridSharedContext.getContext(this);
 
     if (!this.root || Version.less(version, 214)) {
       // NOTE Files before 214 have no child nodes
-      unsupported('Leaf buffers');
-      bufferIterator.offset = this.endBufferPosition;
+      this.skipGrid('Leaf buffers');
       return;
     }
 
-    GridSharedContext.passContext(this, this.root);
-    this.root.readBuffers();
-    GridSharedContext.cleanContext(this.root);
+    if (this.getGridValueType() === pointDataIndex32) {
+      const pointDataBuffers = new PointDataBuffers();
+      GridSharedContext.passContext(this, pointDataBuffers);
+      pointDataBuffers.readBuffers(this.root);
+      GridSharedContext.cleanContext(pointDataBuffers);
+    } else {
+      GridSharedContext.passContext(this, this.root);
+      this.root.readBuffers();
+      GridSharedContext.cleanContext(this.root);
+    }
 
-    assert('End buffer', this.endBufferPosition, bufferIterator.offset);
+    if (hasGridOffsets) {
+      assert('End buffer', this.endBufferPosition, bufferIterator.offset);
+    }
   }
 
   getWorldBbox(child) {
@@ -178,11 +223,11 @@ export class GridDescriptor {
   }
 
   getLocalBbox() {
-    const maxLog2Dim = 1 << (log2dimMap[0] + totalMap.reduce((total, next) => total + next));
+    const { rootChildDim } = this.treeLayout;
 
     return [
-      this.metadata.file_bbox_min.value.subScalar(maxLog2Dim - 1),
-      this.metadata.file_bbox_max.value.addScalar(maxLog2Dim - 1),
+      this.metadata.file_bbox_min.value.subScalar(rootChildDim - 1),
+      this.metadata.file_bbox_max.value.addScalar(rootChildDim - 1),
     ];
   }
 

@@ -8,9 +8,13 @@ export class GridSharedContext {
   // NOTE GridVersion
   version = null;
 
+  // NOTE Files without grid offsets must be read in order
+  hasGridOffsets = null;
+
   // NOTE Grid value settings
   valueType = null;
   useHalf = null;
+  treeLayout = null;
 
   static tagContext(target, context) {
     target.sharedContext = context;
