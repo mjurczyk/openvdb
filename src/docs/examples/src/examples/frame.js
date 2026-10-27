@@ -83,6 +83,7 @@ const createRandom = (seed) => () => {
 export const exampleFrame = ({ scene }) => {
   const params = {
     source: 'bunny',
+    format: 'wvdb',
     baseColor: '#ffffff',
     absorbance: 1.0,
     densityScale: 1.0,
@@ -96,6 +97,8 @@ export const exampleFrame = ({ scene }) => {
   };
 
   let entries = [];
+  // NOTE .wvdb downloads of the current build. A rebuild stops them.
+  let streams = [];
   let buildId = 0;
   let rotation = null;
 
@@ -213,7 +216,10 @@ export const exampleFrame = ({ scene }) => {
       volume.dispose();
     });
 
+    streams.forEach((volumeData) => volumeData.dispose());
+
     entries = [];
+    streams = [];
   };
 
   // NOTE The pivot turns the volume around its own center
@@ -296,6 +302,89 @@ export const exampleFrame = ({ scene }) => {
       return;
     }
 
+    // NOTE One bunny, or two bunnies that overlap. createBunny() gives a new volume.
+    const addBunnies = (center, size, createBunny) => {
+      // NOTE Center the first bunny at the scene origin
+      const firstPivot = addVolume(createBunny(), center);
+      firstPivot.position.set(0.0, 0.0, 0.0);
+
+      if (params.source !== 'twoBunnies') {
+        return;
+      }
+
+      // NOTE The second bunny overlaps the first by approximately 40 percent of its width
+      const secondPivot = addVolume(createBunny(), center);
+      secondPivot.position.set(size.x * 0.6, size.y * 0.1, -size.z * 0.2);
+
+      rotation = setInterval(() => {
+        if (params.rotate) {
+          secondPivot.rotation.y += 0.01;
+        }
+      }, 1000 / 60);
+    };
+
+    // NOTE 10 x 10 bunnies. createGridVolume() gives a new volume with its scale.
+    const addBunnyGrid = (side, createGridVolume) => {
+      const spacing = side * 1.1;
+      const offset = ((bunnyGridSize - 1) * spacing) / 2.0;
+
+      for (let x = 0; x < bunnyGridSize; x++) {
+        for (let z = 0; z < bunnyGridSize; z++) {
+          addVolume(createGridVolume(), new Three.Vector3()).position.set(
+            x * spacing - offset,
+            0.0,
+            z * spacing - offset,
+          );
+        }
+      }
+    };
+
+    // NOTE All bunnies use the same .wvdb data. Each LOD makes all of them sharper.
+    if (params.format === 'wvdb') {
+      const volumeData = new OpenVDB.WVDBLoader().load(
+        './assets/bunny_cloud.wvdb',
+        () => {
+          if (currentBuildId !== buildId) {
+            return;
+          }
+
+          const grid = volumeData.grids.density || Object.values(volumeData.grids)[0];
+          const center = grid.bbox.getCenter(new Three.Vector3());
+          const size = grid.bbox.getSize(new Three.Vector3());
+
+          if (params.source === 'bunnyGrid') {
+            addBunnyGrid(Math.max(size.x, size.y, size.z), () => {
+              const volume = new OpenVDB.FrameVolume(grid.data, { resolution: grid.resolution });
+              volume.scale.copy(size);
+
+              return volumeData.attach(volume);
+            });
+
+            return;
+          }
+
+          addBunnies(center, size, () =>
+            volumeData.attach(
+              new OpenVDB.FrameVolume(grid.data, { resolution: grid.resolution, bbox: grid.bbox }),
+            ),
+          );
+        },
+        ({ done }) => {
+          if (done) {
+            onBuilt();
+          }
+        },
+        (error) => {
+          console.error('WVDBLoader', { error });
+          onBuilt();
+        },
+      );
+
+      streams.push(volumeData);
+
+      return;
+    }
+
     loadAndCacheVDB('bunny_cloud.vdb', './assets/bunny_cloud.vdb').then((vdb) => {
       if (currentBuildId !== buildId) {
         return;
@@ -314,21 +403,12 @@ export const exampleFrame = ({ scene }) => {
             return;
           }
 
-          const spacing = side * 1.1;
-          const offset = ((bunnyGridSize - 1) * spacing) / 2.0;
+          addBunnyGrid(side, () => {
+            const volume = new OpenVDB.FrameVolume(data, { resolution: bunnyGridResolution });
+            volume.scale.setScalar(side);
 
-          for (let x = 0; x < bunnyGridSize; x++) {
-            for (let z = 0; z < bunnyGridSize; z++) {
-              const volume = new OpenVDB.FrameVolume(data, { resolution: bunnyGridResolution });
-              volume.scale.setScalar(side);
-
-              addVolume(volume, new Three.Vector3()).position.set(
-                x * spacing - offset,
-                0.0,
-                z * spacing - offset,
-              );
-            }
-          }
+            return volume;
+          });
 
           onBuilt();
         });
@@ -347,26 +427,9 @@ export const exampleFrame = ({ scene }) => {
         }
       };
 
-      const createBunny = () =>
-        new OpenVDB.FrameVolume(vdb, { resolution: 100, progressive: true }, onBunnyConverted);
-
-      // NOTE Center the first bunny at the scene origin
-      const firstPivot = addVolume(createBunny(), center);
-      firstPivot.position.set(0.0, 0.0, 0.0);
-
-      if (params.source !== 'twoBunnies') {
-        return;
-      }
-
-      // NOTE The second bunny overlaps the first by approximately 40 percent of its width
-      const secondPivot = addVolume(createBunny(), center);
-      secondPivot.position.set(size.x * 0.6, size.y * 0.1, -size.z * 0.2);
-
-      rotation = setInterval(() => {
-        if (params.rotate) {
-          secondPivot.rotation.y += 0.01;
-        }
-      }, 1000 / 60);
+      addBunnies(center, size, () =>
+        new OpenVDB.FrameVolume(vdb, { resolution: 100, progressive: true }, onBunnyConverted),
+      );
     });
   };
 
@@ -507,6 +570,20 @@ export const exampleFrame = ({ scene }) => {
           },
           onChange: (value) => {
             params.source = value;
+
+            rebuild();
+          },
+        },
+        {
+          id: 'format',
+          name: 'Format',
+          defaultValue: params.format,
+          options: {
+            WVDB: 'wvdb',
+            VDB: 'vdb',
+          },
+          onChange: (value) => {
+            params.format = value;
 
             rebuild();
           },

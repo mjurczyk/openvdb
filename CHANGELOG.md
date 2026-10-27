@@ -4,6 +4,8 @@
 - `WVDBAnimationLoader` loads LOD 0 of all frames first, then LOD 1, then LOD 2. Each pass requests only the first bytes of each file (`Range: bytes=0-N`), up to the end of that LOD. This also works when the host compresses responses. Each pass reads the earlier LODs again
 - `WVDBAnimationLoader.setConcurrency`: default is all files of a pass at the same time
 - `wvdb` example: only the Asset field and the Status line
+- `wvdb` example starts with Bunny Cloud
+- `frame` example: Format field (WVDB or VDB, default WVDB) for the bunny sources
 
 # v0.5.1
 

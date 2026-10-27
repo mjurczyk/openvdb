@@ -34,7 +34,7 @@ const getController = (id) =>
 
 export const exampleWVDB = ({ scene }) => {
   const params = {
-    asset: 'ground_explosion',
+    asset: 'bunny_cloud',
   };
 
   let entry = null;
