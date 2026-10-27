@@ -1,8 +1,9 @@
 import * as Three from 'three';
 import * as OpenVDB from 'three-openvdb';
 import { gui, setGuiFields } from '../utils/gui';
-import { loaders } from '../utils/resources';
+import { loadEnvironment } from '../utils/resources';
 import { setLoading } from '../utils/loading';
+import { isPhone } from '../utils/device';
 
 // NOTE Longest side of each volume in scene units
 const displaySize = 100.0;
@@ -21,6 +22,9 @@ const sequences = {
     fps: 60,
   },
 };
+
+// NOTE On phones sequences stop at LOD 1 (64³). All frames at the finest LOD use approximately 1 GB of GPU memory.
+const sequenceMaxLod = isPhone ? 1 : Infinity;
 
 const defaultExtinction = 100.0;
 
@@ -47,11 +51,7 @@ export const exampleWVDB = ({ scene }) => {
   scene.add(sun);
   scene.add(new Three.HemisphereLight(0x88aaff, 0x443322, 0.5));
 
-  loaders.ultraHdr.load('./assets/uv-1-HDR.jpg', (env) => {
-    env.mapping = Three.EquirectangularReflectionMapping;
-    scene.environment = env;
-    scene.background = env;
-  });
+  loadEnvironment(scene, 'uv-1');
 
   let lastTime = performance.now();
 
@@ -119,6 +119,7 @@ export const exampleWVDB = ({ scene }) => {
             emissiveGrid: sequence.emissiveGrid,
             emissiveScale: sequence.emissiveScale,
           })
+          .setMaxLod(sequenceMaxLod)
           .load(
             frames.map((frame) => `${folder}${frame}`),
             () => {

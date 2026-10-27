@@ -1,7 +1,7 @@
 import * as Three from 'three';
 import * as OpenVDB from 'three-openvdb';
 import { gui, setGuiFields } from '../utils/gui';
-import { loaders } from '../utils/resources';
+import { loadEnvironment, loaders } from '../utils/resources';
 
 export const exampleGLTF = ({ scene }) => {
 
@@ -20,11 +20,7 @@ export const exampleGLTF = ({ scene }) => {
               'UV': 'uv-1'
             },
             onChange: (value) => {
-              loaders.ultraHdr.load(`./assets/${value}-HDR.jpg`, env => {
-                env.mapping = Three.EquirectangularReflectionMapping;
-                scene.environment = env;
-                scene.background = env;
-              });
+              loadEnvironment(scene, value);
             }
           },
         ]
