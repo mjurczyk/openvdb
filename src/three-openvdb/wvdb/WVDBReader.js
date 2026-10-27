@@ -100,13 +100,14 @@ const getBackgroundTexel = ({ class: gridClass, background, channels = 1 }, scal
 
 // NOTE Reads a .wvdb file. Each grid has one texture (Uint8Array): density for scalar grids, RGBA for vector grids.
 // Each LOD gives a new texture at its own size. LOD 0 first, then each next LOD replaces it.
-// load() reads the file as a stream. loadMore() reads more LODs later with a Range request.
+// The file is one request without a Range header. Hosts can compress responses, and then byte ranges
+// do not match the file. The reader keeps the bytes as they arrive and decodes LODs from them.
 export class WVDBReader {
   url = null;
   header = null;
   grids = {};
   finalLod = 0;
-  // NOTE Last LOD whose chunks were read. -1 before the first one.
+  // NOTE Last LOD that decode() has started. -1 before the first one.
   loadedLod = -1;
   bytesLoaded = 0;
   bytesTotal = 0;
@@ -114,7 +115,16 @@ export class WVDBReader {
   cancelled = false;
 
   dataStart = 0;
+  chunks = [];
   streamReader = null;
+
+  // NOTE File bytes, kept until all LODs are decoded
+  buffer = new Uint8Array(0);
+  received = 0;
+  // NOTE Promises that wait for a number of received bytes
+  waiters = [];
+  streamError = null;
+  streamEnded = false;
 
   // NOTE scales: { gridName: scale }. Density is value / scale, same as emissiveScale of FrameVolume.
   constructor({ maxLod = Infinity, scales = {} } = {}) {
@@ -122,55 +132,48 @@ export class WVDBReader {
     this.scales = scales;
     this.readerId = nextReaderId++;
     this.backend = getBackend(this.readerId);
+
+    this.headerReady = new Promise((resolve, reject) => {
+      this.resolveHeader = resolve;
+      this.rejectHeader = reject;
+    });
+    this.headerReady.catch(() => {});
   }
 
-  // NOTE Reads the header and LOD 0 to untilLod in one stream.
+  // NOTE Reads the header and decodes LOD 0 to untilLod. The download continues to the last LOD,
+  // so loadMore() can decode the next LODs later.
   // onHeader(reader) runs when the header is read. onUpdate(event) runs after each texture change.
   async load(url, { onHeader, onUpdate, untilLod = Infinity } = {}) {
-    this.url = url;
+    this.start(url, { onHeader });
 
-    await this.read(untilLod, { onHeader, onUpdate });
+    await this.decode(untilLod, { onUpdate });
 
     return this;
   }
 
-  // NOTE Reads the next LODs, up to untilLod. Only their bytes are requested.
+  // NOTE Decodes the next LODs, up to untilLod, from the same download
   async loadMore(untilLod, { onUpdate } = {}) {
-    if (!this.header) {
-      throw new Error('Call load() first.');
-    }
-
-    await this.read(untilLod, { onUpdate });
+    await this.decode(untilLod, { onUpdate });
 
     return this;
   }
 
-  async read(untilLod, { onHeader, onUpdate }) {
-    if (this.cancelled || (this.header && this.loadedLod >= Math.min(untilLod, this.finalLod))) {
-      return;
+  // NOTE Starts the download. Returns the stream promise. It ends when the bytes of the last LOD are in.
+  start(url, { onHeader } = {}) {
+    if (!this.streaming) {
+      this.url = url;
+      this.streaming = this.stream(onHeader).catch((error) => {
+        this.streamError = error;
+        this.rejectHeader(error);
+        this.wakeWaiters();
+      });
     }
 
-    // NOTE Bytes of the request. Without a header, the request starts at byte 0.
-    let chunks = null;
-    let rangeStart = 0;
-    let headers = {};
+    return this.streaming;
+  }
 
-    if (this.header) {
-      chunks = this.getChunks(untilLod);
-      rangeStart = this.dataStart + chunks[0].offset;
-
-      const rangeEnd = this.dataStart + Math.max(...chunks.map(({ offset, length }) => offset + length));
-      headers = { Range: `bytes=${rangeStart}-${rangeEnd - 1}` };
-    }
-
-    const response = await fetch(this.url, { headers }).catch((error) => {
-      // NOTE Some URLs (for example blob: URLs in some browsers) do not take a Range header
-      if (headers.Range) {
-        return fetch(this.url);
-      }
-
-      throw error;
-    });
+  async stream(onHeader) {
+    const response = await fetch(this.url);
 
     if (!response.ok) {
       throw new Error(`Could not load ${this.url} (${response.status}).`);
@@ -180,62 +183,7 @@ export class WVDBReader {
       throw new Error('Streams are not supported.');
     }
 
-    // NOTE Servers without Range support send the full file (status 200). Then bytes start at 0.
-    const responseStart = response.status === 206 ? rangeStart : 0;
-
     this.streamReader = response.body.getReader();
-
-    let buffer = new Uint8Array(0);
-    let received = 0;
-    let nextChunk = 0;
-
-    const tasks = [];
-
-    const append = (value) => {
-      if (received + value.length > buffer.length) {
-        const grown = new Uint8Array(Math.max(buffer.length * 2, received + value.length));
-        grown.set(buffer.subarray(0, received));
-        buffer = grown;
-      }
-
-      buffer.set(value, received);
-      received += value.length;
-    };
-
-    const dispatchChunks = () => {
-      while (nextChunk < chunks.length) {
-        const chunk = chunks[nextChunk];
-        const start = this.dataStart + chunk.offset - responseStart;
-
-        if (start + chunk.length > received) {
-          break;
-        }
-
-        nextChunk++;
-
-        const bytes = buffer.slice(start, start + chunk.length);
-        const task = this.backend.request(
-          'chunk',
-          {
-            readerId: this.readerId,
-            gridIndex: chunk.gridIndex,
-            lod: chunk.lod,
-            kind: chunk.kind,
-            firstIndex: chunk.firstIndex,
-            bytes,
-          },
-          [bytes.buffer]
-        );
-
-        tasks.push(
-          task.then((result) => {
-            if (!this.cancelled) {
-              this.apply(chunk, result, onUpdate);
-            }
-          })
-        );
-      }
-    };
 
     while (!this.cancelled) {
       const { done, value } = await this.streamReader.read();
@@ -244,11 +192,10 @@ export class WVDBReader {
         break;
       }
 
-      append(value);
-      this.bytesLoaded += value.length;
+      this.append(value);
 
       if (!this.header) {
-        const result = readWVDBHeader(buffer.subarray(0, received));
+        const result = readWVDBHeader(this.buffer.subarray(0, this.received));
 
         if (!result) {
           continue;
@@ -257,55 +204,134 @@ export class WVDBReader {
         this.header = result.header;
         this.dataStart = result.dataStart;
         this.prepare();
-
-        chunks = this.getChunks(untilLod);
+        this.chunks = getWVDBChunks(this.header, this.finalLod);
 
         if (onHeader) {
           onHeader(this);
         }
 
-        // NOTE A file with no grids has no chunks. It is done at once.
-        if (!chunks.length) {
-          this.done = true;
-          this.loadedLod = this.finalLod;
-
-          if (onUpdate) {
-            onUpdate({ reader: this, grid: null, lod: -1, lodComplete: true, done: true });
-          }
-        }
+        this.resolveHeader();
       }
 
-      dispatchChunks();
+      this.wakeWaiters();
 
-      // NOTE All chunks of this request are here. Stop the download.
-      if (nextChunk === chunks.length) {
+      // NOTE All bytes up to the last LOD are here. Stop the download.
+      if (this.received >= this.bytesTotal) {
         this.streamReader.cancel().catch(() => {});
         break;
       }
     }
 
-    if (!this.cancelled && (!chunks || nextChunk < chunks.length)) {
-      throw new Error('The WVDB file is incomplete.');
+    this.streamEnded = true;
+
+    if (!this.header && !this.cancelled) {
+      throw new Error('Not a complete WVDB file.');
+    }
+
+    this.wakeWaiters();
+  }
+
+  append(value) {
+    // NOTE Bytes after the last LOD are not needed
+    const limit = this.header ? this.bytesTotal : Infinity;
+    const length = Math.max(0, Math.min(value.length, limit - this.received));
+
+    if (this.received + length > this.buffer.length) {
+      const size = this.header
+        ? this.bytesTotal
+        : Math.max(this.buffer.length * 2, this.received + length);
+      const grown = new Uint8Array(size);
+
+      grown.set(this.buffer.subarray(0, this.received));
+      this.buffer = grown;
+    }
+
+    this.buffer.set(value.subarray(0, length), this.received);
+    this.received += length;
+    this.bytesLoaded += value.length;
+  }
+
+  wakeWaiters() {
+    this.waiters = this.waiters.filter(({ end, resolve, reject }) => {
+      if (this.received >= end) {
+        resolve();
+      } else if (this.streamError || this.cancelled || this.streamEnded) {
+        reject(this.streamError || new Error('The WVDB file is incomplete.'));
+      } else {
+        return true;
+      }
+
+      return false;
+    });
+  }
+
+  waitForBytes(end) {
+    return new Promise((resolve, reject) => {
+      this.waiters.push({ end, resolve, reject });
+      this.wakeWaiters();
+    });
+  }
+
+  // NOTE Decodes the chunks after loadedLod, up to untilLod. Each chunk goes to the worker when its bytes are in.
+  async decode(untilLod, { onUpdate } = {}) {
+    await this.headerReady;
+
+    const lod = Math.min(untilLod, this.finalLod);
+
+    if (this.cancelled || lod <= this.loadedLod) {
+      return;
+    }
+
+    const chunks = this.chunks.filter((chunk) => chunk.lod > this.loadedLod && chunk.lod <= lod);
+    const tasks = [];
+
+    this.loadedLod = lod;
+
+    // NOTE A file with no grids has no chunks. It is done at once.
+    if (!this.chunks.length && onUpdate) {
+      onUpdate({ reader: this, grid: null, lod: -1, lodComplete: true, done: true });
+    }
+
+    for (const chunk of chunks) {
+      const start = this.dataStart + chunk.offset;
+
+      await this.waitForBytes(start + chunk.length);
+
+      if (this.cancelled) {
+        return;
+      }
+
+      const bytes = this.buffer.slice(start, start + chunk.length);
+      const task = this.backend.request(
+        'chunk',
+        {
+          readerId: this.readerId,
+          gridIndex: chunk.gridIndex,
+          lod: chunk.lod,
+          kind: chunk.kind,
+          firstIndex: chunk.firstIndex,
+          bytes,
+        },
+        [bytes.buffer]
+      );
+
+      tasks.push(
+        task.then((result) => {
+          if (!this.cancelled) {
+            this.apply(chunk, result, onUpdate);
+          }
+        })
+      );
     }
 
     await Promise.all(tasks);
 
-    if (chunks.length) {
-      this.loadedLod = Math.max(...chunks.map(({ lod }) => lod));
-    }
-
     this.done = this.loadedLod >= this.finalLod;
 
     if (this.done) {
+      this.buffer = null;
       this.release();
     }
-  }
-
-  // NOTE Chunks after loadedLod, up to untilLod and finalLod
-  getChunks(untilLod) {
-    return getWVDBChunks(this.header, Math.min(untilLod, this.finalLod)).filter(
-      ({ lod }) => lod > this.loadedLod
-    );
   }
 
   // NOTE Makes the grids and sends the header data to the worker
@@ -401,6 +427,8 @@ export class WVDBReader {
 
     this.cancelled = true;
     this.streamReader?.cancel().catch(() => {});
+    this.rejectHeader(new Error('Cancelled.'));
+    this.wakeWaiters();
     this.release();
   }
 }
