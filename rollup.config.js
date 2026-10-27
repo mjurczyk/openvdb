@@ -22,6 +22,17 @@ export default [
           {
             src: './package.json',
             dest: './build/',
+            // NOTE The published package.json has no scripts, dev dependencies or private flag.
+            // Then npm publish in build does not run the scripts of the repo root.
+            transform: (contents) => {
+              const packageJson = JSON.parse(contents.toString());
+
+              delete packageJson.private;
+              delete packageJson.devDependencies;
+              packageJson.scripts = {};
+
+              return `${JSON.stringify(packageJson, null, 2)}\n`;
+            },
           },
           {
             src: './README.md',

@@ -1,6 +1,7 @@
 {
   "name": "openvdb",
   "version": "0.4.0",
+  "private": true,
   "description": "This project indirectly ports OpenVDB file format and tools to JavaScript, TypeScript, and Node. Specific 3D library implementations can be found in sub-directories.",
   "main": "./index.js",
   "exports": {
@@ -20,10 +21,10 @@
     "fluid"
   ],
   "scripts": {
-    "build": "rollup --config ./rollup.config.js && cd build && npm pack",
+    "build": "rollup --config ./rollup.config.js",
     "build:examples": "cd examples && npm run build",
     "dev": "cd examples && npm run dev",
-    "publish": "npm run build && cd ./build && npm publish"
+    "release": "npm run build && cd ./build && npm publish"
   },
   "author": {
     "name": "mjurczyk",

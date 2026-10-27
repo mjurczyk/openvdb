@@ -10,6 +10,11 @@ Core:
 - Fix volumes past `shadowDistance` with no shadows in `'frame'` lighting. The last shadow cascade covers all volumes
 - Fix lit streaks between overlapping volumes in `'frame'` lighting. Each volume samples shadows at its own visible position
 
+Build:
+
+- `npm run release` builds and publishes `build/`. The repo root is private, so `npm publish` in the root fails
+- The published package has no `.tgz` file, no scripts and no dev dependencies
+
 Examples:
 
 - `vdb` example uses `FrameVolume` and plays VDB sequences from a ZIP or a folder
