@@ -47,14 +47,9 @@ export const exampleWVDB = ({ scene }) => {
   scene.add(sun);
   scene.add(new Three.HemisphereLight(0x88aaff, 0x443322, 0.5));
 
-  loaders.rgbe.load('./assets/uv-1-HDR.hdr', (env) => {
+  loaders.ultraHdr.load('./assets/uv-1-HDR.jpg', (env) => {
     env.mapping = Three.EquirectangularReflectionMapping;
     scene.environment = env;
-  });
-
-  loaders.texture.load('./assets/uv-1-8K.jpg', (env) => {
-    env.mapping = Three.EquirectangularRefractionMapping;
-    env.colorSpace = Three.SRGBColorSpace;
     scene.background = env;
   });
 
