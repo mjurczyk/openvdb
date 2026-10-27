@@ -31,6 +31,13 @@ export class GridDescriptor {
     this.readCompression();
     this.readMetadata();
 
+    if (!valueTypeSizeMap[this.getGridValueType()]) {
+      // NOTE Bool, mask and point grids use other value formats
+      unsupported(`Trees of ${this.getGridValueType()} grids`);
+      bufferIterator.offset = this.endBufferPosition;
+      return;
+    }
+
     if (Version.less(version, 216)) {
       this.readTopology();
       this.readGridTransform();
@@ -101,9 +108,11 @@ export class GridDescriptor {
   }
 
   getGridValueType() {
+    // NOTE Grid type has the form Tree_<value type>_5_4_3. OpenVDB does not write value_type metadata.
+    const [, treeValueType] = this.gridType.match(/^Tree_(.+?)(_\d+)+$/) || [];
     const value = Object.entries(this.metadata).find(([id]) => id === 'value_type');
 
-    return (value ? value[1].value : undefined) || floatType;
+    return treeValueType || (value ? value[1].value : undefined) || floatType;
   }
 
   getGridClass() {
@@ -147,11 +156,11 @@ export class GridDescriptor {
   }
 
   readBuffers() {
-    const { bufferIterator, valueType, version } = GridSharedContext.getContext(this);
+    const { bufferIterator, version } = GridSharedContext.getContext(this);
 
-    if (!this.root || !valueTypeSizeMap[valueType] || Version.less(version, 214)) {
-      // NOTE Bool, mask and point grids use other leaf buffer formats. Files before 214 have no child nodes.
-      unsupported(`Leaf buffers of ${valueType} grids`);
+    if (!this.root || Version.less(version, 214)) {
+      // NOTE Files before 214 have no child nodes
+      unsupported('Leaf buffers');
       bufferIterator.offset = this.endBufferPosition;
       return;
     }
