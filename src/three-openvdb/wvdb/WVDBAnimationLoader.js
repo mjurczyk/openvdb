@@ -1,6 +1,7 @@
 // NOTE Three.js-style loader for .wvdb sequences. Each file is one FrameVolume frame.
-// All files download at the same time, one request each. Frames decode in LOD passes:
-// LOD 0 of all frames, then LOD 1 of all frames, and so on. The animation can play after the first pass.
+// Frames load in LOD passes: LOD 0 of all frames, then LOD 1 of all frames, and so on.
+// Each pass requests only the first bytes of each file, up to the end of that LOD.
+// The animation can play after the first pass.
 import * as Three from 'three';
 import { FrameVolume } from '../frame/FrameVolume';
 import { FrameVolumeAnimation } from '../frame/FrameVolumeAnimation';
@@ -13,7 +14,7 @@ const gridOptions = ['emissiveGrid', 'baseColorGrid', 'maskGrid'];
 class WVDBAnimationLoader extends Three.Loader {
   options = {};
   maxLod = Infinity;
-  // NOTE Files that download at the same time. HTTP/2 sends all requests on one connection.
+  // NOTE Files that load at the same time in each pass. HTTP/2 sends all requests on one connection.
   concurrency = Infinity;
 
   constructor(manager) {
@@ -98,21 +99,18 @@ class WVDBAnimationLoader extends Three.Loader {
       }
     };
 
-    // NOTE Downloads start in file order, concurrency files at a time. The next one starts when one ends.
-    let nextDownload = 0;
+    // NOTE Runs task(index) for all frames in file order, concurrency files at a time
+    const runPass = async (task) => {
+      let next = 0;
 
-    const startDownloads = (count) => {
-      for (let i = 0; i < count && nextDownload < urls.length && !animation.disposed; i++) {
-        const index = nextDownload++;
+      const run = async () => {
+        while (next < urls.length && !stopIfDisposed()) {
+          await task(next++);
+        }
+      };
 
-        readers[index]
-          .start(urls[index], { onHeader: () => volumeData[index].readGrids() })
-          .then(() => startDownloads(1));
-      }
+      await Promise.all(Array.from({ length: Math.min(this.concurrency, urls.length) }, run));
     };
-
-    // NOTE Runs task(index) for all frames at the same time
-    const runPass = (task) => Promise.all(urls.map((_, index) => task(index)));
 
     const onUpdate = (index) => () => {
       if (!stopIfDisposed()) {
@@ -129,10 +127,11 @@ class WVDBAnimationLoader extends Three.Loader {
       }
     };
 
-    startDownloads(Math.min(this.concurrency, urls.length));
-
     await runPass(async (index) => {
-      await readers[index].decode(0, { onUpdate: onUpdate(index) });
+      await readers[index].loadLods(urls[index], 0, {
+        onHeader: () => volumeData[index].readGrids(),
+        onUpdate: onUpdate(index),
+      });
 
       if (stopIfDisposed()) {
         return;
@@ -159,7 +158,7 @@ class WVDBAnimationLoader extends Three.Loader {
           return;
         }
 
-        await readers[index].decode(lod, { onUpdate: onUpdate(index) });
+        await readers[index].loadLods(urls[index], lod, { onUpdate: onUpdate(index) });
 
         if (!stopIfDisposed()) {
           reportLod(lod);

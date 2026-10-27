@@ -1,7 +1,8 @@
 # Unreleased
 
-- Fix `.wvdb` LOD 1 and LOD 2 on hosts that compress responses (for example GitHub Pages). The loaders use no Range requests. Each file is one request, and the reader decodes the LODs from its bytes
-- `WVDBAnimationLoader` downloads all files at the same time (`setConcurrency`, default: all), so LOD 0 of a sequence arrives sooner
+- Fix `.wvdb` LOD 1 and LOD 2 on hosts that compress responses (for example GitHub Pages). `WVDBLoader` reads each file in one request, and decodes the LODs from its bytes
+- `WVDBAnimationLoader` loads LOD 0 of all frames first, then LOD 1, then LOD 2. Each pass requests only the first bytes of each file (`Range: bytes=0-N`), up to the end of that LOD. This also works when the host compresses responses. Each pass reads the earlier LODs again
+- `WVDBAnimationLoader.setConcurrency`: default is all files of a pass at the same time
 - `wvdb` example: only the Asset field and the Status line
 
 # v0.5.1

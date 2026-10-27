@@ -192,28 +192,7 @@ export class WVDBReader {
         break;
       }
 
-      this.append(value);
-
-      if (!this.header) {
-        const result = readWVDBHeader(this.buffer.subarray(0, this.received));
-
-        if (!result) {
-          continue;
-        }
-
-        this.header = result.header;
-        this.dataStart = result.dataStart;
-        this.prepare();
-        this.chunks = getWVDBChunks(this.header, this.finalLod);
-
-        if (onHeader) {
-          onHeader(this);
-        }
-
-        this.resolveHeader();
-      }
-
-      this.wakeWaiters();
+      this.receive(value, onHeader);
 
       // NOTE All bytes up to the last LOD are here. Stop the download.
       if (this.received >= this.bytesTotal) {
@@ -231,7 +210,125 @@ export class WVDBReader {
     this.wakeWaiters();
   }
 
+  // NOTE Keeps the bytes, reads the header when it is complete and wakes the waiting chunks
+  receive(value, onHeader) {
+    this.append(value);
+
+    if (!this.header) {
+      const result = readWVDBHeader(this.buffer.subarray(0, this.received));
+
+      if (result) {
+        this.header = result.header;
+        this.dataStart = result.dataStart;
+        this.prepare();
+        this.chunks = getWVDBChunks(this.header, this.finalLod);
+
+        if (onHeader) {
+          onHeader(this);
+        }
+
+        this.resolveHeader();
+      }
+    }
+
+    this.wakeWaiters();
+  }
+
+  // NOTE Reads the header and decodes LOD 0 to untilLod with requests for the first bytes of the file only.
+  // Each LOD is after the LODs before it, so the bytes of LOD 0 to untilLod are one prefix of the file.
+  // A prefix request also works when the host compresses the response: a prefix of the compressed
+  // stream decodes to a prefix of the file. The cost is that each request reads the earlier LODs again.
+  async loadLods(url, untilLod, { onHeader, onUpdate } = {}) {
+    this.url = url;
+
+    const fetching = this.fetchPrefix(untilLod, onHeader).catch((error) => {
+      this.streamError = error;
+      this.rejectHeader(error);
+      this.wakeWaiters();
+    });
+
+    await this.decode(untilLod, { onUpdate });
+    await fetching;
+
+    return this;
+  }
+
+  // NOTE Byte position after the last chunk of LOD 0 to lod
+  getLodEnd(lod) {
+    return this.chunks
+      .filter((chunk) => chunk.lod <= lod)
+      .reduce((end, { offset, length }) => Math.max(end, this.dataStart + offset + length), this.dataStart);
+  }
+
+  async fetchPrefix(untilLod, onHeader) {
+    // NOTE Before the header is known, the first request reads this many bytes
+    const firstRequest = 16 * 1024;
+    const getEnd = () =>
+      this.header ? this.getLodEnd(Math.min(untilLod, this.finalLod)) : firstRequest;
+
+    // NOTE The header gives the real end. A file shorter than the first request is complete after it.
+    while (!this.cancelled && this.received < getEnd()) {
+      const received = this.received;
+
+      await this.fetchRange(getEnd, onHeader);
+
+      if (this.received === received && !this.cancelled) {
+        throw new Error('The WVDB file is incomplete.');
+      }
+    }
+  }
+
+  async fetchRange(getEnd, onHeader) {
+    // NOTE Compressed responses can be a little longer than the file bytes
+    const requested = getEnd();
+    const last = requested + Math.ceil(requested / 1000) + 1024 - 1;
+    const response = await fetch(this.url, { headers: { Range: `bytes=0-${last}` } });
+
+    if (!response.ok) {
+      throw new Error(`Could not load ${this.url} (${response.status}).`);
+    }
+
+    this.streamReader = response.body.getReader();
+
+    // NOTE File position of the next response byte. Prefix and full responses start at byte 0.
+    let position = 0;
+
+    try {
+      while (!this.cancelled) {
+        const { done, value } = await this.streamReader.read();
+
+        if (done) {
+          break;
+        }
+
+        const skip = Math.min(Math.max(this.received - position, 0), value.length);
+
+        position += value.length;
+        this.bytesLoaded += skip;
+
+        if (skip < value.length) {
+          this.receive(value.subarray(skip), onHeader);
+        }
+
+        if (this.header && this.received >= getEnd()) {
+          this.streamReader.cancel().catch(() => {});
+          break;
+        }
+      }
+    } catch (error) {
+      // NOTE A compressed prefix ends without the compression footer. Some browsers report an error then.
+      if (!this.header || this.received < getEnd()) {
+        throw error;
+      }
+    }
+  }
+
   append(value) {
+    // NOTE All LODs are decoded. The bytes are not needed.
+    if (!this.buffer) {
+      return;
+    }
+
     // NOTE Bytes after the last LOD are not needed
     const limit = this.header ? this.bytesTotal : Infinity;
     const length = Math.max(0, Math.min(value.length, limit - this.received));
