@@ -1,7 +1,7 @@
 import * as Three from 'three';
 import * as OpenVDB from 'three-openvdb';
 import { gui, setGuiFields } from '../utils/gui';
-import { loadAndCacheVDB, loaders } from '../utils/resources';
+import { loadAndCacheVDB, loadEnvironment } from '../utils/resources';
 
 export const exampleBunny = ({ scene }) => {
   loadAndCacheVDB('bunny_cloud.vdb', './assets/bunny_cloud.vdb').then(vdb => {
@@ -126,11 +126,7 @@ export const exampleBunny = ({ scene }) => {
               'UV': 'uv-1'
             },
             onChange: (value) => {
-              loaders.ultraHdr.load(`./assets/${value}-HDR.jpg`, env => {
-                env.mapping = Three.EquirectangularReflectionMapping;
-                scene.environment = env;
-                scene.background = env;
-              });
+              loadEnvironment(scene, value);
             }
           },
           {

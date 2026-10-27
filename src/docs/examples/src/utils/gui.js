@@ -7,6 +7,7 @@ import { exampleVDB } from "../examples/vdb";
 import { exampleFrame } from "../examples/frame";
 import { exampleWVDB } from "../examples/wvdb";
 import { scene } from "../main";
+import { isPhone } from "./device";
 
 export let gui = new GUI();
 export const dropTarget = document.querySelector('#dropzone');
@@ -78,7 +79,7 @@ const guiBaseFields = () => [
 let guiExtendedFields = [];
 
 // NOTE On phones the GUI starts closed, because it covers most of the screen. A demo change keeps the state.
-let guiClosed = window.matchMedia('(max-width: 640px)').matches;
+let guiClosed = isPhone;
 
 export const setGuiFields = (extendedFields) => {
   guiExtendedFields = extendedFields;

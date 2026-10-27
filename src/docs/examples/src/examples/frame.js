@@ -1,7 +1,7 @@
 import * as Three from 'three';
 import * as OpenVDB from 'three-openvdb';
 import { setGuiFields } from '../utils/gui';
-import { loadAndCacheVDB, loaders } from '../utils/resources';
+import { loadAndCacheVDB, loadEnvironment } from '../utils/resources';
 import { setLoading } from '../utils/loading';
 
 // NOTE Stress test: one bunny is converted one time, in a cube box.
@@ -357,11 +357,7 @@ export const exampleFrame = ({ scene }) => {
             UV: 'uv-1',
           },
           onChange: (value) => {
-            loaders.ultraHdr.load(`./assets/${value}-HDR.jpg`, (env) => {
-              env.mapping = Three.EquirectangularReflectionMapping;
-              scene.environment = env;
-              scene.background = env;
-            });
+            loadEnvironment(scene, value);
           },
         },
         {
