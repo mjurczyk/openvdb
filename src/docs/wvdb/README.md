@@ -103,15 +103,20 @@ A reader needs only the header to allocate memory and to know where each chunk e
 
 ## c) The three.js kernel
 
-`three-wvdb-loader` gives each grid one `Uint8Array` texture at the size of the final LOD: density for scalar grids, RGBA for vector grids. `FrameVolume` and `FogVolume` of `three-openvdb` use it as raw data (`emissiveGrid`, `baseColorGrid` and `maskGrid` too). Their textures read that same array, so an update needs only `texture.needsUpdate = true`. `volumeData.attach( volume )` does this for each update.
+`three-wvdb-loader` gives each grid one `Uint8Array` texture: density for scalar grids, RGBA for vector grids. Each LOD gives a new texture at its own size (32³, then 64³, then 128³). `FrameVolume` and `FogVolume` of `three-openvdb` use it as raw data (`emissiveGrid`, `baseColorGrid` and `maskGrid` too). `volumeData.attach( volume )` connects the textures of the volume to their grids. When a LOD arrives, each texture gets the new data. When the size changes, the texture is disposed first, so three.js allocates GPU memory of the new size.
 
-Flow:
+Single file (`WVDBLoader`):
 
-1. `WVDBReader.load( url )` reads `response.body` as a stream. When the header is complete, it allocates the file buffer, the grid textures (filled with background density) and the chunk list (`getWVDBChunks`).
-2. When the last byte of a chunk arrives, a copy of the chunk goes to the worker. The worker answers in order.
-3. The worker (`wvdbKernel`) inflates the chunk with `DecompressionStream('deflate')` and decodes it with `decodeWVDBPage` / `decodeWVDBMask` from `openvdb`. Values become texels with the same rules as `three-openvdb`: level sets give 1 inside the band (`|value| < background`), other scalar grids give `value / scale` clamped to 0-1, vector grids give RGBA. `scale` comes from `WVDBLoader.setGridScales({ flames: 6.0 })` and is the `emissiveScale` of the volume (default 1).
-4. Coarse LOD: the worker collects all pages of the LOD into a texture of the LOD size. After the last page, it upsamples that texture (trilinear) to the final size and sends it. The reader copies it into the grid texture. The new LOD replaces the previous one.
-5. Final LOD: the mask arrives first. The reader sets the bricks that the file does not store to background. Then each page gives its bricks, and the reader writes them in place. Important bricks come first, so the volume gets sharper page by page.
-6. After all chunks up to `maxLod` are in, the reader stops the download. A file with no grids is done at once.
+1. `WVDBReader.load( url )` reads `response.body` as a stream. When the header is complete, it makes the chunk list (`getWVDBChunks`) and sends the grid data to a worker.
+2. When the last byte of a chunk arrives, a copy of the chunk goes to the worker. Each worker answers in order.
+3. The worker (`wvdbKernel`) inflates the chunk with `DecompressionStream('deflate')` and decodes it with `decodeWVDBPage` / `decodeWVDBMask` from `openvdb`. Values become texels with the same rules as `three-openvdb`: level sets give 1 inside the band (`|value| < background`), other scalar grids give `value / scale` clamped to 0-1, vector grids give RGBA. `scale` comes from `setGridScales({ flames: 6.0 })` and is the `emissiveScale` of the volume (default 1).
+4. A LOD with one page gives its texture after that page. A LOD with more pages starts from the previous LOD (trilinear upsample, bricks that the file does not store are background) and gives a texture after each page. Important bricks come first, so it gets sharper page by page.
+5. After all chunks up to `maxLod` are in, the reader stops the download. A file with no grids is done at once.
 
-The worker runs from a Blob URL. Its source is `wvdbKernel`, `decodeWVDBPage` and `decodeWVDBMask` as text, so these functions must not use names from outside themselves. Without `Worker`, the same kernel runs on the main thread.
+Sequence (`WVDBAnimationLoader`):
+
+1. Pass 1: header and LOD 0 of each file, in file order, a few files at a time (`setConcurrency`, default 6). Each frame is added to the `FrameVolumeAnimation` in file order. After this pass all frames are in, so the animation can play. For the ground_explosion sequence this is 1.5 MB.
+2. Pass 2, 3, ...: `WVDBReader.loadMore( lod )` reads the next LOD of each file. The header gives the byte range of each LOD, so the request has a Range header and downloads only that LOD. Servers without Range support send the full file. Then the reader uses only the bytes it needs.
+3. `animation.dispose()` stops all downloads.
+
+All readers share a few workers (up to 4). The workers run from a Blob URL. Their source is `wvdbKernel`, `decodeWVDBPage` and `decodeWVDBMask` as text, so these functions must not use names from outside themselves. Without `Worker`, the same kernel runs on the main thread.

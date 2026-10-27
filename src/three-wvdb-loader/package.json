@@ -1,7 +1,7 @@
 {
   "name": "three-wvdb-loader",
   "version": "0.5.0",
-  "description": "three.js loader for streamed .wvdb volumes.",
+  "description": "three.js loaders for streamed .wvdb volumes and sequences.",
   "main": "./index.js",
   "module": "./index.js",
   "exports": {
@@ -11,7 +11,8 @@
     "build": "rollup --config ./rollup.config.js"
   },
   "dependencies": {
-    "openvdb": "^0.5.0"
+    "openvdb": "^0.5.0",
+    "three-openvdb": "^0.5.0"
   },
   "peerDependencies": {
     "three": ">=0.186.0"

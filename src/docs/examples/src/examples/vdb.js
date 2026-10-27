@@ -4,14 +4,14 @@ import { gui, setGuiFields, dropTarget } from '../utils/gui';
 import { loaders } from '../utils/resources';
 import { SimpleDropzone } from 'simple-dropzone';
 import zip from 'zip-js-esm';
-import { WVDBLoader } from 'three-wvdb-loader';
+import { WVDBAnimationLoader } from 'three-wvdb-loader';
 import { setLoading } from '../utils/loading';
 
 let animation, volumePivot, targetScene;
 let dropId = 0;
 let lastFiles = null;
-// NOTE Streams and object URLs of the .wvdb frames. They are released with the animation.
-let wvdbFrames = [];
+// NOTE Object URLs of the .wvdb frames. Finer LODs read them later, so they are released with the animation.
+let wvdbUrls = [];
 
 // NOTE Conversion settings for each emissive grid name
 const emissivePresets = {
@@ -81,13 +81,11 @@ const removeAnimation = () => {
 
   if (volumePivot.parent) volumePivot.parent.remove(volumePivot);
 
-  wvdbFrames.forEach(({ volumeData, url }) => {
-    volumeData?.dispose();
-    URL.revokeObjectURL(url);
-  });
-  wvdbFrames = [];
-
+  // NOTE dispose() also stops the frame downloads
   animation.dispose();
+  wvdbUrls.forEach((url) => URL.revokeObjectURL(url));
+  wvdbUrls = [];
+
   animation = null;
   volumePivot = null;
 
@@ -166,100 +164,56 @@ const createAnimation = (urls) => {
   showAnimation();
 };
 
-// NOTE Each frame is added when its first LOD arrives. The next file starts then.
-// Earlier frames get sharper while the next files load.
+// NOTE LOD 0 of all frames loads first. Then the animation can play, and finer LODs load frame by frame.
 const createWVDBAnimation = (urls) => {
   removeAnimation();
   setLoading('vdb', true);
 
   const startTime = performance.now();
   const preset = emissivePresets[params.emissiveGrid];
-  const wvdbAnimation = new OpenVDB.FrameVolumeAnimation();
 
-  wvdbAnimation.totalFrames = urls.length;
-  animation = wvdbAnimation;
-  wvdbFrames = urls.map((url) => ({ url, volumeData: null }));
+  wvdbUrls = urls;
 
-  const loader = new WVDBLoader();
-
-  if (preset) {
-    loader.setGridScales({ [params.emissiveGrid]: preset.emissiveScale });
-  }
-
-  const onError = (error) => {
-    if (animation === wvdbAnimation) {
-      setLoading('vdb', false);
-      dropTarget.innerHTML = '[Error - please try again]';
-    }
-
-    console.error(error);
-  };
-
-  const loadFrame = (index) => {
-    if (animation !== wvdbAnimation) {
-      return;
-    }
-
-    if (index >= urls.length) {
-      setLoading('vdb', false);
-      dropTarget.innerHTML = '[Drop .VDB / .WVDB / .ZIP here]';
-      console.info('WVDB animation, first LODs', `${(performance.now() - startTime).toFixed(0)}ms`);
-
-      return;
-    }
-
-    dropTarget.innerHTML = `[Streaming frame ${index + 1} / ${urls.length}...]`;
-
-    wvdbFrames[index].volumeData = loader.load(
-      urls[index],
-      (volumeData) => {
-        if (animation !== wvdbAnimation) {
-          return;
-        }
-
-        const grids = Object.values(volumeData.grids);
-        const emissiveGrid = preset && volumeData.grids[params.emissiveGrid];
-        const baseColorGrid = grids.find(({ isColor }) => isColor);
-        const densityGrid =
-          volumeData.grids.density ||
-          grids.find((grid) => !grid.isColor && grid !== emissiveGrid);
-
-        if (densityGrid) {
-          const frame = new OpenVDB.FrameVolume(densityGrid.data, {
-            resolution: densityGrid.resolution,
-            bbox: densityGrid.bbox,
-            ...(emissiveGrid && {
-              emissiveGrid: emissiveGrid.data,
-              emissiveScale: preset.emissiveScale,
-            }),
-            ...(baseColorGrid && { baseColorGrid: baseColorGrid.data }),
-          });
-
-          volumeData.attach(frame);
-          wvdbAnimation.addFrame(frame);
-
-          // NOTE All frames of a converted sequence have the same box
-          if (wvdbAnimation.loadedFrames === 0) {
-            wvdbAnimation.bbox.copy(densityGrid.bbox);
-            wvdbAnimation.position.copy(wvdbAnimation.bbox.getCenter(new Three.Vector3())).negate();
-          }
-        } else {
-          // NOTE A file with no grids keeps its place in the sequence. One empty texel shows nothing.
-          wvdbAnimation.addFrame(new OpenVDB.FrameVolume(new Uint8Array(1), { resolution: 1 }));
-        }
-
-        wvdbAnimation.loadedFrames++;
-        getController('frame')?.max(Math.max(1, wvdbAnimation.loadedFrames - 1));
-
-        loadFrame(index + 1);
+  const loadingAnimation = new WVDBAnimationLoader()
+    .setOptions({
+      ...(preset && {
+        emissiveGrid: params.emissiveGrid,
+        emissiveScale: preset.emissiveScale,
+      }),
+    })
+    .load(
+      urls,
+      () => {
+        setLoading('vdb', false);
+        console.info('WVDB animation, LOD 0', `${(performance.now() - startTime).toFixed(0)}ms`);
       },
-      null,
-      onError,
+      ({ lod, loadedFrames, totalFrames }) => {
+        dropTarget.innerHTML =
+          lod === 0 && loadedFrames < totalFrames
+            ? `[Loading LOD 0: frame ${loadedFrames + 1} / ${totalFrames}...]`
+            : loadedFrames < totalFrames
+            ? `[Playing. Loading LOD ${lod}: frame ${loadedFrames + 1} / ${totalFrames}...]`
+            : '[Drop .VDB / .WVDB / .ZIP here]';
+
+        if (lod === 0) {
+          // NOTE The box grows while frames arrive. Center it at the scene origin.
+          animation.position.copy(animation.bbox.getCenter(new Three.Vector3())).negate();
+          getController('frame')?.max(Math.max(1, loadedFrames - 1));
+        }
+      },
+      (error) => {
+        if (loadingAnimation === animation) {
+          setLoading('vdb', false);
+          dropTarget.innerHTML = '[Error - please try again]';
+        }
+
+        console.error(error);
+      },
     );
-  };
+
+  animation = loadingAnimation;
 
   showAnimation();
-  loadFrame(0);
 };
 
 // NOTE Reads the VDB entries one at a time. Reader errors reject the promise.

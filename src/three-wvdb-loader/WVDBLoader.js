@@ -4,12 +4,57 @@ import { WVDBReader } from './WVDBReader';
 
 const textureKeys = ['densityMap3D', 'emissiveMap3D', 'baseColorMap3D', 'maskMap3D'];
 
-class WVDBVolumeData {
+// NOTE Each LOD has its own size. A texture with a new size needs new GPU memory, so it is disposed first.
+const updateTexture = (texture, { data, dimensions: [width, height, depth] }) => {
+  const { image } = texture;
+  const resized = image.width !== width || image.height !== height || image.depth !== depth;
+
+  texture.image = { data, width, height, depth };
+
+  if (resized) {
+    texture.dispose();
+  }
+
+  texture.needsUpdate = true;
+};
+
+export class WVDBVolumeData {
   grids = {};
-  attached = new Set();
+  bindings = [];
 
   constructor(reader) {
     this.reader = reader;
+  }
+
+  // NOTE Grid data always shows the newest LOD
+  readGrids() {
+    Object.values(this.reader.grids).forEach((grid) => {
+      const { name, class: gridClass, channels, bbox } = grid;
+
+      this.grids[name] = {
+        name,
+        isLevelSet: gridClass === 'level set',
+        // NOTE Vector grids give RGBA colour (baseColorGrid), scalar grids give density
+        isColor: channels === 3,
+        // NOTE Grids of a file with only empty grids have no box
+        bbox: bbox
+          ? new Three.Box3(new Three.Vector3(...bbox[0]), new Three.Vector3(...bbox[1]))
+          : new Three.Box3(),
+        get data() {
+          return grid.data;
+        },
+        get dimensions() {
+          return grid.dimensions;
+        },
+        get resolution() {
+          return grid.dimensions[0];
+        },
+        get lod() {
+          return grid.lod;
+        },
+        source: grid,
+      };
+    });
   }
 
   get lod() {
@@ -24,38 +69,40 @@ class WVDBVolumeData {
     return this.reader.done;
   }
 
-  // NOTE Textures of attached volumes update when a new LOD arrives.
+  // NOTE Textures of attached volumes follow their grid when a new LOD arrives.
   // FrameVolume keeps them in volumes, FogVolume in materials.
   attach(object) {
-    this.attached.add(object);
-    this.updateTextures();
+    const grids = Object.values(this.grids);
+
+    [...(object.volumes || []), ...(object.materials || [])].forEach((holder) => {
+      textureKeys.forEach((key) => {
+        const texture = holder[key];
+        const grid = texture && grids.find(({ data }) => data === texture.image?.data);
+
+        if (grid) {
+          this.bindings.push({ object, texture, grid: grid.source });
+        }
+      });
+    });
 
     return object;
   }
 
   detach(object) {
-    this.attached.delete(object);
+    this.bindings = this.bindings.filter((binding) => binding.object !== object);
   }
 
   updateTextures() {
-    const arrays = Object.values(this.grids).map(({ data }) => data);
-
-    this.attached.forEach((object) => {
-      [...(object.volumes || []), ...(object.materials || [])].forEach((holder) => {
-        textureKeys.forEach((key) => {
-          const texture = holder[key];
-
-          if (texture && arrays.includes(texture.image?.data)) {
-            texture.needsUpdate = true;
-          }
-        });
-      });
+    this.bindings.forEach(({ texture, grid }) => {
+      if (texture.image.data !== grid.data) {
+        updateTexture(texture, grid);
+      }
     });
   }
 
   dispose() {
     this.reader.cancel();
-    this.attached.clear();
+    this.bindings = [];
   }
 }
 
@@ -82,7 +129,8 @@ class WVDBLoader extends Three.Loader {
     return this;
   }
 
-  // NOTE onLoad runs when all grids show their first LOD. onProgress runs on each update after that.
+  // NOTE onLoad runs when all grids show LOD 0. Each next LOD replaces the previous one.
+  // onProgress runs on each update after onLoad.
   load(url, onLoad, onProgress, onError) {
     const reader = new WVDBReader({ maxLod: this.maxLod, scales: this.scales });
     const volumeData = new WVDBVolumeData(reader);
@@ -91,24 +139,7 @@ class WVDBLoader extends Three.Loader {
 
     reader
       .load(url, {
-        onHeader: () => {
-          Object.values(reader.grids).forEach(
-            ({ name, class: gridClass, channels, bbox, dimensions, data }) => {
-              volumeData.grids[name] = {
-                name,
-                isLevelSet: gridClass === 'level set',
-                // NOTE Vector grids give RGBA colour (baseColorGrid), scalar grids give density
-                isColor: channels === 3,
-                data,
-                resolution: dimensions[0],
-                // NOTE Grids of a file with only empty grids have no box
-                bbox: bbox
-                  ? new Three.Box3(new Three.Vector3(...bbox[0]), new Three.Vector3(...bbox[1]))
-                  : new Three.Box3(),
-              };
-            }
-          );
-        },
+        onHeader: () => volumeData.readGrids(),
         onUpdate: (event) => {
           volumeData.updateTextures();
 

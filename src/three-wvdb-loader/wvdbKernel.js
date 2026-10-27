@@ -1,12 +1,15 @@
 // NOTE Workers run this function from its source text. It must not use imports or names from outside the function.
 // decodePage and decodeMask are decodeWVDBPage and decodeWVDBMask from openvdb.
+// One kernel serves many readers. State is kept for each reader id.
 export function wvdbKernel(decodePage, decodeMask) {
   const brickDim = 8;
   const brickVoxels = brickDim * brickDim * brickDim;
 
-  let config = null;
-  // NOTE Coarse LODs collect their pages here, keyed by grid and LOD
+  const configs = {};
+  // NOTE The LOD textures that are being decoded, keyed by reader, grid and LOD
   const levels = {};
+  // NOTE The last complete LOD of each grid, kept only when the next LOD has more than one page
+  const previousLevels = {};
 
   const inflate = async (bytes) => {
     const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate'));
@@ -103,10 +106,10 @@ export function wvdbKernel(decodePage, decodeMask) {
   const upsample = (
     source,
     [sourceWidth, sourceHeight, sourceDepth],
+    target,
     [width, height, depth],
     texelSize
   ) => {
-    const result = new Uint8Array(width * height * depth * texelSize);
     const sourceSlice = sourceWidth * sourceHeight;
 
     const axis = (size, sourceSize) => {
@@ -159,78 +162,131 @@ export function wvdbKernel(decodePage, decodeMask) {
             const c0 = c00 + (c10 - c00) * wy;
             const c1 = c01 + (c11 - c01) * wy;
 
-            result[offset++] = c0 + (c1 - c0) * wz + 0.5;
+            target[offset++] = c0 + (c1 - c0) * wz + 0.5;
           }
         }
       }
     }
 
-    return result;
+    return target;
+  };
+
+  const getTexelSize = (grid) => grid.backgroundTexel.length;
+
+  // NOTE Bricks that the sparse file does not store are background
+  const clearMissingBricks = (level, grid, dimensions) => {
+    const texelSize = getTexelSize(grid);
+    const background = fillTexels(new Uint8Array(brickVoxels * texelSize), grid.backgroundTexel);
+    const total =
+      Math.ceil(dimensions[0] / brickDim) *
+      Math.ceil(dimensions[1] / brickDim) *
+      Math.ceil(dimensions[2] / brickDim);
+
+    for (let index = 0; index < total; index++) {
+      if (!(level.mask[index >>> 5] & (1 << (index & 31)))) {
+        writeBricks(level.data, dimensions, [index], background, texelSize);
+      }
+    }
   };
 
   return {
-    create: (nextConfig) => {
-      config = nextConfig;
+    fillTexels,
+    create: ({ readerId, config }) => {
+      configs[readerId] = config;
     },
-    // NOTE Coarse LODs give one full texture when their last page is decoded.
-    // Pages of the final LOD give their bricks. The reader writes them in place.
-    chunk: async ({ gridIndex, lod: lodIndex, kind, firstIndex, bytes }) => {
+    release: ({ readerId }) => {
+      delete configs[readerId];
+
+      [levels, previousLevels].forEach((map) =>
+        Object.keys(map)
+          .filter((key) => key.startsWith(`${readerId}:`))
+          .forEach((key) => delete map[key])
+      );
+    },
+    // NOTE Each LOD has its own texture size. A LOD with one page gives its texture after that page.
+    // A LOD with more pages starts from the previous LOD (upsampled) and gives a texture after each page,
+    // so it gets sharper page by page.
+    chunk: async ({ readerId, gridIndex, lod: lodIndex, kind, firstIndex, bytes }) => {
+      const config = configs[readerId];
+
+      if (!config) {
+        return null;
+      }
+
       const grid = config.grids[gridIndex];
       const lod = grid.lods[lodIndex];
-      const key = `${gridIndex}:${lodIndex}`;
-      const isFinal = lodIndex === config.finalLod;
-      const texelSize = grid.backgroundTexel.length;
+      const gridKey = `${readerId}:${gridIndex}`;
+      const key = `${gridKey}:${lodIndex}`;
+      const texelSize = getTexelSize(grid);
+      const [width, height, depth] = lod.dimensions;
       const data = await inflate(bytes);
 
-      if (kind === 'mask') {
-        return isFinal ? { type: 'mask', gridIndex, lod: lodIndex, words: decodeMask(data) } : null;
-      }
-
-      const { indices, values } = decodePage(data, {
-        layout: lod.layout,
-        bits: config.bits,
-        firstIndex,
-        channels: grid.channels,
-      });
-      const texels = toTexels(values, indices.length, grid);
-
-      if (isFinal) {
-        return { type: 'bricks', gridIndex, lod: lodIndex, indices, texels };
-      }
-
       if (!levels[key]) {
-        const [width, height, depth] = lod.dimensions;
-
         levels[key] = {
           data: fillTexels(new Uint8Array(width * height * depth * texelSize), grid.backgroundTexel),
           pagesLeft: lod.pages,
+          mask: null,
         };
       }
 
       const level = levels[key];
 
-      writeBricks(level.data, lod.dimensions, indices, texels, texelSize);
-      level.pagesLeft--;
+      if (kind === 'mask') {
+        level.mask = decodeMask(data);
+      } else {
+        const previous = previousLevels[gridKey];
 
-      if (level.pagesLeft > 0) {
+        if (previous && level.pagesLeft === lod.pages) {
+          upsample(previous.data, previous.dimensions, level.data, lod.dimensions, texelSize);
+          delete previousLevels[gridKey];
+
+          if (level.mask) {
+            clearMissingBricks(level, grid, lod.dimensions);
+          }
+        }
+
+        const { indices, values } = decodePage(data, {
+          layout: lod.layout,
+          bits: config.bits,
+          firstIndex,
+          channels: grid.channels,
+        });
+
+        writeBricks(
+          level.data,
+          lod.dimensions,
+          indices,
+          toTexels(values, indices.length, grid),
+          texelSize
+        );
+        level.pagesLeft--;
+      }
+
+      const complete = level.pagesLeft === 0;
+
+      // NOTE Single-page LODs wait for their page. A mask alone gives nothing, unless the LOD has no pages.
+      if (!complete && (kind === 'mask' || lod.pages === 1)) {
         return null;
       }
 
-      delete levels[key];
+      if (complete) {
+        delete levels[key];
+
+        const nextLod = grid.lods[lodIndex + 1];
+
+        if (nextLod && nextLod.pages > 1) {
+          previousLevels[gridKey] = { data: level.data.slice(), dimensions: lod.dimensions };
+        }
+      }
 
       return {
         type: 'texture',
         gridIndex,
         lod: lodIndex,
-        data: upsample(
-          level.data,
-          lod.dimensions,
-          grid.lods[config.finalLod].dimensions,
-          texelSize
-        ),
+        complete,
+        // NOTE The worker keeps decoding into level.data, so open pages send a copy
+        data: complete ? level.data : level.data.slice(),
       };
     },
-    writeBricks,
-    fillTexels,
   };
 }

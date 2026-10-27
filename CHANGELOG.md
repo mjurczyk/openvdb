@@ -10,6 +10,8 @@ Breaking: the library is split into 4 packages, each in its own folder of `src/`
 - `wvdb` keeps empty grids and frames, so sequences keep their frame numbers. One box for all grids of a file, and for all frames of a folder or ZIP
 - `WVDBLoader.setGridScales`: emission grids keep their range, same as `emissiveScale`. Vector grids load as RGBA for `baseColorGrid`
 - `wvdb` converts files in parallel on worker threads (`--jobs`)
+- Add `WVDBAnimationLoader`: `.wvdb` sequences in LOD passes (LOD 0 of all frames first, then finer LODs with Range requests)
+- `.wvdb` textures grow per LOD (32³, 64³, 128³) instead of the final size from the start. All readers share up to 4 workers
 - `OpenVDBReader.read( bytes, { metadataOnly: true } )`: grid metadata and transforms only, no trees
 
 Build:
@@ -21,7 +23,7 @@ Examples:
 
 - Examples moved to `src/docs/examples`. gh-pages: `git subtree push --prefix src/docs/examples/dist origin gh-pages`
 - Add `wvdb` example: streams `.wvdb` files, compares with `.vdb`, shows LOD times
-- `vdb` example plays `.wvdb` sequences (folder or ZIP). Each frame shows at its first LOD and gets sharper while the next files load
+- `vdb` example plays `.wvdb` sequences (folder or ZIP) with `WVDBAnimationLoader`
 
 # v0.4.x
 

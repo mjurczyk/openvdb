@@ -15,6 +15,8 @@ new WVDBLoader().load('./explosion.wvdb', (volumeData) => {
 });
 ```
 
+Sequences (one file per frame): `new WVDBAnimationLoader().setOptions({ emissiveGrid: 'flames', emissiveScale: 6.0 }).load(urls, onLoad)` gives a `FrameVolumeAnimation`. LOD 0 of all frames loads first, so the animation plays early. Finer LODs follow, with Range requests.
+
 Emission grids: `new WVDBLoader().setGridScales({ flames: 6.0 })`, then use `volumeData.grids.flames.data` as `emissiveGrid`. Vector grids load as RGBA (`isColor`) for `baseColorGrid`.
 
 Format and kernel: `src/docs/wvdb/README.md` in the repository.
