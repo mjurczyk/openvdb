@@ -5,7 +5,17 @@
 # OpenVDB
 
 This project indirectly ports OpenVDB file format and tools to JavaScript, TypeScript, and Node.
-Specific 3D library implementations can be found in sub-directories.
+
+Packages (each in its own folder of `src/`):
+
+| Package | Folder | Depends on | Use |
+| --- | --- | --- | --- |
+| `openvdb` | `src/openvdb` | nothing | Reads VDB files. Grid lookup, volume math, primitives, noise, WVDB format helpers. No renderer. |
+| `three-openvdb` | `src/three-openvdb` | `openvdb`, `three` | three.js rendering: loaders, `FrameVolume`, `FogVolume`, materials. |
+| `three-wvdb-loader` | `src/three-wvdb-loader` | `openvdb`, `three` | three.js loader for streamed `.wvdb` files. |
+| `wvdb` | `src/wvdb` | `openvdb` (bundled), Node.js | CLI: converts VDB files, folders and ZIP files into `.wvdb` files. |
+
+Examples (gh-pages) are in `src/docs/examples`. The WVDB format is described in `src/docs/wvdb/README.md`.
 
 ## What is OpenVDB
 
@@ -19,7 +29,7 @@ Keep in mind that, due to memory-access and multithreading limitations of JS, th
 
 ```js
 import * as Three from 'three';
-import * as OpenVDB from 'openvdb/three';
+import * as OpenVDB from 'three-openvdb';
 
 const scene = new Three.Scene();
 
@@ -58,7 +68,7 @@ const fogPrimitive = new OpenVDB.FogVolume(primitiveVolume, {
 
 ```jsx
 import * as Three from 'three';
-import * as OpenVDB from 'openvdb/three';
+import * as OpenVDB from 'three-openvdb';
 
 export const VDBComponent = () => {
   const [model, setModel] = useState(new Three.Object3D());
@@ -106,7 +116,7 @@ vdbReader.grids.forEach(function (grid) {
 
 Loads OpenVDB file and parses its grids. Grids can be accessed via `.grids` property of the value returned from the Promise.
 
-Each grid has a `.getValue( position: Three.Vector3 ): float` method, which returns the voxel value saved in the file for the given position (density for fog volumes, signed distance for level sets). The `.isActive( position: Three.Vector3 ): boolean` method returns `true` if the voxel at the given position is active. See `src/openvdb/three/frame/FrameVolume.js` for an example of VDB file parsing.
+Each grid has a `.getValue( position: { x, y, z } ): float` method, which returns the voxel value saved in the file for the given position (density for fog volumes, signed distance for level sets). The `.isActive( position: { x, y, z } ): boolean` method returns `true` if the voxel at the given position is active. See `src/three-openvdb/frame/FrameVolume.js` for an example of VDB file parsing.
 
 ---
 
@@ -117,6 +127,34 @@ Each grid has a `.getValue( position: Three.Vector3 ): float` method, which retu
 - `VDBLoader.load( url, onLoad, onProgress, onError ): void`
 
 Loads VDB model. onLoad is called when VDB is loaded and parsed. onError is called when error happens. onProgress is currently not used.
+
+---
+
+### WVDBLoader (`three-wvdb-loader`)
+
+- `WVDBLoader( manager: Three.LoadingManager )`
+
+- `WVDBLoader.setMaxLod( lod: number ): WVDBLoader`
+
+- `WVDBLoader.load( url, onLoad, onProgress, onError ): WVDBVolumeData`
+
+Loads a `.wvdb` file (see [WVDB files](#wvdb-files)) as a stream. `onLoad( volumeData )` is called when all grids show their first (coarse) LOD. Each next LOD replaces the previous one while the download continues. `onProgress({ lod, lods, lodComplete, done, bytesLoaded, bytesTotal })` is called after each update. With `setMaxLod( lod )`, the download stops after that LOD.
+
+`volumeData.grids[name]` has `data: Uint8Array` (`resolution`³ texels: density, or RGBA when `isColor`), `resolution`, `bbox: Three.Box3`, `isLevelSet` and `isColor`. Use `data` as raw data of `FrameVolume` or `VolumeToFog`, also for `emissiveGrid` and `baseColorGrid`. With `setGridScales({ flames: 6.0 })`, grid values divide by the scale before they become density. Use the `emissiveScale` of the volume for emission grids. Call `volumeData.attach( volume )`, so the textures of the volume update when a new LOD arrives. `volumeData.dispose()` stops the download.
+
+```js
+import { WVDBLoader } from 'three-wvdb-loader';
+
+new WVDBLoader().load('./assets/bunny_cloud.wvdb', (volumeData) => {
+  const grid = volumeData.grids.density;
+  const volume = new OpenVDB.FrameVolume(grid.data, { resolution: grid.resolution, bbox: grid.bbox });
+
+  volumeData.attach(volume);
+  scene.add(volume);
+});
+```
+
+`WVDBReader` (same package) gives the same `Uint8Array` data without the three.js wrapper: `new WVDBReader({ maxLod }).load( url, { onHeader, onUpdate } )`. Other engines can read the format with the `openvdb` format helpers.
 
 ---
 
@@ -241,6 +279,23 @@ Generates a 1x1x1 volume with values defined using a `valueFunction`. `valueFunc
 
 ---
 
+## WVDB files
+
+VDB files are large (10-500 MB), so they are slow on the web. The VDB file stays the source of truth. The `wvdb` CLI makes a small `.wvdb` file from it. It needs only Node.js (no three.js, no browser). The web page loads only the `.wvdb` file.
+
+```sh
+npx wvdb bunny_cloud.vdb
+# bunny_cloud.vdb (80.17 MB) -> bunny_cloud.wvdb (405.1 KB)
+npx wvdb ./explosion_VDB        # folder of .vdb files -> ./explosion_VDB_wvdb/
+npx wvdb ./explosion_VDB.zip    # ZIP of .vdb files -> ./explosion_VDB_wvdb/
+```
+
+Options: `--output`, `--grids <a,b>`, `--resolution` (default `128`, texels per side of the finest LOD), `--lods` (default `3`), `--bits` (`8` or `16`, default `8`), `--layout` (`sparse` or `dense`, default `sparse`), `--page-bricks` (default `1024`), `--jobs` (files converted at the same time, default: CPU core count).
+
+Each `.vdb` file gives one `.wvdb` file, also empty frames. All grids of a file use one box. All frames of a folder or ZIP use one box, so voxels do not move between frames.
+
+Format, results and the three.js kernel: `src/docs/wvdb/README.md`. The `.vdb` loaders do not change.
+
 ## Current Feature Support
 
 Based on files hosted on [https://www.openvdb.org/download/](https://www.openvdb.org/download/).
@@ -277,7 +332,8 @@ Based on files hosted on [https://www.openvdb.org/download/](https://www.openvdb
 ```
 git clone https://github.com/mjurczyk/openvdb
 cd ./openvdb
-npm run i
+npm install
+npm run build
 npm run dev
 ```
 

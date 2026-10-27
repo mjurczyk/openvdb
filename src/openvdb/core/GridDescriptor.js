@@ -28,7 +28,8 @@ export class GridDescriptor {
   gridType;
 
   readGrid() {
-    const { bufferIterator, version, hasGridOffsets } = GridSharedContext.getContext(this);
+    const { bufferIterator, version, hasGridOffsets, metadataOnly } =
+      GridSharedContext.getContext(this);
 
     this.readGridHeader();
 
@@ -59,6 +60,11 @@ export class GridDescriptor {
 
       // NOTE Instance grids save no tree. OpenVDBReader.connectInstances adds the parent tree.
       if (this.isInstance()) {
+        return;
+      }
+
+      if (metadataOnly && hasGridOffsets) {
+        bufferIterator.offset = this.endBufferPosition;
         return;
       }
 

@@ -1,30 +1,21 @@
 {
-  "name": "openvdb",
-  "version": "0.4.1",
+  "name": "openvdb-workspace",
+  "version": "0.5.0",
   "private": true,
-  "description": "This project indirectly ports OpenVDB file format and tools to JavaScript, TypeScript, and Node. Specific 3D library implementations can be found in sub-directories.",
-  "main": "./index.js",
-  "exports": {
-    ".": "./index.js",
-    "./three": "./three/index.js"
-  },
-  "directories": {
-    "three": "src/three"
-  },
-  "keywords": [
-    "openvdb",
-    "vdb",
-    "threejs",
-    "babylonjs",
-    "webgl",
-    "houdini",
-    "fluid"
+  "description": "OpenVDB for JavaScript: openvdb (core), three-openvdb (three.js rendering), three-wvdb-loader (three.js .wvdb loader), wvdb (CLI).",
+  "workspaces": [
+    "src/openvdb",
+    "src/three-openvdb",
+    "src/three-wvdb-loader",
+    "src/wvdb",
+    "src/docs/examples"
   ],
   "scripts": {
-    "build": "rollup --config ./rollup.config.js",
-    "build:examples": "cd examples && npm run build",
-    "dev": "cd examples && npm run dev",
-    "release": "npm run build && cd ./build && npm publish"
+    "build": "npm run build -w openvdb -w three-openvdb -w three-wvdb-loader -w wvdb",
+    "bake:examples": "node ./build/wvdb/cli.mjs src/docs/examples/public/assets/bunny_cloud.vdb && node ./build/wvdb/cli.mjs src/docs/examples/public/assets/venusstatue.vdb && node ./build/wvdb/cli.mjs src/docs/examples/public/assets/utahteapot.vdb && node ./build/wvdb/cli.mjs src/docs/examples/public/assets/smoke.vdb",
+    "build:examples": "npm run build -w openvdb-examples",
+    "dev": "npm run dev -w openvdb-examples",
+    "release": "npm run build && npm publish ./build/openvdb && npm publish ./build/three-openvdb && npm publish ./build/three-wvdb-loader && npm publish ./build/wvdb"
   },
   "author": {
     "name": "mjurczyk",
@@ -41,16 +32,12 @@
     }
   ],
   "license": "MIT",
-  "peerDependencies": {
-    "three": ">=0.186.0"
-  },
   "devDependencies": {
     "@lopatnov/rollup-plugin-uglify": "^2.1.5",
     "@rollup/plugin-node-resolve": "^14.1.0",
     "rollup": "^2.79.1",
     "rollup-plugin-copy": "^3.4.0",
     "rollup-plugin-delete": "^2.0.0",
-    "rollup-plugin-peer-deps-external": "^2.2.4",
     "stats.js": "^0.17.0"
   }
 }

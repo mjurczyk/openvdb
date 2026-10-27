@@ -1,7 +1,5 @@
 // NOTE Ported from https://github.com/josephg/noisejs/blob/master/perlin.js (by Stefan Gustavson)
 
-import * as Three from 'three';
-
 class Grad {
   constructor(x, y, z) {
     this.x = x;

@@ -1,0 +1,29 @@
+{
+  "name": "openvdb-examples",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --config ./dev.config.js",
+    "build": "vite build --config ./prod.config.js",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "@types/react": "^18.0.17",
+    "@types/react-dom": "^18.0.6",
+    "@vitejs/plugin-react": "^2.1.0",
+    "lil-gui": "^0.18.1",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "simple-dropzone": "^0.8.1",
+    "styled-components": "^5.3.6",
+    "three": "^0.186.1",
+    "vite": "^3.1.0",
+    "zip-js-esm": "^1.1.1"
+  },
+  "dependencies": {
+    "openvdb": "^0.5.0",
+    "three-openvdb": "^0.5.0",
+    "three-wvdb-loader": "^0.5.0"
+  }
+}
