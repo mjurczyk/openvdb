@@ -1,0 +1,42 @@
+{
+  "name": "three-openvdb",
+  "version": "0.5.0",
+  "description": "three.js rendering of OpenVDB volumes: loaders, fog and frame volumes, materials.",
+  "main": "./index.js",
+  "module": "./index.js",
+  "exports": {
+    ".": "./index.js"
+  },
+  "scripts": {
+    "build": "rollup --config ./rollup.config.js"
+  },
+  "dependencies": {
+    "openvdb": "^0.5.0"
+  },
+  "peerDependencies": {
+    "three": ">=0.186.0"
+  },
+  "keywords": [
+    "openvdb",
+    "vdb",
+    "threejs",
+    "webgl",
+    "volume",
+    "fog"
+  ],
+  "author": {
+    "name": "mjurczyk",
+    "url": "https://discourse.threejs.org/u/mjurczyk"
+  },
+  "contributors": [
+    {
+      "name": "mjurczyk",
+      "url": "https://discourse.threejs.org/u/mjurczyk"
+    },
+    {
+      "name": "notchris",
+      "url": "https://discourse.threejs.org/u/notchris"
+    }
+  ],
+  "license": "MIT"
+}

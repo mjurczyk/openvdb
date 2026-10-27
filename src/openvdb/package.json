@@ -1,0 +1,36 @@
+{
+  "name": "openvdb",
+  "version": "0.5.0",
+  "description": "OpenVDB file reader and volume math in JavaScript. No dependencies.",
+  "main": "./index.js",
+  "module": "./index.js",
+  "exports": {
+    ".": "./index.js"
+  },
+  "scripts": {
+    "build": "rollup --config ./rollup.config.js"
+  },
+  "keywords": [
+    "openvdb",
+    "vdb",
+    "houdini",
+    "embergen",
+    "fluid",
+    "volume"
+  ],
+  "author": {
+    "name": "mjurczyk",
+    "url": "https://discourse.threejs.org/u/mjurczyk"
+  },
+  "contributors": [
+    {
+      "name": "mjurczyk",
+      "url": "https://discourse.threejs.org/u/mjurczyk"
+    },
+    {
+      "name": "notchris",
+      "url": "https://discourse.threejs.org/u/notchris"
+    }
+  ],
+  "license": "MIT"
+}

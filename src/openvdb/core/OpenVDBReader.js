@@ -22,9 +22,12 @@ export class OpenVDBReader {
     GridSharedContext.getContext(this).bufferIterator = new BufferIterator(source);
   }
 
-  async read(source) {
+  // NOTE With metadataOnly, grids have metadata and transforms (for example the world box), but no tree.
+  // Grids of files without grid offsets (before version 2.16) are read in full.
+  async read(source, { metadataOnly = false } = {}) {
     await Compression.prepareModules();
     GridSharedContext.getContext(this).bufferIterator = new BufferIterator(source);
+    GridSharedContext.getContext(this).metadataOnly = metadataOnly;
 
     if (this.validateVDBFile()) {
       this.readFileVersion();

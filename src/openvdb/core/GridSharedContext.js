@@ -11,6 +11,9 @@ export class GridSharedContext {
   // NOTE Files without grid offsets must be read in order
   hasGridOffsets = null;
 
+  // NOTE Read only grid headers, metadata and transforms. Trees are not read.
+  metadataOnly = false;
+
   // NOTE Grid value settings
   valueType = null;
   useHalf = null;
