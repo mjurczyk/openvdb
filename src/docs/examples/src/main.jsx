@@ -23,6 +23,10 @@ const init = () => {
 
   scene.background = new Three.Color(0x598eff);
 
+  // NOTE The UltraHDR environments are brighter than the old HDR + JPG files
+  scene.backgroundIntensity = 0.4;
+  scene.environmentIntensity = 0.4;
+
   renderer.outputColorSpace = Three.SRGBColorSpace
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.shadowMap.enabled = true;

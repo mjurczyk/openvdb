@@ -482,14 +482,9 @@ export const exampleVDB = ({ scene }) => {
             UV: 'uv-1',
           },
           onChange: (value) => {
-            loaders.rgbe.load(`./assets/${value}-HDR.hdr`, (env) => {
+            loaders.ultraHdr.load(`./assets/${value}-HDR.jpg`, (env) => {
               env.mapping = Three.EquirectangularReflectionMapping;
               scene.environment = env;
-            });
-
-            loaders.texture.load(`./assets/${value}-8K.jpg`, (env) => {
-              env.mapping = Three.EquirectangularRefractionMapping;
-              env.colorSpace = Three.SRGBColorSpace;
               scene.background = env;
             });
           },

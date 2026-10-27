@@ -77,6 +77,9 @@ const guiBaseFields = () => [
 
 let guiExtendedFields = [];
 
+// NOTE On phones the GUI starts closed, because it covers most of the screen. A demo change keeps the state.
+let guiClosed = window.matchMedia('(max-width: 640px)').matches;
+
 export const setGuiFields = (extendedFields) => {
   guiExtendedFields = extendedFields;
 
@@ -86,6 +89,12 @@ export const setGuiFields = (extendedFields) => {
 export const showGui = () => {
   gui.destroy();
   gui = new GUI();
+  gui.open(!guiClosed);
+  gui.onOpenClose((changedGui) => {
+    if (changedGui === gui) {
+      guiClosed = gui._closed;
+    }
+  });
 
   const guiState = {};
 
