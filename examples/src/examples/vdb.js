@@ -7,6 +7,16 @@ import zip from 'zip-js-esm';
 
 let animation, volumePivot, targetScene;
 let dropId = 0;
+let lastFiles = null;
+
+// NOTE Conversion settings for each emissive grid name
+const emissivePresets = {
+  none: null,
+  // NOTE Approximately the 99th percentile of the flames grid in the ground explosion sample
+  flames: { emissiveScale: 6.0, temperatureMax: 6500.0 },
+  // NOTE Kelvin values. The maximum of the temperature grid in the dark portal sample.
+  temperature: { emissiveScale: 5052.0, temperatureMax: 5052.0 },
+};
 
 const params = {
   baseColor: '#ffffff',
@@ -19,6 +29,7 @@ const params = {
   temperatureMin: 0.0,
   temperatureMax: 6500.0,
   upAxis: 'y',
+  emissiveGrid: 'flames',
   lighting: 'frame',
   animateLights: true,
   playing: true,
@@ -87,10 +98,11 @@ const createAnimation = (urls) => {
   animation = new OpenVDB.VDBAnimationLoader()
     .setOptions({
       resolution: 100,
-      progressive: false,
-      emissiveGrid: 'flames',
-      // NOTE Approximately the 99th percentile of the flames grid in the ground explosion sample
-      emissiveScale: 6.0,
+      progressive: true,
+      ...(emissivePresets[params.emissiveGrid] && {
+        emissiveGrid: params.emissiveGrid,
+        emissiveScale: emissivePresets[params.emissiveGrid].emissiveScale,
+      }),
     })
     .load(
       urls,
@@ -171,6 +183,8 @@ const unzipVDBs = (file, onProgress) =>
 
 // NOTE The frame order is the natural file name order
 const loadFiles = (files) => {
+  lastFiles = files;
+
   const urls = [...files]
     .filter(([name]) => name.toLowerCase().endsWith('.vdb'))
     .sort(([nameA], [nameB]) => nameA.localeCompare(nameB, undefined, { numeric: true }))
@@ -520,6 +534,33 @@ export const exampleVDB = ({ scene }) => {
             params.upAxis = value;
 
             applyUpAxis();
+          },
+        },
+        {
+          id: 'emissiveGrid',
+          name: 'Emissive Grid',
+          defaultValue: params.emissiveGrid,
+          options: {
+            None: 'none',
+            flames: 'flames',
+            temperature: 'temperature',
+          },
+          onChange: (value) => {
+            if (value === params.emissiveGrid) {
+              return;
+            }
+
+            params.emissiveGrid = value;
+
+            if (emissivePresets[value]) {
+              getController('temperatureMax')?.setValue(emissivePresets[value].temperatureMax);
+            }
+
+            // NOTE The emissive grid is set at conversion. Convert the last files again.
+            if (lastFiles) {
+              dropId++;
+              loadFiles(lastFiles);
+            }
           },
         },
         {
