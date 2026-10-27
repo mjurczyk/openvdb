@@ -197,7 +197,7 @@ Based on files hosted on [https://www.openvdb.org/download/](https://www.openvdb
 | buddha.vdb           | ✅ Yes     |                                                               |
 | bunny.vdb            | ✅ Yes     |                                                               |
 | bunny_cloud.vdb      | ✅ Yes     |                                                               |
-| crawler.vdb          | ❓ Partial | Exceeds memory limits                                         |
+| crawler.vdb          | ✅ Yes     |                                                               |
 | cube.vdb             | ✅ Yes     |                                                               |
 | dragon.vdb           | ✅ Yes     |                                                               |
 | emu.vdb              | ✅ Yes     |                                                               |
@@ -207,16 +207,16 @@ Based on files hosted on [https://www.openvdb.org/download/](https://www.openvdb
 | iss.vdb              | ✅ Yes     |                                                               |
 | smoke1.vdb           | ✅ Yes     |                                                               |
 | smoke2.vdb           | ✅ Yes     |                                                               |
-| space.vdb            | ❓ Partial | Exceeds memory limits                                         |
+| space.vdb            | ✅ Yes     |                                                               |
 | sphere.vdb           | ✅ Yes     |                                                               |
 | torus.vdb            | ✅ Yes     |                                                               |
 | torus_knot.vdb       | ✅ Yes     |                                                               |
 | utahteapot.vdb       | ✅ Yes     |                                                               |
 | venusstatue.vdb      | ✅ Yes     |                                                               |
-| boat_points.vdb      | ❓ Partial | Loads ok, points rendering not fully implemented              |
-| bunny_points.vdb     | ❓ Partial | Loads ok, points rendering not fully implemented              |
-| sphere_points.vdb    | ❓ Partial | Loads ok, points rendering not fully implemented              |
-| waterfall_points.vdb | ❓ Partial | Loads ok, points rendering not fully implemented              |
+| boat_points.vdb      | ✅ Yes     |                                                               |
+| bunny_points.vdb     | ✅ Yes     |                                                               |
+| sphere_points.vdb    | ✅ Yes     |                                                               |
+| waterfall_points.vdb | ✅ Yes     |                                                               |
 
 ## Development
 
