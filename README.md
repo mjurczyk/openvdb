@@ -4,13 +4,19 @@
 
 # OpenVDB
 
+> [!NOTE]
+> WVDB (`.wvdb`) is a live proposal. The format can change. See the [WebVDB format specification](src/docs/wvdb/README.md).
+
+> [!TIP]
+> Convert `.vdb` files to `.wvdb` before you use them on the web: `npx webvdb explosion.vdb` (or `npm install -g webvdb`, then `wvdb explosion.vdb`). A `.wvdb` file is much smaller, and it shows a coarse LOD first. The examples below use `.wvdb`. `.vdb` files also load directly, see [Loading .vdb files](#loading-vdb-files).
+
 This project indirectly ports OpenVDB file format and tools to JavaScript, TypeScript, and Node.
 
 Packages (each in its own folder of `src/`):
 
 | Package | Folder | Depends on | Use |
 | --- | --- | --- | --- |
-| `openvdb` | `src/openvdb` | nothing | Reads VDB files. Grid lookup, volume math, primitives, noise, WVDB format helpers. No renderer. |
+| `openvdb` | `src/openvdb` | nothing | Reads VDB files. Grid lookup, volume math, noise, WVDB format helpers. No renderer. |
 | `three-openvdb` | `src/three-openvdb` | `openvdb`, `three` | three.js rendering: `.vdb` and `.wvdb` loaders, `FrameVolume`, `FogVolume`, materials. |
 | `webvdb` | `src/wvdb` | `openvdb` (bundled), Node.js | `wvdb` CLI: converts VDB files, folders and ZIP files into `.wvdb` files. |
 
@@ -32,8 +38,37 @@ import * as OpenVDB from 'three-openvdb';
 
 const scene = new Three.Scene();
 
-// NOTE To load an existing VDB model - use VDBLoader:
-new OpenVDB.VDBLoader().load('./assets/bunny.vdb', function (vdb) {
+// NOTE Load a .wvdb file. LOD 0 shows at once. Each finer LOD replaces it while the download continues.
+new OpenVDB.WVDBLoader().load('./assets/bunny_cloud.wvdb', (volumeData) => {
+  const grid = volumeData.grids.density;
+  const volume = new OpenVDB.FrameVolume(grid.data, {
+    resolution: grid.resolution,
+    bbox: grid.bbox,
+    absorbance: 1.0,
+    baseColor: 0xff00ff,
+  });
+
+  // NOTE The textures of the volume follow the new LODs
+  volumeData.attach(volume);
+  scene.add(volume);
+});
+
+// NOTE Load a .wvdb sequence (one file per frame) as an animation. It plays after LOD 0 of all frames.
+const animation = new OpenVDB.WVDBAnimationLoader()
+  .setOptions({ emissiveGrid: 'flames', emissiveScale: 6.0 })
+  .load(frameUrls, () => animation.play());
+
+scene.add(animation);
+
+// NOTE In the render loop: animation.update(deltaSeconds);
+```
+
+#### Loading .vdb files
+
+`.vdb` files load directly too. The browser then downloads the full file and converts it.
+
+```js
+new OpenVDB.VDBLoader().load('./assets/bunny_cloud.vdb', (vdb) => {
   const volume = new OpenVDB.FrameVolume(vdb, {
     resolution: 100,
     progressive: true,
@@ -44,23 +79,7 @@ new OpenVDB.VDBLoader().load('./assets/bunny.vdb', function (vdb) {
   scene.add(volume);
 });
 
-// NOTE To create a primitive volumetric shape - use volume converters directly:
-const primitiveVolume = new OpenVDB.SphereVolume();
-const primitive = new OpenVDB.FrameVolume(primitiveVolume, {
-  resolution: 50,
-  absorbance: 0.5,
-  baseColor: 0xff00ff,
-});
-
-scene.add(primitive);
-
-// NOTE FogVolume ray marches each volume on its own. It takes the same sources:
-const fogPrimitive = new OpenVDB.FogVolume(primitiveVolume, {
-  resolution: 50,
-  steps: 50,
-  absorbance: 0.5,
-  baseColor: 0xff00ff,
-});
+// NOTE VDB sequences: new OpenVDB.VDBAnimationLoader().setOptions(props).load(frameUrls, onLoad)
 ```
 
 ### With `react-three-fiber`:
@@ -75,18 +94,24 @@ export const VDBComponent = () => {
   useEffect(() => {
     let volume;
 
-    new OpenVDB.VDBLoader().load('./assets/bunny.vdb', function (vdb) {
-      volume = new OpenVDB.FrameVolume(vdb, {
-        resolution: 100,
-        progressive: true,
-        absorbance: 1.0,
-        baseColor: 0xff00ff,
-      });
+    const volumeData = new OpenVDB.WVDBLoader().load('./assets/bunny_cloud.wvdb', (loaded) => {
+      const grid = loaded.grids.density;
+
+      volume = loaded.attach(
+        new OpenVDB.FrameVolume(grid.data, {
+          resolution: grid.resolution,
+          bbox: grid.bbox,
+          absorbance: 1.0,
+          baseColor: 0xff00ff,
+        })
+      );
 
       setModel(volume);
     });
 
     return () => {
+      // NOTE Stops the download
+      volumeData.dispose();
       volume?.dispose();
     };
   }, []);
@@ -244,39 +269,6 @@ Converts given `OpenVDBReader` to a volumetric `Three.Object3D`. Each volume has
 - `VolumeToLevelSet( vdb: OpenVDB.OpenVDBReader | OpenVDB.GridDescriptor | Array<OpenVDB.GridDescriptor>, onConverted: () => void, onProgress: () => void ): Three.Object3D`
 
 Not yet finished. Converts the given `OpenVDBReader` to a 3D mesh using marching cubes.
-
----
-
-### CubeVolume
-
-- `CubeVolume(): OpenVDB.GridDescriptor`
-
-Generates a 1x1x1 volumetric cube.
-
----
-
-### SphereVolume
-
-- `SphereVolume(): OpenVDB.GridDescriptor`
-
-Generates a 1x1x1 volumetric sphere.
-
----
-
-### CloudVolume
-
-
-- `CloudVolume( { height: number, density: number } ): OpenVDB.GridDescriptor`
-
-Generates a 1x1x1 volumetric clouds based on noise inputs.
-
----
-
-### ParametricVolume
-
-- `ParametricVolume( valueFunction(position: Three.Vector3) => number ): OpenVDB.GridDescriptor`
-
-Generates a 1x1x1 volume with values defined using a `valueFunction`. `valueFunction` is called with position of each voxel within the volumetric bounding cube - and expects a value between `0.0` and `1.0` to be returned (`0.0` meaning given voxel is fully transparent, `1.0` meaning given voxel is fully opaque.)
 
 ---
 

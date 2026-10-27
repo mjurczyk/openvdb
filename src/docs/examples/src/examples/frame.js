@@ -4,46 +4,6 @@ import { setGuiFields } from '../utils/gui';
 import { loadAndCacheVDB, loaders } from '../utils/resources';
 import { setLoading } from '../utils/loading';
 
-// NOTE One cloud is converted one time. All cloud field volumes use its raw density data.
-const cloudFieldResolution = 64;
-let cloudFieldData = null;
-
-const getCloudFieldData = () => {
-  if (cloudFieldData) {
-    return Promise.resolve(cloudFieldData);
-  }
-
-  return new Promise((resolve) => {
-    const source = new OpenVDB.CloudVolume({ height: 0.8, density: 0.3 });
-    const converter = new OpenVDB.FrameVolume(source, { resolution: cloudFieldResolution }, () => {
-      const data = converter.volumes[0].densityMap3D.image.data;
-      const resolution = cloudFieldResolution;
-
-      // NOTE Fade the density to zero at the box sides. Then the box edges are not visible.
-      for (let z = 0; z < resolution; z++) {
-        for (let y = 0; y < resolution; y++) {
-          for (let x = 0; x < resolution; x++) {
-            const distance =
-              Math.hypot(
-                (x + 0.5) / resolution - 0.5,
-                (y + 0.5) / resolution - 0.5,
-                (z + 0.5) / resolution - 0.5,
-              ) * 2.0;
-            const fade = Math.min(1.0, Math.max(0.0, (1.0 - distance) / 0.4));
-
-            data[x + y * resolution + z * resolution * resolution] *= fade;
-          }
-        }
-      }
-
-      cloudFieldData = data;
-      converter.dispose();
-
-      resolve(data);
-    });
-  });
-};
-
 // NOTE Stress test: one bunny is converted one time, in a cube box.
 // All grid volumes use its raw density data.
 const bunnyGridResolution = 100;
@@ -73,13 +33,6 @@ const getBunnyGridData = (vdb, center, size) => {
   });
 };
 
-// NOTE Fixed random sequence. The cloud field is the same after each rebuild.
-const createRandom = (seed) => () => {
-  seed = (seed * 16807) % 2147483647;
-
-  return (seed - 1) / 2147483646;
-};
-
 export const exampleFrame = ({ scene }) => {
   const params = {
     source: 'bunny',
@@ -92,7 +45,6 @@ export const exampleFrame = ({ scene }) => {
     shadowSteps: 32,
     rotate: true,
     lighting: 'frame',
-    fieldVolumes: 24,
     animateLights: true,
   };
 
@@ -248,59 +200,6 @@ export const exampleFrame = ({ scene }) => {
         setLoading('frame', false);
       }
     };
-
-    if (params.source === 'cloudField') {
-      getCloudFieldData().then((data) => {
-        if (currentBuildId !== buildId) {
-          return;
-        }
-
-        const random = createRandom(7);
-
-        for (let i = 0; i < params.fieldVolumes; i++) {
-          const volume = new OpenVDB.FrameVolume(data, {
-            resolution: cloudFieldResolution,
-            lights: OpenVDB.frameLights.useEnvironment | OpenVDB.frameLights.useDirectionalLights,
-          });
-
-          volume.scale.set(
-            80.0 + random() * 120.0,
-            40.0 + random() * 40.0,
-            80.0 + random() * 120.0,
-          );
-
-          const pivot = addVolume(volume, new Three.Vector3());
-          pivot.position.set(
-            (random() - 0.5) * 500.0,
-            60.0 + random() * 60.0,
-            (random() - 0.5) * 500.0,
-          );
-          pivot.rotation.y = random() * Math.PI * 2.0;
-        }
-
-        onBuilt();
-      });
-
-      return;
-    }
-
-    if (params.source === 'clouds') {
-      const volume = new OpenVDB.FrameVolume(
-        new OpenVDB.CloudVolume({ height: 0.2, density: 0.3 }),
-        {
-          resolution: 100,
-          progressive: true,
-          wrap3D: Three.MirroredRepeatWrapping,
-          lights: OpenVDB.frameLights.useEnvironment | OpenVDB.frameLights.useDirectionalLights,
-        },
-        onBuilt,
-      );
-      volume.scale.setScalar(400.0);
-
-      addVolume(volume, new Three.Vector3()).position.y = 100.0;
-
-      return;
-    }
 
     // NOTE One bunny, or two bunnies that overlap. createBunny() gives a new volume.
     const addBunnies = (center, size, createBunny) => {
@@ -565,8 +464,6 @@ export const exampleFrame = ({ scene }) => {
             'Bunny Cloud': 'bunny',
             'Two Bunnies': 'twoBunnies',
             '100 Bunnies (stress test)': 'bunnyGrid',
-            Clouds: 'clouds',
-            'Cloud Field': 'cloudField',
           },
           onChange: (value) => {
             params.source = value;
@@ -619,20 +516,6 @@ export const exampleFrame = ({ scene }) => {
           min: 8,
           max: 512,
           onChange: setFrameSetting('depth'),
-        },
-        {
-          id: 'fieldVolumes',
-          name: 'Cloud Field Volumes',
-          defaultValue: params.fieldVolumes,
-          min: 1,
-          max: 120,
-          onChange: (value) => {
-            params.fieldVolumes = Math.round(value);
-
-            if (params.source === 'cloudField') {
-              rebuild();
-            }
-          },
         },
         {
           id: 'lighting',

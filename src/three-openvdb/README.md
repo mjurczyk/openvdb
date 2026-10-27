@@ -1,6 +1,6 @@
 # three-openvdb
 
-three.js rendering of OpenVDB volumes, built on `openvdb`: `VDBLoader`, `FrameVolume`, `VDBAnimationLoader`, `FogVolume`, `LevelSet`, `Points`, `Bbox`, volume materials and `MeshVolume`.
+three.js rendering of OpenVDB volumes, built on `openvdb`: `VDBLoader`, `FrameVolume`, `VDBAnimationLoader`, `FogVolume`, `LevelSet`, `Points`, `Bbox`, and volume materials.
 
 Streamed `.wvdb` files, made from `.vdb` files with the `wvdb` CLI (npm package `webvdb`):
 
