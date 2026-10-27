@@ -14,13 +14,11 @@ This project indirectly ports OpenVDB file format and tools to JavaScript, TypeS
 
 Packages (each in its own folder of `src/`):
 
-| Package | Folder | Depends on | Use |
-| --- | --- | --- | --- |
-| `openvdb` | `src/openvdb` | nothing | Reads VDB files. Grid lookup, volume math, noise, WVDB format helpers. No renderer. |
-| `three-openvdb` | `src/three-openvdb` | `openvdb`, `three` | three.js rendering: `.vdb` and `.wvdb` loaders, `FrameVolume`, `FogVolume`, materials. |
-| `webvdb` | `src/wvdb` | `openvdb` (bundled), Node.js | `wvdb` CLI: converts VDB files, folders and ZIP files into `.wvdb` files. |
-
-Examples (gh-pages) are in `src/docs/examples`. The WVDB format is described in `src/docs/wvdb/README.md`.
+| Package | Folder | Use |
+| --- | --- | --- |
+| `openvdb` | `src/openvdb` | Reads VDB files. Grid lookup, volume math, noise, WVDB format helpers. No renderer. |
+| `three-openvdb` | `src/three-openvdb` | three.js rendering: `.vdb` and `.wvdb` loaders, `FrameVolume`. |
+| `webvdb` | `src/wvdb` | `wvdb` CLI: converts VDB files, folders and ZIP files into `.wvdb` files. |
 
 ## What is OpenVDB
 
@@ -60,7 +58,12 @@ const animation = new OpenVDB.WVDBAnimationLoader()
 
 scene.add(animation);
 
-// NOTE In the render loop: animation.update(deltaSeconds);
+const clock = new Three.Clock();
+
+renderer.setAnimationLoop(() => {
+  animation.update(clock.getDelta());
+  renderer.render(scene, camera);
+});
 ```
 
 #### Loading .vdb files
@@ -164,7 +167,7 @@ Loads VDB model. onLoad is called when VDB is loaded and parsed. onError is call
 
 Loads a `.wvdb` file (see [WVDB files](#wvdb-files)) as a stream. `onLoad( volumeData )` is called when all grids show LOD 0. Each next LOD replaces the previous one while the download continues. Each LOD has its own texture size (for example 32³, 64³, 128³). `onProgress({ lod, lods, lodComplete, done, bytesLoaded, bytesTotal })` is called after each update. With `setMaxLod( lod )`, the download stops after that LOD.
 
-`volumeData.grids[name]` has `data: Uint8Array` (`resolution`³ texels of the newest LOD: density, or RGBA when `isColor`), `resolution`, `bbox: Three.Box3`, `isLevelSet` and `isColor`. Use `data` as raw data of `FrameVolume` or `VolumeToFog`, also for `emissiveGrid` and `baseColorGrid`. With `setGridScales({ flames: 6.0 })`, grid values divide by the scale before they become density. Use the `emissiveScale` of the volume for emission grids. Call `volumeData.attach( volume )`, so the textures of the volume update (and resize) when a new LOD arrives. `volumeData.dispose()` stops the download.
+`volumeData.grids[name]` has `data: Uint8Array` (`resolution`³ texels of the newest LOD: density, or RGBA when `isColor`), `resolution`, `bbox: Three.Box3`, `isLevelSet` and `isColor`. Use `data` as raw data of `FrameVolume`, also for `emissiveGrid` and `baseColorGrid`. With `setGridScales({ flames: 6.0 })`, grid values divide by the scale before they become density. Use the `emissiveScale` of the volume for emission grids. Call `volumeData.attach( volume )`, so the textures of the volume update (and resize) when a new LOD arrives. `volumeData.dispose()` stops the download.
 
 - `WVDBAnimationLoader( manager ).setOptions( props ).load( urls, onLoad, onProgress, onError ): FrameVolumeAnimation`
 
@@ -228,47 +231,7 @@ Froxel grid settings are global, in `frameRenderer.settings`:
 
 With `'frame'` lighting, the first directional, point and spot lights (6 in total) cast shadows. Hemisphere lights, light probes and the environment use the shadow grid in the up and down directions. Ambient light has no shadow. `lights` and `shadowSteps` are not used, `scatterColor` is added as emission, and `absorbance` scales the shadow of each volume.
 
-Limits: with `'volume'` lighting, volumes do not shadow other volumes. Point and spot lights have no distance falloff (same as `VolumeToFog`). Logarithmic depth buffers are not supported.
-
----
-
-### VolumeToBbox
-
-- `VolumeToBbox( vdb: OpenVDB.OpenVDBReader | OpenVDB.GridDescriptor | Array<OpenVDB.GridDescriptor> ): Three.Object3D`
-
-Converts given `OpenVDBReader` to `Three.Object3D`. Resulting object consists of wireframe bounding boxes of all internal nodes within the given VDB. If multiple grids are given - each grid is drawn in a different wireframe color.
-
----
-
-### VolumeToFog
-
-- `VolumeToFog( vdb: OpenVDB.OpenVDBReader | OpenVDB.GridDescriptor | Array<OpenVDB.GridDescriptor>, { resolution, steps, progressive, absorbance, opacity, radius, baseColor }, onConverted: () => void, onProgress: ({ convertedVoxels, totalVoxels, convertedGrids, totalGrids }) => void ): Three.Object3D`
-
-Converts given `OpenVDBReader` to a volumetric `Three.Object3D`. Each volume has its own mesh and material, and is ray marched on its own. `onConverted` and `onProgress` are called as the VDB is converted to a fog. Most importantly:
-
-* `resolution: number` - (required) resolution of the resulting 3D texture. Keep in mind this will be risen to the power of 3 - so resolution 200 results in 8 million voxels.
-* `steps: number` - (default: 100) detail of the resulting fog volume. High amount of steps combined with large amount of lights in the scene may decrease performance significantly.
-* `progressive: boolean` - set to `true` to render the fog on-the-go as it is being parsed, while preserving 60fps.
-* `absorbance: number` - (default: `1.0`) `1.0` means fog absorbs all the light going through it, lower values all light to partially traverse through the fog.
-* `densityScale: number` - scales density of the entire grid.
-* `densityCutoff: number` - defines sharpness of the shape.
-* `opacity: number` - alpha opacity of the fog (doesn't affect light calculations.)
-* `baseColor: Three.Color | string | number` - (default: `0x000000`) albedo color of the fog volume.
-* `emissiveGrid` - VDB emission grid.
-* `baseColorGrid` - VDB grid equivalent of `baseColor`.
-* `maskGrid` - static VDB grid mask applied to each voxel. Not affected by UV offset.
-* `lights` - bitmask of light types affecting the volume (`lights.useDirectionalLights | lights.usePointLights | lights.useSpotLights | lights.useHemisphereLights | lights.useEnvironment`)
-* `textureBuild: 'sample' | 'leaves'` - (default: `'sample'`) `'sample'` reads the grid `resolution³` times. `'leaves'` reads leaves and tiles one time, in a Web Worker when available. `'leaves'` needs VDB grids with scalar values; primitives and `baseColorGrid` grids use `'sample'`. With `'leaves'`, `radius` applies to the density texture only.
-* `textureFilter: 'nearest' | 'trilinear' | 'max'` - (default: `'nearest'`) texel value for `textureBuild: 'leaves'`. `'nearest'` gives the same result as `'sample'`. `'trilinear'` interpolates voxels at the texel center. `'max'` keeps the largest voxel in the texel, so thin shapes stay visible at low resolutions.
-* `textureType: 'uint8' | 'half' | 'float'` - (default: `'uint8'`) data type of the density, emissive, and mask textures. `'float'` needs `OES_texture_float_linear` for linear filtering.
-
----
-
-### VolumeToLevelSet
-
-- `VolumeToLevelSet( vdb: OpenVDB.OpenVDBReader | OpenVDB.GridDescriptor | Array<OpenVDB.GridDescriptor>, onConverted: () => void, onProgress: () => void ): Three.Object3D`
-
-Not yet finished. Converts the given `OpenVDBReader` to a 3D mesh using marching cubes.
+Limits: with `'volume'` lighting, volumes do not shadow other volumes. Point and spot lights have no distance falloff. Logarithmic depth buffers are not supported.
 
 ---
 
@@ -288,8 +251,6 @@ wvdb ./explosion_VDB.zip    # ZIP of .vdb files -> ./explosion_VDB_wvdb/
 Options: `--output`, `--grids <a,b>`, `--resolution` (default `128`, texels per side of the finest LOD), `--lods` (default `3`), `--bits` (`8` or `16`, default `8`), `--layout` (`sparse` or `dense`, default `sparse`), `--page-bricks` (default `1024`), `--jobs` (files converted at the same time, default: CPU core count).
 
 Each `.vdb` file gives one `.wvdb` file, also empty frames. All grids of a file use one box. All frames of a folder or ZIP use one box, so voxels do not move between frames.
-
-Format, results and the three.js kernel: `src/docs/wvdb/README.md`. The `.vdb` loaders do not change.
 
 ## Current Feature Support
 
