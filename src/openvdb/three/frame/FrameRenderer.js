@@ -86,7 +86,7 @@ export class FrameRenderer {
     jitter: false,
     temporal: true,
     temporalBlend: 0.2,
-    lighting: 'volume',
+    lighting: 'frame',
     shadowResolution: 64,
     shadowCascades: 3,
     shadowDistance: 512,

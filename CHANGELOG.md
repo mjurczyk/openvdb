@@ -2,7 +2,7 @@
 
 Core:
 
-- Add experimental `FrameVolume` and `frameRenderer`: one froxel grid for each frame, marched once. Alternative to `FogVolume`, which does not change
+- Add `FrameVolume` and `frameRenderer`: all volumes of a frame in one froxel grid, marched once. `FogVolume` does not change
 - Add `frameRenderer.settings.lighting = 'frame'`: combined density, world-space shadow grid cascades for all volumes, one lighting pass
 - Add jitter and temporal accumulation of froxels (`jitter`, `temporal`, `temporalBlend`) against banding
 - Three.js r186 compatibility (`opaque_fragment`, `colorspace_fragment`, `mergeGeometries`). Three.js r186 or later is now required
