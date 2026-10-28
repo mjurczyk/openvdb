@@ -1,5 +1,8 @@
 # Unreleased
 
+- Fix `wvdb` sequences with a wrong `file_bbox_min` in some frames (EmberGen). All frames baked empty. Boxes now come from the active voxels of the tree, not from the `file_bbox_*` metadata. Other files give the same `.wvdb` bytes
+- `GridDescriptor.evalActiveVoxelBoundingBox()`. `getPreciseWorldBbox()` uses the tree when it is read
+- `OpenVDBReader.read( bytes, { topologyOnly: true } )`: tree topology without leaf values
 - Fix `.wvdb` LOD 1 and LOD 2 on hosts that compress responses (for example GitHub Pages). `WVDBLoader` reads each file in one request, and decodes the LODs from its bytes
 - `WVDBAnimationLoader` loads LOD 0 of all frames first, then LOD 1, then LOD 2. Each pass requests only the first bytes of each file (`Range: bytes=0-N`), up to the end of that LOD. This also works when the host compresses responses. Each pass reads the earlier LODs again
 - `WVDBAnimationLoader.setConcurrency`: default is all files of a pass at the same time

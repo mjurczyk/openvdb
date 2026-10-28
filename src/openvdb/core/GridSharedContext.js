@@ -14,6 +14,9 @@ export class GridSharedContext {
   // NOTE Read only grid headers, metadata and transforms. Trees are not read.
   metadataOnly = false;
 
+  // NOTE Read the tree topology (active voxels), but not the leaf values
+  topologyOnly = false;
+
   // NOTE Grid value settings
   valueType = null;
   useHalf = null;

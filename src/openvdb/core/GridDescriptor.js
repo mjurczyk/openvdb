@@ -28,7 +28,7 @@ export class GridDescriptor {
   gridType;
 
   readGrid() {
-    const { bufferIterator, version, hasGridOffsets, metadataOnly } =
+    const { bufferIterator, version, hasGridOffsets, metadataOnly, topologyOnly } =
       GridSharedContext.getContext(this);
 
     this.readGridHeader();
@@ -51,10 +51,20 @@ export class GridDescriptor {
       return;
     }
 
+    // NOTE With topologyOnly, leaf values are skipped. Without grid offsets, the reader cannot skip them.
+    const readOrSkipBuffers = () => {
+      if (topologyOnly && hasGridOffsets) {
+        bufferIterator.offset = this.endBufferPosition;
+        return;
+      }
+
+      this.readBuffers();
+    };
+
     if (Version.less(version, 216)) {
       this.readTopology();
       this.readGridTransform();
-      this.readBuffers();
+      readOrSkipBuffers();
     } else {
       this.readGridTransform();
 
@@ -69,7 +79,7 @@ export class GridDescriptor {
       }
 
       this.readTopology();
-      this.readBuffers();
+      readOrSkipBuffers();
     }
   }
 
@@ -237,11 +247,29 @@ export class GridDescriptor {
     ];
   }
 
+  // NOTE Index box of active voxels and tiles from the tree, same as Tree::evalActiveVoxelBoundingBox. Null when none is active.
+  // Some writers (EmberGen) save wrong file_bbox metadata.
+  evalActiveVoxelBoundingBox() {
+    if (this.activeVoxelBboxCache === undefined) {
+      const min = new Vector3(Infinity, Infinity, Infinity);
+      const max = new Vector3(-Infinity, -Infinity, -Infinity);
+
+      this.root.evalActiveBbox(min, max);
+
+      this.activeVoxelBboxCache = min.x <= max.x ? [min, max] : null;
+    }
+
+    return this.activeVoxelBboxCache;
+  }
+
+  // NOTE Without a tree (metadataOnly) or without active voxels, the box comes from the file metadata
   getPreciseWorldBbox() {
-    return this.transform.applyTransformMapToBbox([
-      this.metadata.file_bbox_min.value,
-      this.metadata.file_bbox_max.value,
-    ]);
+    return this.transform.applyTransformMapToBbox(
+      (this.root && this.evalActiveVoxelBoundingBox()) || [
+        this.metadata.file_bbox_min.value,
+        this.metadata.file_bbox_max.value,
+      ]
+    );
   }
 
   valueCache = {};
