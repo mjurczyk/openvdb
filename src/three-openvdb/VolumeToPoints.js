@@ -6,6 +6,8 @@ import { getDensity } from './utils/density';
 
 export class VolumeToPoints extends Three.Group {
   processes = [];
+  materials = [];
+  geometries = [];
 
   constructor(source, materialProps, { resolution, progressive }, onConverted, onProgress) {
     super();
@@ -35,10 +37,11 @@ export class VolumeToPoints extends Three.Group {
       const geometry = new Three.BufferGeometry();
       const vertices = [];
 
-      const levelSet = new Three.Points(
-        geometry,
-        new Three.PointsMaterial({ color: 0xff00ff, size: 1.0, ...(materialProps || {}) })
-      );
+      const material = new Three.PointsMaterial({ color: 0xff00ff, size: 1.0, ...(materialProps || {}) });
+      const levelSet = new Three.Points(geometry, material);
+
+      this.materials.push(material);
+      this.geometries.push(geometry);
 
       const resolutionInv = 1.0 / resolution;
       const resolutionPow2 = Math.pow(resolution, 2);
@@ -151,15 +154,15 @@ export class VolumeToPoints extends Three.Group {
   }
 
   dispose() {
-    if (!this.processes) {
-      return;
+    if (this.processes) {
+      this.processes.forEach((task) => cancelAnimationFrame(task));
+      this.processes = null;
     }
 
-    this.processes.forEach((task, taskIndex) => {
-      cancelAnimationFrame(task);
-      delete this.processes[taskIndex];
-    });
+    this.materials.forEach((material) => material.dispose());
+    this.geometries.forEach((geometry) => geometry.dispose());
 
-    this.processes = null;
+    this.materials = [];
+    this.geometries = [];
   }
 }

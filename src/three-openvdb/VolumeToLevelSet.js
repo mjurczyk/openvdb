@@ -286,6 +286,7 @@ const triangleLUT = [
 
 export class VolumeToLevelSet extends Three.Group {
   processes = [];
+  geometries = [];
 
   constructor(source, material, { resolution, progressive }, onConverted, onProgress) {
     super();
@@ -322,6 +323,8 @@ export class VolumeToLevelSet extends Three.Group {
         // new Three.PointsMaterial({ vertexColors: true, size: 0.05, side: Three.DoubleSide })
         material
       );
+
+      this.geometries.push(geometry);
 
       const resolutionInv = 1.0 / resolution;
       const resolutionPow2 = Math.pow(resolution, 2);
@@ -537,16 +540,14 @@ export class VolumeToLevelSet extends Three.Group {
     });
   }
 
+  // NOTE The caller owns the material. Only the geometry is disposed.
   dispose() {
-    if (!this.processes) {
-      return;
+    if (this.processes) {
+      this.processes.forEach((task) => cancelAnimationFrame(task));
+      this.processes = null;
     }
 
-    this.processes.forEach((task, taskIndex) => {
-      cancelAnimationFrame(task);
-      delete this.processes[taskIndex];
-    });
-
-    this.processes = null;
+    this.geometries.forEach((geometry) => geometry.dispose());
+    this.geometries = [];
   }
 }

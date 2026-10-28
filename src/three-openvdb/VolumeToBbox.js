@@ -5,6 +5,7 @@ const sampleColors = [0xff0000, 0x00ff00, 0x0000ff];
 
 export class VolumeToBbox extends Three.Group {
   processes = [];
+  meshes = [];
 
   constructor(
     source,
@@ -66,7 +67,18 @@ export class VolumeToBbox extends Three.Group {
 
         grid.root.table.forEach((node) => traverseVDB(node));
 
+      this.meshes.push(instancedMesh);
       this.add(instancedMesh);
     });
+  }
+
+  dispose() {
+    this.meshes.forEach((mesh) => {
+      mesh.geometry.dispose();
+      mesh.material.dispose();
+      mesh.dispose();
+    });
+
+    this.meshes = [];
   }
 }
