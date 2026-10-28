@@ -66,8 +66,12 @@ const getBackground = (grid) => {
     : [Math.fround(background.x), Math.fround(background.y), Math.fround(background.z)];
 };
 
-// NOTE Empty grids store an inverted box
+// NOTE With a tree, empty grids have no active voxels. Without a tree, empty grids store an inverted box.
 const isEmptyGrid = (grid) => {
+  if (grid.root) {
+    return !grid.evalActiveVoxelBoundingBox();
+  }
+
   const { file_voxel_count: voxelCount, file_bbox_min: min, file_bbox_max: max } =
     grid.metadata || {};
 

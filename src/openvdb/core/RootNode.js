@@ -126,6 +126,11 @@ export class RootNode {
     });
   }
 
+  // NOTE Root children and root tiles save their index origin in the file
+  evalActiveBbox(min, max) {
+    this.table.forEach((node) => node.evalActiveBbox(node.origin, min, max));
+  }
+
   getLocalBbox() {
     // NOTE Ignore bbox for root nodes
     return [new Vector3(0.0, 0.0, 0.0), new Vector3(0.0, 0.0, 0.0)];

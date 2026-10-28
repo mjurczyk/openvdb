@@ -390,6 +390,38 @@ export class ChildNode {
     return values;
   }
 
+  // NOTE Extends min and max with the active voxels and tiles. Origin is the index position of this node.
+  // Child origins are relative to the parent.
+  evalActiveBbox(origin, min, max) {
+    const log2dim = this.log2dim;
+    const childTotal = this.total - log2dim;
+    const tileSize = (1 << childTotal) - 1;
+    const position = new Vector3();
+
+    this.valueMask.forEachOn(({ offset }) => {
+      if (this.isInternalNode() && this.childMask.isOn(offset)) {
+        return;
+      }
+
+      position.set(
+        origin.x + ((offset >> (2 * log2dim)) << childTotal),
+        origin.y + (((offset >> log2dim) & ((1 << log2dim) - 1)) << childTotal),
+        origin.z + ((offset & ((1 << log2dim) - 1)) << childTotal)
+      );
+
+      min.min(position);
+      max.max(position.addScalar(tileSize));
+    });
+
+    if (this.isInternalNode()) {
+      this.childMask.forEachOn(({ offset }) => {
+        const child = this.table[offset];
+
+        child.evalActiveBbox(origin.clone().add(child.origin), min, max);
+      });
+    }
+  }
+
   getLocalBbox() {
     if (this.localBboxCache) {
       return this.localBboxCache;

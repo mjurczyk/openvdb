@@ -29,6 +29,16 @@ export class RootTile {
     return this.localBboxCache;
   }
 
+  // NOTE Extends min and max with the tile extent when the tile is active
+  evalActiveBbox(origin, min, max) {
+    if (!this.active) {
+      return;
+    }
+
+    min.min(origin);
+    max.max(origin.clone().addScalar(this.dim - 1));
+  }
+
   contains(position) {
     const [min, max] = this.getLocalBbox();
 

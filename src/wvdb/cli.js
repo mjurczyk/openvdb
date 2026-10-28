@@ -224,9 +224,9 @@ const readVDB = async (source, readOptions) => {
   return vdb;
 };
 
-// NOTE The box needs only grid metadata and transforms. The trees are not read.
+// NOTE The box needs the tree topology (active voxels). Leaf values are not read.
 const getSourceBox = async ({ source, options }) =>
-  getWVDBBox(await readVDB(readSource(source), { metadataOnly: true }), options.grids);
+  getWVDBBox(await readVDB(readSource(source), { topologyOnly: true }), options.grids);
 
 const convert = async ({ source, options }) => {
   const sourceBytes = readSource(source);

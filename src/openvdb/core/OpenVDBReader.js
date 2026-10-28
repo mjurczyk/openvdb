@@ -23,11 +23,13 @@ export class OpenVDBReader {
   }
 
   // NOTE With metadataOnly, grids have metadata and transforms (for example the world box), but no tree.
+  // With topologyOnly, grids also have the tree topology (active voxels, evalActiveVoxelBoundingBox), but no leaf values.
   // Grids of files without grid offsets (before version 2.16) are read in full.
-  async read(source, { metadataOnly = false } = {}) {
+  async read(source, { metadataOnly = false, topologyOnly = false } = {}) {
     await Compression.prepareModules();
     GridSharedContext.getContext(this).bufferIterator = new BufferIterator(source);
     GridSharedContext.getContext(this).metadataOnly = metadataOnly;
+    GridSharedContext.getContext(this).topologyOnly = topologyOnly;
 
     if (this.validateVDBFile()) {
       this.readFileVersion();
