@@ -46,6 +46,8 @@ export class VolumeToFog extends Three.Group {
   processes = [];
   leafBuilds = [];
   materials = [];
+  textures = [];
+  geometries = [];
 
   isFogVolume = true;
 
@@ -111,6 +113,8 @@ export class VolumeToFog extends Three.Group {
           return value;
         };
       }
+
+      this.textures.push(emissiveTexture3D);
     }
 
     if (baseColorGrid) {
@@ -160,6 +164,8 @@ export class VolumeToFog extends Three.Group {
         };
       }
 
+      this.textures.push(baseColorTexture3D);
+
       baseColorTexture3D.format = Three.RGBAFormat;
       baseColorTexture3D.minFilter = Three.LinearFilter;
       baseColorTexture3D.magFilter = Three.LinearFilter;
@@ -184,6 +190,8 @@ export class VolumeToFog extends Three.Group {
           return value;
         };
       }
+
+      this.textures.push(maskTexture3D);
     }
 
     // NOTE Parse grids
@@ -290,6 +298,8 @@ export class VolumeToFog extends Three.Group {
         fog.onBeforeRender = updateFrameDepth;
 
         this.materials.push(material);
+        this.textures.push(volumeTexture3D);
+        this.geometries.push(geometry);
 
         this.add(fog);
 
@@ -317,6 +327,8 @@ export class VolumeToFog extends Three.Group {
       fog.onBeforeRender = updateFrameDepth;
 
       this.materials.push(material);
+      this.textures.push(volumeTexture3D);
+      this.geometries.push(geometry);
 
       if (useLeafBuild) {
         const mapping = getTextureMapping(grid, resolution);
@@ -541,15 +553,17 @@ export class VolumeToFog extends Three.Group {
     this.leafBuilds.forEach((build) => build.cancel());
     this.leafBuilds = [];
 
-    if (!this.processes) {
-      return;
+    if (this.processes) {
+      this.processes.forEach((task) => clearTimeout(task));
+      this.processes = null;
     }
 
-    this.processes.forEach((task, taskIndex) => {
-      cancelAnimationFrame(task);
-      delete this.processes[taskIndex];
-    });
+    this.materials.forEach((material) => material.dispose());
+    this.textures.forEach((texture) => texture.dispose());
+    this.geometries.forEach((geometry) => geometry.dispose());
 
-    this.processes = null;
+    this.materials = [];
+    this.textures = [];
+    this.geometries = [];
   }
 }
