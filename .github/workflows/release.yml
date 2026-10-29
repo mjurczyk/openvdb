@@ -1,0 +1,97 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Build and show the release. No commit, tag, npm publish or GitHub Release
+        type: boolean
+        default: false
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check branch
+        if: ${{ !inputs.dry_run && github.ref != 'refs/heads/main' }}
+        run: |
+          echo "::error::Release only from main. Use dry_run on other branches."
+          exit 1
+
+      - uses: actions/checkout@v5
+
+      # NOTE npm trusted publishing needs npm 11.5.1 or newer. Node 24 has it.
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          cache: npm
+
+      - run: npm ci
+
+      - name: Set versions
+        id: versions
+        run: node scripts/release-versions.mjs
+
+      - run: npm run build
+
+      - name: Show release
+        if: ${{ inputs.dry_run }}
+        env:
+          PACKAGES: ${{ steps.versions.outputs.packages }}
+          NOTES: ${{ steps.versions.outputs.notes }}
+        run: |
+          git diff
+          for name in $PACKAGES; do
+            npm publish "./build/$name" --dry-run
+          done
+          echo "$NOTES"
+
+      - name: Commit and tag
+        if: ${{ !inputs.dry_run }}
+        env:
+          TAG: ${{ steps.versions.outputs.tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if ! git diff --quiet; then
+            git commit --all --message "Release $TAG"
+          fi
+          git rev-parse --quiet --verify "refs/tags/$TAG" || git tag "$TAG"
+          git push --atomic origin HEAD:main "refs/tags/$TAG"
+
+      # NOTE Versions that are already on npm are skipped, so a failed run can run again
+      - name: Publish to npm
+        if: ${{ !inputs.dry_run }}
+        env:
+          PACKAGES: ${{ steps.versions.outputs.packages }}
+        run: |
+          for name in $PACKAGES; do
+            version=$(node -p "require('./build/$name/package.json').version")
+            if [ -n "$(npm view "$name@$version" version 2> /dev/null)" ]; then
+              echo "$name@$version is already on npm"
+            else
+              npm publish "./build/$name"
+            fi
+          done
+
+      - name: GitHub Release
+        if: ${{ !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.versions.outputs.tag }}
+          NOTES: ${{ steps.versions.outputs.notes }}
+        run: |
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            echo "Release $TAG exists"
+          else
+            gh release create "$TAG" --verify-tag --title "$TAG" --notes "$NOTES" --generate-notes
+          fi

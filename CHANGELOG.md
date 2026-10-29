@@ -11,6 +11,7 @@
 - `frame` example: Format field (WVDB or VDB, default WVDB) for the bunny sources
 - `frame` example: remove the Clouds and Cloud Field sources
 - README: notes about the WVDB proposal and `.vdb` to `.wvdb` conversion. Examples use `.wvdb` first. The primitive volumes, `VolumeToBbox`, `VolumeToFog` and `VolumeToLevelSet` are not in the docs (they are still exported)
+- Release GitHub Action (manual run): minor bump of packages already on npm, sync of package dependencies, npm publish, GitHub Release with tag `v<openvdb version>`. Option `dry_run`
 
 # v0.5.1
 
