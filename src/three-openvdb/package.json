@@ -38,5 +38,10 @@
       "url": "https://discourse.threejs.org/u/notchris"
     }
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mjurczyk/openvdb.git",
+    "directory": "src/three-openvdb"
+  }
 }
