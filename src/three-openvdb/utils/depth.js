@@ -30,20 +30,15 @@ export class MeshDistanceMaterial extends Three.MeshBasicMaterial {
         shader.uniforms[key] = value;
       });
 
-      const shaderVaryings = `
+      const shaderDefines = `
         #define DISTANCE
-
-        varying mat4 mModelMatrix;
-        varying mat4 mViewMatrix;
-        varying mat4 mProjectionMatrix;
-        varying mat4 mModelViewMatrix;
       `;
 
       shader.vertexShader = shader.vertexShader
         .replace(
           `#include <common>`,
           `
-            ${shaderVaryings}
+            ${shaderDefines}
 
             out vec3 vPosition;
 
@@ -56,11 +51,6 @@ export class MeshDistanceMaterial extends Three.MeshBasicMaterial {
             #include <worldpos_vertex>
 
             vPosition = worldPosition.xyz;
-
-            mModelMatrix = modelMatrix;
-            mViewMatrix = viewMatrix;
-            mProjectionMatrix = projectionMatrix;
-            mModelViewMatrix = modelViewMatrix;
           `
         );
 
@@ -75,7 +65,7 @@ export class MeshDistanceMaterial extends Three.MeshBasicMaterial {
             uniform float cameraNear;
             uniform float cameraFar;
 
-            ${shaderVaryings}
+            ${shaderDefines}
 
             #include <packing>
             #include <common>
