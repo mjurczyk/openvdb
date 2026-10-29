@@ -261,21 +261,17 @@ export class VolumeNormalMaterial extends Three.MeshStandardMaterial {
         #define VOLUME_USE_SPOT_LIGHTS ${Number(this.useSpotLights)} != 0
       `;
 
-      const shaderVaryings = `
-         varying mat4 mModelMatrix;
-         varying mat4 mViewMatrix;
-         varying mat4 mProjectionMatrix;
-         varying mat4 mModelViewMatrix;
-         varying mat4 mInverseModelViewMatrix;
-         varying mat3 mInverseNormalMatrix;
+      // NOTE Matrices are uniforms, not varyings. Matrix varyings use more than 15 varying vectors. Mobile WebGL2 cannot compile that.
+      // NOTE Declare before "precision highp float". Then precision is the same as in the vertex shader.
+      const shaderMatrixUniforms = `
+         uniform mat4 modelMatrix;
+         uniform mat4 modelViewMatrix;
       `;
 
       shader.vertexShader = shader.vertexShader
         .replace(
           `#include <common>`,
           `
-            ${shaderVaryings}
-
             out vec3 vOrigin;
             out vec3 vDirection;
             out vec3 vPosition;
@@ -291,13 +287,6 @@ export class VolumeNormalMaterial extends Three.MeshStandardMaterial {
             vOrigin = vec3(inverse(modelMatrix) * vec4(cameraPosition, 1.0)).xyz;
             vDirection = position - vOrigin;
             vPosition = position;
-
-            mModelMatrix = modelMatrix;
-            mViewMatrix = viewMatrix;
-            mProjectionMatrix = projectionMatrix;
-            mModelViewMatrix = modelViewMatrix;
-            mInverseModelViewMatrix = inverse(modelViewMatrix);
-            mInverseNormalMatrix = inverse(normalMatrix);
           `
         );
 
@@ -305,7 +294,7 @@ export class VolumeNormalMaterial extends Three.MeshStandardMaterial {
         float lightMarchLimit = resolution + 2.;
         int iLightMarchLimit = int(lightMarchLimit);
 
-        vec3 vUnit = (mModelMatrix * vec4(1., 0., 0., 0.)).xyz;
+        vec3 vUnit = (modelMatrix * vec4(1., 0., 0., 0.)).xyz;
         float vUnitLength = length(vUnit);
 
         vec3 iblIrradiance = vec3(0.0);
@@ -624,6 +613,8 @@ export class VolumeNormalMaterial extends Three.MeshStandardMaterial {
         .replace(
           `#include <common>`,
           `
+            ${shaderMatrixUniforms}
+
             precision highp float;
             precision highp sampler2D;
             precision highp sampler3D;
@@ -652,7 +643,6 @@ export class VolumeNormalMaterial extends Three.MeshStandardMaterial {
             uniform vec4 depthView;
 
             ${shaderProperties}
-            ${shaderVaryings}
 
             #include <common>
             #include <packing>
@@ -753,7 +743,7 @@ export class VolumeNormalMaterial extends Three.MeshStandardMaterial {
                 break;
               }
 
-              vProjPoint = (mModelMatrix * vec4(vPoint, 1.0)).xyz;
+              vProjPoint = (modelMatrix * vec4(vPoint, 1.0)).xyz;
               fogDepth = length(vProjPoint - cameraPosition);
               fogDepth = (fogDepth - cameraNear) / (cameraFar - cameraNear);
               fogDepth = saturate(fogDepth);
@@ -768,6 +758,9 @@ export class VolumeNormalMaterial extends Three.MeshStandardMaterial {
             density = clamp(density, 0.0, 1.0);
 
             vPoint = lastNonSolidPoint;
+
+            mat4 mInverseModelViewMatrix = inverse(modelViewMatrix);
+            mat3 mInverseNormalMatrix = transpose(mat3(modelViewMatrix)); // NOTE Same as inverse(normalMatrix)
 
             if (density > 0.) {
 
