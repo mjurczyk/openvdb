@@ -1,12 +1,12 @@
 {
   "name": "webvdb",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "CLI that converts .vdb files, folders and ZIP files into streamed .wvdb files.",
   "scripts": {
     "build": "rollup --config ./rollup.config.js"
   },
   "dependencies": {
-    "openvdb": "^0.6.0"
+    "openvdb": "^0.7.0"
   },
   "keywords": [
     "webvdb",

@@ -1,6 +1,6 @@
 {
   "name": "three-openvdb",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "three.js rendering of OpenVDB volumes: loaders, fog and frame volumes, materials.",
   "main": "./index.js",
   "module": "./index.js",
@@ -11,7 +11,7 @@
     "build": "rollup --config ./rollup.config.js"
   },
   "dependencies": {
-    "openvdb": "^0.6.0"
+    "openvdb": "^0.7.0"
   },
   "peerDependencies": {
     "three": ">=0.186.0"
