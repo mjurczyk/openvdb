@@ -1,6 +1,6 @@
 {
   "name": "openvdb",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "OpenVDB file reader and volume math in JavaScript. No dependencies.",
   "main": "./index.js",
   "module": "./index.js",
