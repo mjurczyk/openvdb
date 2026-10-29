@@ -1,7 +1,7 @@
 import * as Three from 'three';
 import * as OpenVDB from 'three-openvdb';
 import { gui, setGuiFields, dropTarget } from '../utils/gui';
-import { loaders } from '../utils/resources';
+import { loadEnvironment } from '../utils/resources';
 import { SimpleDropzone } from 'simple-dropzone';
 import zip from 'zip-js-esm';
 import { setLoading } from '../utils/loading';
@@ -482,11 +482,7 @@ export const exampleVDB = ({ scene }) => {
             UV: 'uv-1',
           },
           onChange: (value) => {
-            loaders.ultraHdr.load(`./assets/${value}-HDR.jpg`, (env) => {
-              env.mapping = Three.EquirectangularReflectionMapping;
-              scene.environment = env;
-              scene.background = env;
-            });
+            loadEnvironment(scene, value);
           },
         },
         {
