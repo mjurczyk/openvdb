@@ -3,9 +3,13 @@ import * as OpenVDB from 'three-openvdb';
 import { gui, setGuiFields } from '../utils/gui';
 import { loaders } from '../utils/resources';
 import { setLoading } from '../utils/loading';
+import { renderer } from '../main';
 
 // NOTE Longest side of each volume in scene units
 const displaySize = 100.0;
+
+// NOTE Distance between instances on the X axis
+const instanceSpacing = displaySize * 1.25;
 
 // NOTE Sequences have one .wvdb file per frame, listed in frames.json
 const sequences = {
@@ -35,6 +39,7 @@ const getController = (id) =>
 export const exampleWVDB = ({ scene }) => {
   const params = {
     asset: 'bunny_cloud',
+    instances: 1,
   };
 
   let entry = null;
@@ -55,12 +60,22 @@ export const exampleWVDB = ({ scene }) => {
 
   let lastTime = performance.now();
 
-  // NOTE Sequences play in a FrameVolumeAnimation
+  let textureCount = -1;
+
+  // NOTE Sequences play in a FrameVolumeAnimation. Instances play on their own.
   setInterval(() => {
     const now = performance.now();
+    const delta = (now - lastTime) / 1000.0;
 
-    entry?.volume?.update?.((now - lastTime) / 1000.0);
+    entry?.volume?.update?.(delta);
+    entry?.instances.forEach((instance) => instance.update?.(delta));
     lastTime = now;
+
+    // NOTE Instances share the textures of the source, so the count does not change with them
+    if (renderer.info.memory.textures !== textureCount) {
+      textureCount = renderer.info.memory.textures;
+      getController('textures')?.setValue(`${textureCount}`);
+    }
   }, 1000 / 60);
 
   const setStatus = (text) => {
@@ -72,27 +87,60 @@ export const exampleWVDB = ({ scene }) => {
       return;
     }
 
+    entry.instances.forEach((instance) => instance.dispose());
     entry.volumeData?.dispose();
     entry.volume?.dispose();
     scene.remove(entry.pivot);
     entry = null;
   };
 
-  // NOTE Fits the box to displaySize and puts its center at the scene origin.
-  // Z-up volumes turn -90 degrees on X.
-  const addVolume = (volume, bbox, upAxis = 'y') => {
-    const size = bbox.getSize(new Three.Vector3());
-    const scale = displaySize / Math.max(size.x, size.y, size.z);
-    const up = new Three.Group();
+  // NOTE The source and its instances stand in a row on X. Each box fits displaySize.
+  // Z-up volumes turn -90 degrees on X. Sequence instances start at different frames.
+  const placeVolumes = () => {
+    if (!entry?.box) {
+      return;
+    }
 
-    up.rotation.x = upAxis === 'z' ? -Math.PI / 2.0 : 0.0;
-    volume.scale.setScalar(scale);
-    volume.position.copy(bbox.getCenter(new Three.Vector3())).multiplyScalar(-scale);
+    const { volume, box } = entry;
+    const size = box.bbox.getSize(new Three.Vector3());
+    const scale = displaySize / Math.max(size.x, size.y, size.z);
+
+    entry.instances.forEach((instance) => instance.dispose());
+    entry.pivot.clear();
+
+    entry.instances = Array.from({ length: params.instances - 1 }, (_, index) => {
+      const instance = volume.createInstance();
+
+      if (volume.isFrameVolumeAnimation) {
+        instance.frame = Math.round(((index + 1) / params.instances) * volume.frames.length);
+        instance.play();
+      }
+
+      return instance;
+    });
+
+    [volume, ...entry.instances].forEach((each, index) => {
+      const slot = new Three.Group();
+      const up = new Three.Group();
+
+      slot.position.x = (index - (params.instances - 1) / 2.0) * instanceSpacing;
+      up.rotation.x = box.upAxis === 'z' ? -Math.PI / 2.0 : 0.0;
+      each.scale.setScalar(scale);
+      each.position.copy(box.bbox.getCenter(new Three.Vector3())).multiplyScalar(-scale);
+
+      up.add(each);
+      slot.add(up);
+      entry.pivot.add(slot);
+    });
+  };
+
+  // NOTE Instances copy the props of the source, so the props are set first
+  const addVolume = (volume, bbox, upAxis = 'y') => {
     volume.extinction = getExtinction(params.asset);
 
     entry.volume = volume;
-    up.add(volume);
-    entry.pivot.add(up);
+    entry.box = { bbox, upAxis };
+    placeVolumes();
   };
 
   // NOTE LOD 0 of all frames decodes first. Then the animation plays, and finer LODs follow.
@@ -217,7 +265,7 @@ export const exampleWVDB = ({ scene }) => {
 
     removeVolume();
 
-    entry = { pivot: new Three.Group(), volume: null, volumeData: null };
+    entry = { pivot: new Three.Group(), volume: null, volumeData: null, instances: [], box: null };
     scene.add(entry.pivot);
 
     setLoading('wvdb', true);
@@ -254,8 +302,23 @@ export const exampleWVDB = ({ scene }) => {
           },
         },
         {
+          id: 'instances',
+          name: 'Instances',
+          defaultValue: params.instances,
+          options: { 1: 1, 2: 2, 4: 4, 8: 8 },
+          onChange: (value) => {
+            params.instances = value;
+            placeVolumes();
+          },
+        },
+        {
           id: 'status',
           name: 'Status',
+          defaultValue: '',
+        },
+        {
+          id: 'textures',
+          name: 'Textures',
           defaultValue: '',
         },
       ],
@@ -263,6 +326,7 @@ export const exampleWVDB = ({ scene }) => {
   ]);
 
   getController('status')?.disable();
+  getController('textures')?.disable();
 
   ready = true;
   rebuild();
