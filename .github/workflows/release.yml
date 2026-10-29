@@ -26,7 +26,10 @@ jobs:
           echo "::error::Release only from main. Use dry_run on other branches."
           exit 1
 
+      # NOTE The deploy key can bypass the pull request rule of main
       - uses: actions/checkout@v5
+        with:
+          ssh-key: ${{ secrets.RELEASE_DEPLOY_KEY }}
 
       # NOTE npm trusted publishing needs npm 11.5.1 or newer. Node 24 has it.
       - uses: actions/setup-node@v5
