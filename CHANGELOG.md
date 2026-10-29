@@ -1,5 +1,8 @@
 # Unreleased
 
+- `FrameVolume.createInstance( props )` and `FrameVolumeAnimation.createInstance( props )`: show one loaded volume or sequence at many places. Instances share the 3D textures of the source, so GPU memory does not grow with them. Each instance has its own transform and props. Animation instances have their own playback. `FrameVolumeAnimationInstance` is exported
+- `new FrameVolume( frameVolume, props )` makes an instance. `FrameVolume.dispose()` of an instance keeps the textures of the source
+- `wvdb` example: Instances field (1, 2, 4, 8) and Textures readout (`renderer.info.memory.textures`)
 - Fix `wvdb` sequences with a wrong `file_bbox_min` in some frames (EmberGen). All frames baked empty. Boxes now come from the active voxels of the tree, not from the `file_bbox_*` metadata. Other files give the same `.wvdb` bytes
 - `GridDescriptor.evalActiveVoxelBoundingBox()`. `getPreciseWorldBbox()` uses the tree when it is read
 - `OpenVDBReader.read( bytes, { topologyOnly: true } )`: tree topology without leaf values

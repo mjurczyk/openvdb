@@ -43,14 +43,77 @@ const sampleColor = (grid, position, target) => {
   return target;
 };
 
+const textureKeys = ['densityMap3D', 'emissiveMap3D', 'baseColorMap3D', 'maskMap3D'];
+
+// NOTE Volume of an instance, with its own render state.
+// Textures, box and ready come from the volume of the source.
+class SharedVolume {
+  source = null;
+  matrixWorld = new Three.Matrix4();
+  localToView = new Three.Matrix4();
+  viewToLocal = new Three.Matrix4();
+  worldToLocal = new Three.Matrix4();
+  worldBox = new Three.Box3();
+  viewNear = 0.0;
+  viewFar = 0.0;
+
+  get densityMap3D() {
+    return this.source.densityMap3D;
+  }
+
+  get emissiveMap3D() {
+    return this.source.emissiveMap3D;
+  }
+
+  get baseColorMap3D() {
+    return this.source.baseColorMap3D;
+  }
+
+  get maskMap3D() {
+    return this.source.maskMap3D;
+  }
+
+  get matrix() {
+    return this.source.matrix;
+  }
+
+  get ready() {
+    return this.source.ready;
+  }
+}
+
+// NOTE Volume props of a FrameVolume, in the constructor props format
+const getProps = (frameVolume) => ({
+  baseColor: frameVolume.baseColor,
+  scatterColor: frameVolume.scatterColor,
+  extinction: frameVolume.extinction,
+  densityScale: frameVolume.densityScale,
+  densityCutoff: frameVolume.densityCutoff,
+  absorbance: frameVolume.absorbance,
+  opacity: frameVolume.opacity,
+  emissiveIntensity: frameVolume.emissiveIntensity,
+  emissiveScale: frameVolume.emissiveScale,
+  temperatureRange: frameVolume.temperatureRange.toArray(),
+  offset3D: frameVolume.offset3D,
+  wrap3D: frameVolume.wrap3D,
+  lights: frameVolume.lights,
+  shadowSteps: frameVolume.shadowSteps,
+});
+
 export class FrameVolume extends Three.Group {
   isFrameVolume = true;
 
   volumes = [];
   process = null;
+  // NOTE Instances only: the FrameVolume with the textures. null when the textures are its own.
+  source = null;
 
+  // NOTE A FrameVolume as source makes an instance. It shares the textures and boxes of the source.
+  // Props start from the source props.
   constructor(source, props = {}, onConverted, onProgress) {
     super();
+
+    const instanceSource = source?.isFrameVolume ? source : null;
 
     const {
       // NOTE Texels on the longest box side
@@ -77,7 +140,7 @@ export class FrameVolume extends Three.Group {
       shadowSteps = 32,
       // NOTE World box for all grids. Animation frames share one box. Then voxels do not move.
       bbox: sharedBbox,
-    } = props;
+    } = instanceSource ? { ...getProps(instanceSource), ...props } : props;
 
     this.baseColor = new Three.Color(baseColor);
     this.scatterColor = new Three.Color(scatterColor);
@@ -101,6 +164,13 @@ export class FrameVolume extends Three.Group {
       frameRenderer.render(renderer, scene, camera, this.proxy);
     };
     this.add(this.proxy);
+
+    if (instanceSource) {
+      // NOTE An instance of an instance shares the textures of the first source
+      this.setSource(instanceSource.source ?? instanceSource);
+
+      return;
+    }
 
     let grids;
 
@@ -225,7 +295,7 @@ export class FrameVolume extends Three.Group {
     const totalVoxels = tasks.reduce((sum, { voxelCount }) => sum + voxelCount, 0);
 
     const updateTextures = (volume) => {
-      ['densityMap3D', 'emissiveMap3D', 'baseColorMap3D', 'maskMap3D'].forEach((key) => {
+      textureKeys.forEach((key) => {
         if (volume[key]) {
           volume[key].needsUpdate = true;
         }
@@ -341,19 +411,41 @@ export class FrameVolume extends Three.Group {
     }
   }
 
+  // NOTE An instance with the same textures and boxes.
+  // Own transform and own props, which start from the props of this volume.
+  createInstance(props) {
+    return new FrameVolume(this, props);
+  }
+
+  // NOTE Instances only. Shows the textures and boxes of another FrameVolume.
+  // For example the next animation frame.
+  setSource(frameVolume) {
+    this.source = frameVolume;
+    this.volumes = frameVolume.volumes.map((volume, index) => {
+      const shared =
+        this.volumes[index] instanceof SharedVolume ? this.volumes[index] : new SharedVolume();
+      shared.source = volume;
+
+      return shared;
+    });
+  }
+
+  // NOTE An instance frees only its own objects. The source keeps the textures.
   dispose() {
     if (this.process) {
       clearTimeout(this.process);
       this.process = null;
     }
 
-    this.volumes.forEach((volume) => {
-      ['densityMap3D', 'emissiveMap3D', 'baseColorMap3D', 'maskMap3D'].forEach((key) => {
-        if (volume[key]) {
-          volume[key].dispose();
-        }
+    if (!this.source) {
+      this.volumes.forEach((volume) => {
+        textureKeys.forEach((key) => {
+          if (volume[key]) {
+            volume[key].dispose();
+          }
+        });
       });
-    });
+    }
 
     this.volumes = [];
     this.proxy.geometry.dispose();

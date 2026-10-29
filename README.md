@@ -211,6 +211,36 @@ Converts the given `OpenVDBReader` to a volumetric `Three.Object3D`. `onConverte
 
 All properties can be changed after creation, for example `frameVolume.extinction = 50.0` or `frameVolume.baseColor.set(0xff00ff)`.
 
+#### Instances
+
+- `frameVolume.createInstance( props ): FrameVolume`
+- `animation.createInstance( props ): FrameVolumeAnimationInstance`
+
+An instance shows the same volume or sequence at another place, with no new 3D textures. GPU memory does not grow with the number of instances. Each instance has its own transform and its own props. The props start from the props of the source, and `props` overrides them. LOD updates of a `.wvdb` source (`volumeData.attach( volume )`) show on all instances. `new FrameVolume( frameVolume, props )` also makes an instance.
+
+An animation instance plays the frames of the source animation with its own `frame`, `fps`, `loop`, `play()`, `pause()`, `stop()` and `update( delta )`. Volume props (for example `extinction` or `baseColor`) apply only to the instance. It renders one `FrameVolume` instance, which shows the textures of the current frame. Call `animation.createInstance()` in `onLoad`, when the animation has frames. Frames that load later are used too.
+
+Props that build the textures stay the same as the source: `resolution`, `bbox`, `emissiveGrid`, `baseColorGrid`, `maskGrid`, and `emissiveScale` of `.wvdb` and converted data. For other voxel data, load the volume again.
+
+`instance.dispose()` frees only the instance. Dispose the source after its instances. The source does not have to be in the scene.
+
+```js
+new OpenVDB.WVDBAnimationLoader()
+  .setOptions({ emissiveGrid: 'flames' })
+  .load(urls, (animation) => {
+    for (let i = 0; i < 8; i++) {
+      const explosion = animation.createInstance({ extinction: 300.0 });
+
+      explosion.position.x = i * 10.0;
+      explosion.frame = i * 10;
+      explosion.play();
+      scene.add(explosion);
+
+      // NOTE Call explosion.update( delta ) in the render loop
+    }
+  });
+```
+
 Froxel grid settings are global, in `frameRenderer.settings`:
 
 * `width`, `height` - (default: `512`, `512`) froxels on the screen axes.
