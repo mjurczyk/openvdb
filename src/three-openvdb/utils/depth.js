@@ -1,6 +1,8 @@
 import * as Three from 'three';
 import { FogVolume } from '../index';
 
+// NOTE Only FogVolume (VolumeToFog) uses this depth pass. FrameVolume does not use it. FrameRenderer has its own depth target.
+
 const vector2 = new Three.Vector2();
 const clearColor = new Three.Color();
 
@@ -158,7 +160,7 @@ export const updateFrameDepth = (renderer, scene, camera, geometry, material) =>
   depthMaterial._uniforms.cameraNear.value = camera.near;
   depthMaterial._uniforms.cameraFar.value = camera.far;
 
-  renderer.getSize(vector2);
+  renderer.getDrawingBufferSize(vector2);
   depthRenderTarget.setSize(
     vector2.x,
     vector2.y,
