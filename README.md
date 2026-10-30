@@ -269,7 +269,7 @@ With `mipmaps`, large froxels far away sample a lower mip level, so small detail
 
 With `'frame'` lighting, the first directional, point and spot lights (6 in total) cast shadows. Hemisphere lights and light probes use the shadow grid in the up and down directions. The environment (`scene.environment`) lights each volume along its outward direction, the same as `'volume'` lighting. Its shadow is between the up and down shadows of the grid. Ambient light has no shadow. `lights` and `shadowSteps` are not used, `scatterColor` is added as emission, and `absorbance` scales the shadow of each volume.
 
-Limits: with `'volume'` lighting, volumes do not shadow other volumes. Point and spot lights have no distance falloff. The first 16 directional, point and spot lights light the volumes. With `'volume'` lighting, the first 4 hemisphere lights are used. Logarithmic depth buffers are not supported.
+Limits: with `'volume'` lighting, volumes do not shadow other volumes, and point and spot lights have no distance falloff. The first 16 directional, point and spot lights light the volumes. With `'volume'` lighting, the first 4 hemisphere lights are used. Logarithmic depth buffers are not supported.
 
 ---
 

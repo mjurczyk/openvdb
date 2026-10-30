@@ -19,6 +19,7 @@ import {
   normalize,
   smoothstep,
   getShIrradianceAt,
+  getDistanceAttenuation,
 } from 'three/tsl';
 import { frameFragCoord, frameLoad, frameGetFroxel, frameFullscreenVertex } from './frameShaderChunks';
 // NOTE Lights each froxel one time from the combined data of all volumes.
@@ -59,6 +60,7 @@ export class FrameLightingMaterial extends Three.NodeMaterial {
       frameLightPositions,
       frameLightColors,
       frameLightSpots,
+      frameLightFalloffs,
     } = lightUniforms;
     const atlasSize = froxelUniforms.froxelAtlasSize;
 
@@ -77,7 +79,7 @@ export class FrameLightingMaterial extends Three.NodeMaterial {
       const viewNear = froxel.viewNear.toVar();
       const viewFar = froxel.viewFar.toVar();
 
-      // NOTE Spot light angles use the extinction-weighted visible position of all volumes
+      // NOTE Spot light angles and light falloff use the extinction-weighted visible position of all volumes
       const visibleT = clamp(densityEmission.a.div(extinction), 0.0, 1.0);
       const worldPosition = this.frameCameraMatrixWorld
         .mul(vec4(mix(viewNear, viewFar, visibleT), 1.0))
@@ -99,11 +101,12 @@ export class FrameLightingMaterial extends Three.NodeMaterial {
       irradiance.addAssign(frameHemiSkyColor.mul(skyUp));
       irradiance.addAssign(frameHemiGroundColor.mul(skyDown));
 
-      // NOTE Point and spot lights have no distance falloff
       Loop(frameLightCount, ({ i }) => {
         const position = frameLightPositions.element(i).toVar();
         const color = frameLightColors.element(i).toVar();
         const spot = frameLightSpots.element(i).toVar();
+        const falloff = frameLightFalloffs.element(i).toVar();
+        const lightVector = position.xyz.sub(worldPosition).toVar();
 
         let shadow = float(1.0);
 
@@ -115,11 +118,21 @@ export class FrameLightingMaterial extends Three.NodeMaterial {
 
         const spotAttenuation = select(
           position.w.greaterThan(2.5),
-          smoothstep(spot.w, color.w, dot(normalize(position.xyz.sub(worldPosition)), spot.xyz)),
+          smoothstep(spot.w, color.w, dot(normalize(lightVector), spot.xyz)),
           float(1.0),
         );
 
-        irradiance.addAssign(color.rgb.mul(spotAttenuation).mul(shadow));
+        const distanceAttenuation = select(
+          position.w.greaterThan(1.5),
+          getDistanceAttenuation({
+            lightDistance: length(lightVector),
+            cutoffDistance: falloff.x,
+            decayExponent: falloff.y,
+          }),
+          float(1.0),
+        );
+
+        irradiance.addAssign(color.rgb.mul(spotAttenuation).mul(distanceAttenuation).mul(shadow));
       });
 
       const albedo = densityAlbedo.rgb.div(extinction);

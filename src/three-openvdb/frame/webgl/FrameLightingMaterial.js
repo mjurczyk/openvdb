@@ -59,7 +59,7 @@ const fragmentShader = `
     vec3 viewNear = frameGetViewPosition(uv, sliceNear);
     vec3 viewFar = frameGetViewPosition(uv, sliceFar);
 
-    // NOTE Spot light angles use the extinction-weighted visible position of all volumes
+    // NOTE Spot light angles and light falloff use the extinction-weighted visible position of all volumes
     float visibleT = clamp(densityEmission.a / extinction, 0.0, 1.0);
     vec3 viewPosition = mix(viewNear, viewFar, visibleT);
 
@@ -90,21 +90,24 @@ const fragmentShader = `
       }
     #endif
 
-    // NOTE Point and spot lights have no distance falloff
-
     #if NUM_POINT_LIGHTS > 0
       for (int i = 0; i < NUM_POINT_LIGHTS; i++) {
-        irradiance += pointLights[i].color * frameShadowSlot(frameShadowPointOffset + i, shadow0, shadow1);
+        PointLight pointLight = pointLights[i];
+        float distanceAttenuation = getDistanceAttenuation(length(pointLight.position - viewPosition), pointLight.distance, pointLight.decay);
+
+        irradiance += pointLight.color * distanceAttenuation * frameShadowSlot(frameShadowPointOffset + i, shadow0, shadow1);
       }
     #endif
 
     #if NUM_SPOT_LIGHTS > 0
       for (int i = 0; i < NUM_SPOT_LIGHTS; i++) {
         SpotLight spotLight = spotLights[i];
-        float angleCos = dot(normalize(spotLight.position - viewPosition), spotLight.direction);
+        vec3 lightVector = spotLight.position - viewPosition;
+        float angleCos = dot(normalize(lightVector), spotLight.direction);
         float spotAttenuation = getSpotAttenuation(spotLight.coneCos, spotLight.penumbraCos, angleCos);
+        float distanceAttenuation = getDistanceAttenuation(length(lightVector), spotLight.distance, spotLight.decay);
 
-        irradiance += spotLight.color * spotAttenuation * frameShadowSlot(frameShadowSpotOffset + i, shadow0, shadow1);
+        irradiance += spotLight.color * spotAttenuation * distanceAttenuation * frameShadowSlot(frameShadowSpotOffset + i, shadow0, shadow1);
       }
     #endif
 

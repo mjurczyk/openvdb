@@ -892,6 +892,7 @@ export class FrameRenderer {
       frameLightPositions,
       frameLightColors,
       frameLightSpots,
+      frameLightFalloffs,
     } = this.lightUniforms;
     const directions = [];
     let hemiCount = 0;
@@ -946,6 +947,7 @@ export class FrameRenderer {
           position: new Three.Vector4(...lightPosition.sub(lightTarget).normalize().toArray(), 1.0),
           color: new Three.Vector4(...lightColor.toArray(), 0.0),
           spot: new Three.Vector4(),
+          falloff: new Three.Vector2(),
         });
       } else if (light.isSpotLight) {
         lightTarget.setFromMatrixPosition(light.target.matrixWorld);
@@ -960,12 +962,14 @@ export class FrameRenderer {
             ...lightTarget.subVectors(lightPosition, lightTarget).normalize().toArray(),
             Math.cos(light.angle),
           ),
+          falloff: new Three.Vector2(light.distance, light.decay),
         });
       } else if (light.isPointLight) {
         points.push({
           position: new Three.Vector4(...lightPosition.toArray(), 2.0),
           color: new Three.Vector4(...lightColor.toArray(), 0.0),
           spot: new Three.Vector4(),
+          falloff: new Three.Vector2(light.distance, light.decay),
         });
       }
     });
@@ -990,6 +994,7 @@ export class FrameRenderer {
       frameLightPositions.array[i].copy(lights[i].position);
       frameLightColors.array[i].copy(lights[i].color);
       frameLightSpots.array[i].copy(lights[i].spot);
+      frameLightFalloffs.array[i].copy(lights[i].falloff);
     }
 
     frameLightCount.value = count;

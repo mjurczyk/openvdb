@@ -526,8 +526,11 @@ export const exampleVDB = ({ scene }) => {
           min: 0.0,
           max: 5.0,
           onChange: (value) => {
+            // NOTE Point and spot lights have decay 2. Distance squared keeps the volumes lit.
             coloredLights.forEach((light) => {
-              light.intensity = value;
+              light.intensity = light.isDirectionalLight
+                ? value
+                : value * light.position.lengthSq();
             });
           },
         },
