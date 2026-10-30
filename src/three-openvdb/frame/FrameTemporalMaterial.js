@@ -1,146 +1,144 @@
-import * as Three from 'three';
-import { froxelPars } from './frameShaderChunks';
-
-const vertexShader = `
-  void main() {
-    gl_Position = vec4(position.xy, 0.0, 1.0);
-  }
-`;
-
-const fragmentShader = `
-  precision highp float;
-
-  layout(location = 0) out highp vec4 frameResolved;
-
-  ${froxelPars}
-
-  uniform sampler2D frameCurrentMap;
-  uniform sampler2D frameHistoryMap;
-  uniform vec2 frameAtlasSize;
-  uniform bool frameUseHistory;
-  uniform float frameTemporalBlend;
-  uniform mat4 frameCameraMatrixWorld;
-  uniform mat4 framePreviousViewMatrix;
-  uniform mat4 framePreviousProjectionMatrix;
-  uniform vec2 framePreviousRange;
-
-  vec2 frameGetTileOrigin(float slice) {
-    return vec2(mod(slice, froxelColumns), floor(slice / froxelColumns)) * froxelGrid.xy;
-  }
-
-  // NOTE Bilinear filter in the slice. Half a cell inside the tile, then the filter does not read other tiles.
-  vec4 frameSampleHistory(float slice, vec2 uv) {
-    vec2 cell = clamp(uv * froxelGrid.xy, vec2(0.5), froxelGrid.xy - 0.5);
-
-    return texture(frameHistoryMap, (frameGetTileOrigin(slice) + cell) / frameAtlasSize);
-  }
-
-  void main() {
-    ivec2 texel = ivec2(gl_FragCoord.xy);
-    vec4 current = texelFetch(frameCurrentMap, texel, 0);
-
-    vec2 tile = floor(gl_FragCoord.xy / froxelGrid.xy);
-    float slice = tile.y * froxelColumns + tile.x;
-
-    if (!frameUseHistory || slice >= froxelGrid.z) {
-      frameResolved = current;
-
-      return;
-    }
-
-    // NOTE Reproject the froxel center into the froxel grid of the previous frame
-    vec2 cell = gl_FragCoord.xy - tile * froxelGrid.xy;
-    vec2 uv = cell / froxelGrid.xy;
-    float viewDepth = frameSliceDepth((slice + 0.5) / froxelGrid.z);
-    vec4 worldPosition = frameCameraMatrixWorld * vec4(frameGetViewPosition(uv, viewDepth), 1.0);
-    vec4 previousView = framePreviousViewMatrix * worldPosition;
-    vec4 previousClip = framePreviousProjectionMatrix * previousView;
-
-    if (previousClip.w <= 0.0) {
-      frameResolved = current;
-
-      return;
-    }
-
-    vec2 previousUv = previousClip.xy / previousClip.w * 0.5 + 0.5;
-    float previousDepth = -previousView.z;
-    float previousT = log(max(previousDepth, 1e-6) / framePreviousRange.x) / log(framePreviousRange.y / framePreviousRange.x);
-    float previousSlice = previousT * froxelGrid.z - 0.5;
-
-    bool outside = any(lessThan(previousUv, vec2(0.0))) || any(greaterThan(previousUv, vec2(1.0)));
-
-    if (outside || previousSlice < -0.5 || previousSlice > froxelGrid.z - 0.5) {
-      frameResolved = current;
-
-      return;
-    }
-
-    float slice0 = clamp(floor(previousSlice), 0.0, froxelGrid.z - 1.0);
-    float slice1 = min(slice0 + 1.0, froxelGrid.z - 1.0);
-    vec4 history = mix(
-      frameSampleHistory(slice0, previousUv),
-      frameSampleHistory(slice1, previousUv),
-      clamp(previousSlice - slice0, 0.0, 1.0)
-    );
-
-    // NOTE Clamp the history to the current neighbors. This limits ghosting of moving volumes.
-    vec4 neighborMin = current;
-    vec4 neighborMax = current;
-    vec2 tileOrigin = tile * froxelGrid.xy;
-    vec2 cellMax = froxelGrid.xy - 1.0;
-
-    vec2 neighborCells[4];
-    neighborCells[0] = vec2(max(cell.x - 1.0, 0.5), cell.y);
-    neighborCells[1] = vec2(min(cell.x + 1.0, cellMax.x + 0.5), cell.y);
-    neighborCells[2] = vec2(cell.x, max(cell.y - 1.0, 0.5));
-    neighborCells[3] = vec2(cell.x, min(cell.y + 1.0, cellMax.y + 0.5));
-
-    for (int i = 0; i < 4; i++) {
-      vec4 neighbor = texelFetch(frameCurrentMap, ivec2(tileOrigin + neighborCells[i]), 0);
-
-      neighborMin = min(neighborMin, neighbor);
-      neighborMax = max(neighborMax, neighbor);
-    }
-
-    for (int i = -1; i <= 1; i += 2) {
-      float neighborSlice = slice + float(i);
-
-      if (neighborSlice >= 0.0 && neighborSlice < froxelGrid.z) {
-        vec4 neighbor = texelFetch(frameCurrentMap, ivec2(frameGetTileOrigin(neighborSlice) + cell), 0);
-
-        neighborMin = min(neighborMin, neighbor);
-        neighborMax = max(neighborMax, neighbor);
-      }
-    }
-
-    frameResolved = mix(clamp(history, neighborMin, neighborMax), current, frameTemporalBlend);
-  }
-`;
+import * as Three from 'three/webgpu';
+import {
+  Fn,
+  If,
+  ivec2,
+  vec2,
+  vec4,
+  uniform,
+  texture,
+  mix,
+  log,
+  clamp,
+  floor,
+  min,
+  max,
+  mod,
+} from 'three/tsl';
+import {
+  frameFragCoord,
+  frameLoad,
+  frameSample,
+  frameSliceDepth,
+  frameGetViewPosition,
+  frameFullscreenVertex,
+} from './frameShaderChunks';
 
 // NOTE Blends the froxels of this frame with the reprojected froxels of the previous frames
-export class FrameTemporalMaterial extends Three.ShaderMaterial {
-  name = 'FrameTemporalMaterial';
+export class FrameTemporalMaterial extends Three.NodeMaterial {
+  constructor({ froxelUniforms }) {
+    super();
 
-  constructor(froxelUniforms) {
-    super({
-      glslVersion: Three.GLSL3,
-      uniforms: {
-        ...froxelUniforms,
-        frameCurrentMap: { value: null },
-        frameHistoryMap: { value: null },
-        frameAtlasSize: { value: new Three.Vector2(1.0, 1.0) },
-        frameUseHistory: { value: false },
-        frameTemporalBlend: { value: 0.1 },
-        frameCameraMatrixWorld: { value: new Three.Matrix4() },
-        framePreviousViewMatrix: { value: new Three.Matrix4() },
-        framePreviousProjectionMatrix: { value: new Three.Matrix4() },
-        framePreviousRange: { value: new Three.Vector2(0.1, 1.0) },
-      },
-      vertexShader,
-      fragmentShader,
-      depthTest: false,
-      depthWrite: false,
-      blending: Three.NoBlending,
-    });
+    this.name = 'FrameTemporalMaterial';
+    this.frameCurrentMap = texture(new Three.Texture());
+    this.frameHistoryMap = texture(new Three.Texture());
+    this.frameUseHistory = uniform(0, 'int');
+    this.frameTemporalBlend = uniform(0.1);
+    this.frameCameraMatrixWorld = uniform(new Three.Matrix4());
+    this.framePreviousViewMatrix = uniform(new Three.Matrix4());
+    this.framePreviousProjectionMatrix = uniform(new Three.Matrix4());
+    this.framePreviousRange = uniform(new Three.Vector2(0.1, 1.0));
+
+    const { froxelGrid, froxelColumns, froxelAtlasSize } = froxelUniforms;
+
+    const getTileOrigin = (slice) =>
+      vec2(mod(slice, froxelColumns), floor(slice.div(froxelColumns))).mul(froxelGrid.xy);
+
+    // NOTE Bilinear filter in the slice. Half a cell inside the tile, then the filter does not read other tiles.
+    const sampleHistory = (slice, uv) => {
+      const cell = clamp(uv.mul(froxelGrid.xy), vec2(0.5), froxelGrid.xy.sub(0.5));
+
+      return frameSample(this.frameHistoryMap, getTileOrigin(slice).add(cell).div(froxelAtlasSize));
+    };
+
+    const loadCurrent = (texel) => frameLoad(this.frameCurrentMap, ivec2(texel), froxelAtlasSize);
+
+    this.vertexNode = frameFullscreenVertex;
+
+    this.fragmentNode = Fn(() => {
+      const fragCoord = frameFragCoord(froxelAtlasSize).toVar();
+      const current = loadCurrent(fragCoord).toVar();
+      const resolved = vec4(current).toVar();
+
+      const tile = floor(fragCoord.div(froxelGrid.xy)).toVar();
+      const slice = tile.y.mul(froxelColumns).add(tile.x).toVar();
+
+      If(this.frameUseHistory.equal(1).and(slice.lessThan(froxelGrid.z)), () => {
+        // NOTE Reproject the froxel center into the froxel grid of the previous frame
+        const cell = fragCoord.sub(tile.mul(froxelGrid.xy)).toVar();
+        const uv = cell.div(froxelGrid.xy);
+        const viewDepth = frameSliceDepth(froxelUniforms, slice.add(0.5).div(froxelGrid.z));
+        const worldPosition = this.frameCameraMatrixWorld.mul(
+          vec4(frameGetViewPosition(froxelUniforms, uv, viewDepth), 1.0),
+        );
+        const previousView = this.framePreviousViewMatrix.mul(worldPosition).toVar();
+        const previousClip = this.framePreviousProjectionMatrix.mul(previousView).toVar();
+
+        If(previousClip.w.greaterThan(0.0), () => {
+          const previousUv = previousClip.xy.div(previousClip.w).mul(0.5).add(0.5).toVar();
+          const previousRange = this.framePreviousRange;
+          const previousT = log(max(previousView.z.negate(), 1e-6).div(previousRange.x)).div(
+            log(previousRange.y.div(previousRange.x)),
+          );
+          const previousSlice = previousT.mul(froxelGrid.z).sub(0.5).toVar();
+
+          const inside = min(previousUv.x, previousUv.y)
+            .greaterThanEqual(0.0)
+            .and(max(previousUv.x, previousUv.y).lessThanEqual(1.0))
+            .and(previousSlice.greaterThanEqual(-0.5))
+            .and(previousSlice.lessThanEqual(froxelGrid.z.sub(0.5)));
+
+          If(inside, () => {
+            const slice0 = clamp(floor(previousSlice), 0.0, froxelGrid.z.sub(1.0)).toVar();
+            const slice1 = min(slice0.add(1.0), froxelGrid.z.sub(1.0));
+            const history = mix(
+              sampleHistory(slice0, previousUv),
+              sampleHistory(slice1, previousUv),
+              clamp(previousSlice.sub(slice0), 0.0, 1.0),
+            );
+
+            // NOTE Clamp the history to the current neighbors. This limits ghosting of moving volumes.
+            const tileOrigin = tile.mul(froxelGrid.xy);
+            const cellMax = froxelGrid.xy.sub(1.0);
+            const neighborMin = vec4(current).toVar();
+            const neighborMax = vec4(current).toVar();
+
+            const addNeighbor = (texel) => {
+              const neighbor = loadCurrent(texel).toVar();
+
+              neighborMin.assign(min(neighborMin, neighbor));
+              neighborMax.assign(max(neighborMax, neighbor));
+            };
+
+            [
+              vec2(max(cell.x.sub(1.0), 0.5), cell.y),
+              vec2(min(cell.x.add(1.0), cellMax.x.add(0.5)), cell.y),
+              vec2(cell.x, max(cell.y.sub(1.0), 0.5)),
+              vec2(cell.x, min(cell.y.add(1.0), cellMax.y.add(0.5))),
+            ].forEach((neighborCell) => addNeighbor(tileOrigin.add(neighborCell)));
+
+            [-1.0, 1.0].forEach((offset) => {
+              const neighborSlice = slice.add(offset);
+
+              If(neighborSlice.greaterThanEqual(0.0).and(neighborSlice.lessThan(froxelGrid.z)), () => {
+                addNeighbor(getTileOrigin(neighborSlice).add(cell));
+              });
+            });
+
+            resolved.assign(
+              mix(clamp(history, neighborMin, neighborMax), current, this.frameTemporalBlend),
+            );
+          });
+        });
+      });
+
+      return resolved;
+    })();
+
+    this.side = Three.DoubleSide;
+    this.forceSinglePass = true;
+    this.depthTest = false;
+    this.depthWrite = false;
+    this.blending = Three.NoBlending;
   }
 }

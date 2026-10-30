@@ -14,6 +14,7 @@ const sharedParams = [
   'wrap3D',
   'lights',
   'shadowSteps',
+  'mipmaps',
 ];
 
 const applyParam = (frame, key, value) => {
