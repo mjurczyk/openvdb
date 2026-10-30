@@ -23,9 +23,6 @@ const fragmentShader = `
 
   #include <common>
   #include <lights_pars_begin>
-  #include <envmap_common_pars_fragment>
-  #include <cube_uv_reflection_fragment>
-  #include <envmap_physical_pars_fragment>
 
   float frameShadowSlot(int slot, vec4 shadow0, vec4 shadow1) {
     if (slot >= frameShadowLightCount) {
@@ -76,11 +73,6 @@ const fragmentShader = `
     #if defined( USE_LIGHT_PROBES )
       irradiance += 0.5 * getLightProbeIrradiance(lightProbe, skyDirection) * shadow0.x;
       irradiance += 0.5 * getLightProbeIrradiance(lightProbe, -skyDirection) * shadow0.y;
-    #endif
-
-    #if defined( USE_ENVMAP )
-      irradiance += 0.5 * getIBLIrradiance(skyDirection) * shadow0.x;
-      irradiance += 0.5 * getIBLIrradiance(-skyDirection) * shadow0.y;
     #endif
 
     #if NUM_HEMI_LIGHTS > 0

@@ -523,12 +523,15 @@ export class FrameRenderer {
     this.previousRange.copy(this.froxelUniforms.froxelRange.value);
   }
 
-  prepareLightScene(scene, camera, mesh) {
-    const { injectScene } = this;
+  // NOTE PMREM rotation and intensity uniforms read the environment of the rendered pass scene
+  copyEnvironment(target, scene) {
+    target.environment = scene.environment;
+    target.environmentIntensity = scene.environmentIntensity;
+    target.environmentRotation.copy(scene.environmentRotation);
+  }
 
-    injectScene.environment = scene.environment;
-    injectScene.environmentIntensity = scene.environmentIntensity;
-    injectScene.environmentRotation.copy(scene.environmentRotation);
+  prepareLightScene(scene, camera, mesh) {
+    this.copyEnvironment(this.injectScene, scene);
 
     this.injectMesh.visible = mesh === this.injectMesh;
     this.lightingMesh.visible = mesh === this.lightingMesh;
@@ -638,6 +641,9 @@ export class FrameRenderer {
     densityShadowUniforms.frameTransmittanceMap1.value = this.transmittanceTarget.textures[1];
     densityShadowUniforms.frameCameraMatrixWorld.value.copy(camera.matrixWorld);
 
+    this.copyEnvironment(this.densityScene, scene);
+    this.densityMaterial.setEnvironment(scene.environment);
+
     // NOTE Density pass. One instanced draw for each volume, one instance for each slice.
     this.updatePool(
       this.densityPool,
@@ -679,7 +685,6 @@ export class FrameRenderer {
     lightingMaterial.frameDensityShadowMap1.value = this.densityTarget.textures[3];
     lightingMaterial.frameShadowLightCount.value = lights.shadowLightCount;
     lightingMaterial.frameCameraMatrixWorld.value.copy(camera.matrixWorld);
-    lightingMaterial.setEnvironment(scene.environment);
 
     renderer.setRenderTarget(this.atlasTarget);
     renderer.clear(true, false, false);

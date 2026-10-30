@@ -19,13 +19,18 @@ export class FrameEnvironmentMaterial extends Three.NodeMaterial {
     return null;
   }
 
+  // NOTE Builds the shader nodes again. Subclasses with other output nodes override it.
+  rebuildNodes() {
+    this.fragmentNode = this.createFragmentNode();
+  }
+
   setEnvironment(environment) {
     const hasEnvironment = !!environment;
 
     if (hasEnvironment !== !!this.environment) {
       this.environment = environment;
       this.environmentNodes = [];
-      this.fragmentNode = this.createFragmentNode();
+      this.rebuildNodes();
       this.needsUpdate = true;
     } else if (hasEnvironment && this.environment !== environment) {
       this.environment = environment;

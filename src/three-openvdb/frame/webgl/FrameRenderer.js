@@ -137,6 +137,7 @@ export class FrameRenderer {
     frameTransmittanceMap1: { value: null },
     frameUseShadows: { value: false },
     frameCameraMatrixWorld: { value: new Three.Matrix4() },
+    frameSkyDirection: { value: new Three.Vector3(0.0, 1.0, 0.0) },
   };
 
   injectMaterial = new FrameInjectMaterial(this.froxelUniforms);
@@ -698,6 +699,12 @@ export class FrameRenderer {
     densityShadowUniforms.frameTransmittanceMap0.value = this.transmittanceTarget.textures[0];
     densityShadowUniforms.frameTransmittanceMap1.value = this.transmittanceTarget.textures[1];
     densityShadowUniforms.frameCameraMatrixWorld.value.copy(camera.matrixWorld);
+    densityShadowUniforms.frameSkyDirection.value.copy(lights.skyDirection);
+
+    // NOTE The density pass adds the environment. Its scene has the environment of the scene.
+    this.densityScene.environment = scene.environment;
+    this.densityScene.environmentIntensity = scene.environmentIntensity;
+    this.densityScene.environmentRotation.copy(scene.environmentRotation);
 
     // NOTE Density pass. One instanced draw for each volume, one instance for each slice.
     this.updatePool(
@@ -714,9 +721,9 @@ export class FrameRenderer {
 
         const { first, count } = this.getSliceRange(volume);
 
-        setVolumeUniforms(entry.material.uniforms, frameVolume, volume);
-        entry.material.uniforms.frameRect.value.copy(rect);
-        entry.material.uniforms.frameSliceStart.value = first;
+        setVolumeUniforms(entry.material.frameUniforms, frameVolume, volume);
+        entry.material.frameUniforms.frameRect.value.copy(rect);
+        entry.material.frameUniforms.frameSliceStart.value = first;
         entry.geometry.instanceCount = count;
 
         return true;
