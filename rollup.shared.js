@@ -27,27 +27,41 @@ export const copyPackageFiles = (name, fields) =>
 
 export const cleanOutputDir = (name) => cleanUpDir({ targets: getOutputDir(name), force: true });
 
-// NOTE ESM and CJS builds of a library package
-export const createLibraryConfigs = ({ name, external = [] }) => [
-  {
-    input: './index.js',
-    output: { file: `${getOutputDir(name)}/index.js`, format: 'esm' },
-    external,
-    plugins: [
-      cleanOutputDir(name),
-      nodeResolve(),
-      uglify(),
-      copyPackageFiles(name, {
-        main: './index.cjs.js',
-        module: './index.js',
-        exports: { '.': { import: './index.js', require: './index.cjs.js' } },
-      }),
-    ],
-  },
-  {
-    input: './index.js',
-    output: { file: `${getOutputDir(name)}/index.cjs.js`, format: 'cjs' },
-    external,
-    plugins: [nodeResolve(), uglify()],
-  },
-];
+// NOTE Package exports of the entry points. 'index' is the main entry ('.').
+const getExports = (entries) =>
+  Object.fromEntries(
+    entries.map((entry) => [
+      entry === 'index' ? '.' : `./${entry}`,
+      { import: `./${entry}.js`, require: `./${entry}.cjs.js` },
+    ]),
+  );
+
+// NOTE ESM and CJS builds of a library package. Each entry point is a separate bundle.
+export const createLibraryConfigs = ({ name, external = [], entries = ['index'] }) =>
+  entries.flatMap((entry, index) => [
+    {
+      input: `./${entry}.js`,
+      output: { file: `${getOutputDir(name)}/${entry}.js`, format: 'esm' },
+      external,
+      plugins: [
+        ...(index === 0 ? [cleanOutputDir(name)] : []),
+        nodeResolve(),
+        uglify(),
+        ...(index === 0
+          ? [
+              copyPackageFiles(name, {
+                main: './index.cjs.js',
+                module: './index.js',
+                exports: getExports(entries),
+              }),
+            ]
+          : []),
+      ],
+    },
+    {
+      input: `./${entry}.js`,
+      output: { file: `${getOutputDir(name)}/${entry}.cjs.js`, format: 'cjs' },
+      external,
+      plugins: [nodeResolve(), uglify()],
+    },
+  ]);

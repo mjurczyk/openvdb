@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --config ./dev.config.js",
+    "dev:webgl": "VITE_FRAME_RENDERER=webgl vite --config ./dev.config.js",
     "build": "vite build --config ./prod.config.js",
     "preview": "vite preview"
   },

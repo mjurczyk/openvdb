@@ -1,6 +1,9 @@
 # Unreleased
 
-- Breaking: `FrameVolume` needs `WebGPURenderer` (`three/webgpu`, three.js r186 or newer). WebGPU, or WebGL2 with `forceWebGL: true`. `WebGLRenderer` is not supported. The froxel passes are TSL node materials
+- `three-openvdb/webgl`: `FrameVolume` for `WebGLRenderer`, with the GLSL froxel renderer of v0.7.0. The same API as `three-openvdb`. For backwards compatibility, it will be removed in a later version. Mipmaps are GPU mipmaps, no `srgbBlending` setting (WebGLRenderer blends on the sRGB canvas), no light limit
+- `three-openvdb` code: `frame/core` (shared), `frame/webgpu` and `frame/webgl`. The two renderer folders do not import each other
+- Examples: `npm run dev:webgl` runs the examples with `WebGLRenderer`
+- Breaking: `three-openvdb` renders `FrameVolume` with `WebGPURenderer` (`three/webgpu`, three.js r186 or newer). WebGPU, or WebGL2 with `forceWebGL: true`. For `WebGLRenderer`, use `three-openvdb/webgl`. The froxel passes are TSL node materials
 - The froxel march stops at the depth buffer of the current render (`viewportDepthTexture`). The extra scene depth render is removed
 - Lights are own uniforms in world space: up to 16 directional, point and spot lights, and 4 hemisphere lights (`'volume'` lighting)
 - `FrameVolume` prop `mipmaps` (default `true`): CPU mipmaps of the 3D textures. three.js WebGPU does not make 3D mipmaps. +25% memory for each grid

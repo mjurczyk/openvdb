@@ -14,6 +14,7 @@
     "bake:examples": "node ./build/webvdb/cli.mjs src/docs/examples/public/assets/bunny_cloud.vdb && node ./build/webvdb/cli.mjs src/docs/examples/public/assets/venusstatue.vdb && node ./build/webvdb/cli.mjs src/docs/examples/public/assets/utahteapot.vdb && node ./build/webvdb/cli.mjs src/docs/examples/public/assets/smoke.vdb",
     "build:examples": "npm run build -w openvdb-examples",
     "dev": "npm run dev -w openvdb-examples",
+    "dev:webgl": "npm run dev:webgl -w openvdb-examples",
     "release": "npm run build && npm publish ./build/openvdb && npm publish ./build/three-openvdb && npm publish ./build/webvdb"
   },
   "author": {

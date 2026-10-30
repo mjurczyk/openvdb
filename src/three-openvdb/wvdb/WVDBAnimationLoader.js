@@ -3,8 +3,8 @@
 // Each pass requests only the first bytes of each file, up to the end of that LOD.
 // The animation can play after the first pass.
 import * as Three from 'three';
-import { FrameVolume } from '../frame/FrameVolume';
-import { FrameVolumeAnimation } from '../frame/FrameVolumeAnimation';
+import { FrameVolume } from '../frame/core/FrameVolume';
+import { FrameVolumeAnimation } from '../frame/core/FrameVolumeAnimation';
 import { WVDBReader } from './WVDBReader';
 import { WVDBVolumeData } from './WVDBLoader';
 

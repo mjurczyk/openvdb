@@ -1,22 +1,19 @@
 import * as Three from 'three';
 import { GridDescriptor, Vector3 } from 'openvdb';
-import { frameLights } from './FrameInjectMaterial';
-import { frameRenderer, createFullscreenGeometry } from './FrameRenderer';
-import { disposeVolumeMipmaps } from './frameMipmaps';
+import { frameLights } from './frameLights';
+import { getFrameBackend } from './frameBackend';
 
 // NOTE Draw the frame after all other transparent objects
 const frameRenderOrder = 1000000;
 
 const allLights = Object.values(frameLights).reduce((mask, flag) => mask | flag, 0);
 
-// NOTE No GPU mipmaps. three.js WebGPU does not generate them for 3D textures. CPU mipmaps are in frameMipmaps.js.
-const createTexture3D = (data, dimensions, format) => {
+// NOTE The backend sets the filters and mipmaps
+const createTexture3D = (data, dimensions, format, mipmaps) => {
   const texture = new Three.Data3DTexture(data, dimensions.x, dimensions.y, dimensions.z);
   texture.format = format;
-  texture.minFilter = Three.LinearFilter;
-  texture.magFilter = Three.LinearFilter;
-  texture.generateMipmaps = false;
   texture.unpackAlignment = 1;
+  getFrameBackend().configureTexture(texture, mipmaps);
   texture.needsUpdate = true;
 
   return texture;
@@ -167,11 +164,13 @@ export class FrameVolume extends Three.Group {
     this.shadowSteps = shadowSteps;
     this.mipmaps = mipmaps;
 
-    this.proxy = new Three.Mesh(createFullscreenGeometry(), frameRenderer.integrateMaterial);
+    const backend = getFrameBackend();
+
+    this.proxy = new Three.Mesh(backend.createProxyGeometry(), backend.integrateMaterial);
     this.proxy.frustumCulled = false;
     this.proxy.renderOrder = frameRenderOrder;
     this.proxy.onBeforeRender = (renderer, scene, camera) => {
-      frameRenderer.render(renderer, scene, camera, this.proxy);
+      backend.render(renderer, scene, camera, this.proxy);
     };
     this.add(this.proxy);
 
@@ -255,7 +254,8 @@ export class FrameVolume extends Three.Group {
       volume.densityMap3D = createTexture3D(
         grid instanceof Uint8Array ? grid : new Uint8Array(voxelCount),
         dimensions,
-        Three.RedFormat
+        Three.RedFormat,
+        mipmaps,
       );
 
       const auxGrids = {};
@@ -265,7 +265,8 @@ export class FrameVolume extends Three.Group {
         volume.emissiveMap3D = createTexture3D(
           emissiveGrid instanceof Uint8Array ? emissiveGrid : new Uint8Array(voxelCount),
           dimensions,
-          Three.RedFormat
+          Three.RedFormat,
+          mipmaps,
         );
       }
 
@@ -274,7 +275,8 @@ export class FrameVolume extends Three.Group {
         volume.baseColorMap3D = createTexture3D(
           baseColorGrid instanceof Uint8Array ? baseColorGrid : new Uint8Array(voxelCount * 4),
           dimensions,
-          Three.RGBAFormat
+          Three.RGBAFormat,
+          mipmaps,
         );
       }
 
@@ -283,7 +285,8 @@ export class FrameVolume extends Three.Group {
         volume.maskMap3D = createTexture3D(
           maskGrid instanceof Uint8Array ? maskGrid : new Uint8Array(voxelCount),
           dimensions,
-          Three.RedFormat
+          Three.RedFormat,
+          mipmaps,
         );
       }
 
@@ -456,7 +459,7 @@ export class FrameVolume extends Three.Group {
           }
         });
 
-        disposeVolumeMipmaps(volume);
+        getFrameBackend().disposeVolume(volume);
       });
     }
 
