@@ -1,8 +1,4 @@
 import GUI from "lil-gui";
-import { exampleBbox } from "../examples/bbox";
-import { exampleBunny } from "../examples/bunny";
-import { exampleClouds } from "../examples/clouds";
-import { exampleGLTF } from "../examples/gltf";
 import { exampleVDB } from "../examples/vdb";
 import { exampleFrame } from "../examples/frame";
 import { exampleWVDB } from "../examples/wvdb";
@@ -27,7 +23,6 @@ const guiBaseFields = () => [
       {
         id: 'demo',
         name: 'Example',
-        // NOTE Only FrameVolume demos are listed. The other demos stay in examples/ but are hidden.
         options: {
           'Rendering Frame': 'frame',
           'Custom VDB': 'vdb',
@@ -55,16 +50,8 @@ const guiBaseFields = () => [
           dropTarget.style.display = value === 'vdb' ? '' : 'none';
 
           switch (value) {
-            case 'bbox':
-              return exampleBbox({ scene });
-            case 'bunny':
-              return exampleBunny({ scene });
-            case 'clouds':
-              return exampleClouds({ scene });
             case 'vdb':
               return exampleVDB({ scene });
-            case 'gltf':
-              return exampleGLTF({ scene });
             case 'frame':
               return exampleFrame({ scene });
             case 'wvdb':

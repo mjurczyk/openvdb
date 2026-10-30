@@ -5,7 +5,9 @@
 - Lights are own uniforms in world space: up to 16 directional, point and spot lights, and 4 hemisphere lights (`'volume'` lighting)
 - `FrameVolume` prop `mipmaps` (default `true`): CPU mipmaps of the 3D textures. three.js WebGPU does not make 3D mipmaps. +25% memory for each grid
 - `frameRenderer.settings.srgbBlending` (default `true`): blends the volumes in sRGB, the same as `WebGLRenderer`. `false` blends in linear space
-- `VolumeToFog`, `VolumeToLevelSet`, `VolumeBasicMaterial` and `VolumeNormalMaterial` are not changed. They still need `WebGLRenderer`
+- Breaking: removed the deprecated `FogVolume` (`VolumeToFog`), `LevelSet`, `Points`, `Bbox`, `VolumeBasicMaterial`, `VolumeNormalMaterial` and `lights` exports. `FrameVolume` is the only volume renderer. The primitive volumes and noise helpers stay
+- `WVDBLoader.attach()` takes only `FrameVolume` objects
+- Examples: removed the hidden FogVolume demos (bbox, bunny, clouds, gltf)
 - Examples use `WebGPURenderer`. `?webgl` in the URL uses the WebGL2 fallback
 - `frame` example: 100 Bunnies uses one volume and 99 instances. Mipmaps and sRGB Blending fields
 - `FrameVolume.createInstance( props )` and `FrameVolumeAnimation.createInstance( props )`: show one loaded volume or sequence at many places. Instances share the 3D textures of the source, so GPU memory does not grow with them. Each instance has its own transform and props. Animation instances have their own playback. `FrameVolumeAnimationInstance` is exported

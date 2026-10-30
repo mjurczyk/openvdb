@@ -105,7 +105,7 @@ export class FrameLightingMaterial extends FrameEnvironmentMaterial {
         irradiance.addAssign(this.environmentIrradiance(skyDirection.negate()).mul(skyDown));
       }
 
-      // NOTE Point and spot lights have no distance falloff. This is the same as FogVolume.
+      // NOTE Point and spot lights have no distance falloff
       Loop(frameLightCount, ({ i }) => {
         const position = frameLightPositions.element(i).toVar();
         const color = frameLightColors.element(i).toVar();

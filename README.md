@@ -211,7 +211,7 @@ Converts the given `OpenVDBReader` to a volumetric `Three.Object3D`. `onConverte
 * `emissiveGrid` - VDB emission grid. `emissiveIntensity` (default: `1.0`) scales the emission.
 * `baseColorGrid` - VDB grid equivalent of `baseColor`.
 * `maskGrid` - static VDB grid mask applied to each voxel. Not affected by UV offset.
-* `lights` - bitmask of light types (`frameLights.useAmbientLights | frameLights.useDirectionalLights | frameLights.usePointLights | frameLights.useSpotLights | frameLights.useHemisphereLights | frameLights.useEnvironment`). Bit values are the same as `lights`.
+* `lights` - bitmask of light types (`frameLights.useAmbientLights | frameLights.useDirectionalLights | frameLights.usePointLights | frameLights.useSpotLights | frameLights.useHemisphereLights | frameLights.useEnvironment`). Default: all light types.
 * `shadowSteps: number` - (default: `32`) steps of the shadow march toward each light, inside the volume.
 * `mipmaps: boolean` - (default: `true`) mipmaps of the 3D textures, made on the CPU (three.js WebGPU does not make 3D mipmaps). Far volumes and coarse shadow cascades sample a lower mip level. Without them, far volumes and shadows become noisy and blotchy. Cost: +25% memory for each grid, a CPU build of about 11 ms for a 128³ grid (one time, also for each new `.wvdb` LOD), and a second texture sample for each density sample.
 
