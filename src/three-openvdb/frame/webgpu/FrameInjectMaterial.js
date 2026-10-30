@@ -33,15 +33,7 @@ import {
   createVolumeNodes,
 } from './frameShaderChunks';
 import { FrameEnvironmentMaterial } from './FrameEnvironmentMaterial';
-
-export const frameLights = {
-  useAmbientLights: 0b100000,
-  usePointLights: 0b010000,
-  useDirectionalLights: 0b001000,
-  useSpotLights: 0b000100,
-  useHemisphereLights: 0b000010,
-  useEnvironment: 0b000001,
-};
+import { frameLights } from '../core/frameLights';
 
 // NOTE Lights one volume in each froxel, with a shadow march in this volume. Other volumes do not cast shadows.
 // NOTE The renderer draws it one time for each volume, with the uniforms of that volume.

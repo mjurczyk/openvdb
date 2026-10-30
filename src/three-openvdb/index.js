@@ -9,14 +9,18 @@ import {
   worley3Noise,
 } from 'openvdb';
 import { MeshVolume } from './primitives/MeshVolume';
-import { FrameVolume } from './frame/FrameVolume';
-import { frameRenderer } from './frame/FrameRenderer';
-import { frameLights } from './frame/FrameInjectMaterial';
-import { FrameVolumeAnimation, FrameVolumeAnimationInstance } from './frame/FrameVolumeAnimation';
-import { VDBAnimationLoader } from './frame/VDBAnimationLoader';
+import { FrameVolume } from './frame/core/FrameVolume';
+import { frameLights } from './frame/core/frameLights';
+import { setFrameBackend } from './frame/core/frameBackend';
+import { FrameVolumeAnimation, FrameVolumeAnimationInstance } from './frame/core/FrameVolumeAnimation';
+import { VDBAnimationLoader } from './frame/core/VDBAnimationLoader';
+import { frameRenderer } from './frame/webgpu/FrameRenderer';
 import { WVDBLoader } from './wvdb/WVDBLoader';
 import { WVDBAnimationLoader } from './wvdb/WVDBAnimationLoader';
 import { WVDBReader } from './wvdb/WVDBReader';
+
+// NOTE This entry point renders FrameVolume with WebGPURenderer. three-openvdb/webgl is the WebGLRenderer entry point.
+setFrameBackend(frameRenderer);
 
 export {
   // NOTE Loaders
