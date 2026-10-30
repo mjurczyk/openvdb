@@ -1,6 +1,6 @@
 {
   "name": "openvdb-workspace",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "private": true,
   "description": "OpenVDB for JavaScript: openvdb (core), three-openvdb (three.js rendering and .wvdb loaders), webvdb (CLI).",
   "workspaces": [
