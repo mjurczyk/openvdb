@@ -2,6 +2,8 @@
 
 three.js rendering of OpenVDB volumes, built on `openvdb`: `VDBLoader`, `VDBAnimationLoader` and `FrameVolume`.
 
+`FrameVolume` needs `WebGPURenderer` from `three/webgpu` (three.js r186 or newer), with WebGPU or the WebGL2 fallback (`forceWebGL: true`). `WebGLRenderer` is not supported.
+
 Streamed `.wvdb` files, made from `.vdb` files with the `wvdb` CLI (npm package `webvdb`):
 
 ```js
