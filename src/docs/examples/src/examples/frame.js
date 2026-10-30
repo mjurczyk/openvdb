@@ -537,14 +537,19 @@ export const exampleFrame = ({ scene }) => {
             OpenVDB.frameRenderer.settings.lighting = value;
           },
         },
-        {
-          id: 'srgbBlending',
-          name: 'sRGB Blending',
-          defaultValue: OpenVDB.frameRenderer.settings.srgbBlending,
-          onChange: (value) => {
-            OpenVDB.frameRenderer.settings.srgbBlending = value;
-          },
-        },
+        // NOTE WebGPURenderer only. WebGLRenderer always blends on the sRGB canvas.
+        ...('srgbBlending' in OpenVDB.frameRenderer.settings
+          ? [
+              {
+                id: 'srgbBlending',
+                name: 'sRGB Blending',
+                defaultValue: OpenVDB.frameRenderer.settings.srgbBlending,
+                onChange: (value) => {
+                  OpenVDB.frameRenderer.settings.srgbBlending = value;
+                },
+              },
+            ]
+          : []),
         {
           id: 'mipmaps',
           name: 'Mipmaps',
