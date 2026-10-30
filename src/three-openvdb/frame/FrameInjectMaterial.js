@@ -34,7 +34,6 @@ import {
 } from './frameShaderChunks';
 import { FrameEnvironmentMaterial } from './FrameEnvironmentMaterial';
 
-// NOTE Bit values are the same as the FogVolume light flags
 export const frameLights = {
   useAmbientLights: 0b100000,
   usePointLights: 0b010000,
@@ -247,7 +246,7 @@ export class FrameInjectMaterial extends FrameEnvironmentMaterial {
         });
       });
 
-      // NOTE Point and spot lights have no distance falloff. This is the same as FogVolume.
+      // NOTE Point and spot lights have no distance falloff
       Loop(frameLightCount, ({ i }) => {
         const position = frameLightPositions.element(i).toVar();
         const color = frameLightColors.element(i).toVar();

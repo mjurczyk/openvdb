@@ -5,9 +5,6 @@ import Stats from 'stats.js'
 import { exampleVDB } from './examples/vdb';
 import packageInfo from '../../../three-openvdb/package.json';
 import { setActiveDemo } from './utils/gui';
-import { exampleGLTF } from './examples/gltf';
-import { exampleBunny } from './examples/bunny';
-import { exampleClouds } from './examples/clouds';
 import { exampleWVDB } from './examples/wvdb';
 
 export const camera = new Three.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.01, 10000.0);

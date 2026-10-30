@@ -19,7 +19,7 @@ export function wvdbKernel(decodePage, decodeMask) {
 
   const toByte = (value) => (Math.min(Math.max(value, 0.0), 1.0) * 255.0) | 0;
 
-  // NOTE Same rules as utils/density.js. Scalar grids give density: level sets 1.0 in the active band,
+  // NOTE Same rules as FrameVolume. Scalar grids give density: level sets 1.0 in the active band,
   // other grids value / scale (scale is emissiveScale for emission grids). Vector grids give RGBA colour.
   const toTexels = (values, count, { class: gridClass, background, channels, scale }) => {
     if (channels === 3) {

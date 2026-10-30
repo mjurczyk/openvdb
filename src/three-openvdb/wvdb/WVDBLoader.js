@@ -1,4 +1,4 @@
-// NOTE Three.js-style .wvdb loader. Grid data works as raw data for FrameVolume and FogVolume.
+// NOTE Three.js-style .wvdb loader. Grid data works as raw data for FrameVolume.
 import * as Three from 'three';
 import { WVDBReader } from './WVDBReader';
 
@@ -69,12 +69,11 @@ export class WVDBVolumeData {
     return this.reader.done;
   }
 
-  // NOTE Textures of attached volumes follow their grid when a new LOD arrives.
-  // FrameVolume keeps them in volumes, FogVolume in materials.
+  // NOTE Textures of attached FrameVolumes follow their grid when a new LOD arrives
   attach(object) {
     const grids = Object.values(this.grids);
 
-    [...(object.volumes || []), ...(object.materials || [])].forEach((holder) => {
+    object.volumes.forEach((holder) => {
       textureKeys.forEach((key) => {
         const texture = holder[key];
         const grid = texture && grids.find(({ data }) => data === texture.image?.data);
