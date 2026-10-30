@@ -124,6 +124,7 @@ export const frameMaxHemisphereLights = 4;
 // NOTE Position w: 1.0 directional (xyz is the direction to the light), 2.0 point, 3.0 spot.
 // NOTE Color rgb is color * intensity, color w is the spot penumbra cosine.
 // NOTE Spot xyz is the direction from the target to the light, spot w is the cone cosine.
+// NOTE Falloff x is the light distance, falloff y is the decay. Point and spot lights only.
 export const createLightUniforms = () => ({
   frameAmbientColor: uniform(new Three.Color(0x000000)),
   frameLightProbe: uniformArray(
@@ -160,6 +161,10 @@ export const createLightUniforms = () => ({
   frameLightSpots: uniformArray(
     Array.from({ length: frameMaxLights }, () => new Three.Vector4()),
     'vec4',
+  ),
+  frameLightFalloffs: uniformArray(
+    Array.from({ length: frameMaxLights }, () => new Three.Vector2()),
+    'vec2',
   ),
 });
 
