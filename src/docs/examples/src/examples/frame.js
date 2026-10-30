@@ -46,6 +46,7 @@ export const exampleFrame = ({ scene }) => {
     rotate: true,
     lighting: 'frame',
     animateLights: true,
+    mipmaps: true,
   };
 
   let entries = [];
@@ -151,6 +152,7 @@ export const exampleFrame = ({ scene }) => {
     volume.opacity = params.opacity;
     volume.extinction = params.extinction;
     volume.shadowSteps = params.shadowSteps;
+    volume.mipmaps = params.mipmaps;
   };
 
   const applyParams = () => {
@@ -223,13 +225,28 @@ export const exampleFrame = ({ scene }) => {
     };
 
     // NOTE 10 x 10 bunnies. createGridVolume() gives a new volume with its scale.
+    // NOTE One bunny has the textures. The other bunnies are instances of it.
     const addBunnyGrid = (side, createGridVolume) => {
       const spacing = side * 1.1;
       const offset = ((bunnyGridSize - 1) * spacing) / 2.0;
+      let source = null;
+
+      const createBunny = () => {
+        if (!source) {
+          source = createGridVolume();
+
+          return source;
+        }
+
+        const instance = source.createInstance();
+        instance.scale.copy(source.scale);
+
+        return instance;
+      };
 
       for (let x = 0; x < bunnyGridSize; x++) {
         for (let z = 0; z < bunnyGridSize; z++) {
-          addVolume(createGridVolume(), new Three.Vector3()).position.set(
+          addVolume(createBunny(), new Three.Vector3()).position.set(
             x * spacing - offset,
             0.0,
             z * spacing - offset,
@@ -518,6 +535,24 @@ export const exampleFrame = ({ scene }) => {
           },
           onChange: (value) => {
             OpenVDB.frameRenderer.settings.lighting = value;
+          },
+        },
+        {
+          id: 'srgbBlending',
+          name: 'sRGB Blending',
+          defaultValue: OpenVDB.frameRenderer.settings.srgbBlending,
+          onChange: (value) => {
+            OpenVDB.frameRenderer.settings.srgbBlending = value;
+          },
+        },
+        {
+          id: 'mipmaps',
+          name: 'Mipmaps',
+          defaultValue: params.mipmaps,
+          onChange: (value) => {
+            params.mipmaps = value;
+
+            applyParams();
           },
         },
         {

@@ -1,5 +1,13 @@
 # Unreleased
 
+- Breaking: `FrameVolume` needs `WebGPURenderer` (`three/webgpu`, three.js r186 or newer). WebGPU, or WebGL2 with `forceWebGL: true`. `WebGLRenderer` is not supported. The froxel passes are TSL node materials
+- The froxel march stops at the depth buffer of the current render (`viewportDepthTexture`). The extra scene depth render is removed
+- Lights are own uniforms in world space: up to 16 directional, point and spot lights, and 4 hemisphere lights (`'volume'` lighting)
+- `FrameVolume` prop `mipmaps` (default `true`): CPU mipmaps of the 3D textures. three.js WebGPU does not make 3D mipmaps. +25% memory for each grid
+- `frameRenderer.settings.srgbBlending` (default `true`): blends the volumes in sRGB, the same as `WebGLRenderer`. `false` blends in linear space
+- `VolumeToFog`, `VolumeToLevelSet`, `VolumeBasicMaterial` and `VolumeNormalMaterial` are not changed. They still need `WebGLRenderer`
+- Examples use `WebGPURenderer`. `?webgl` in the URL uses the WebGL2 fallback
+- `frame` example: 100 Bunnies uses one volume and 99 instances. Mipmaps and sRGB Blending fields
 - `FrameVolume.createInstance( props )` and `FrameVolumeAnimation.createInstance( props )`: show one loaded volume or sequence at many places. Instances share the 3D textures of the source, so GPU memory does not grow with them. Each instance has its own transform and props. Animation instances have their own playback. `FrameVolumeAnimationInstance` is exported
 - `new FrameVolume( frameVolume, props )` makes an instance. `FrameVolume.dispose()` of an instance keeps the textures of the source
 - `wvdb` example: Instances field (1, 2, 4, 8) and Textures readout (`renderer.info.memory.textures`)

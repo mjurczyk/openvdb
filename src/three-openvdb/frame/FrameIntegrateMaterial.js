@@ -1,124 +1,171 @@
-import * as Three from 'three';
+import * as Three from 'three/webgpu';
+import {
+  Fn,
+  If,
+  Loop,
+  Break,
+  Discard,
+  float,
+  vec2,
+  vec3,
+  uniform,
+  texture,
+  screenUV,
+  viewportDepthTexture,
+  viewportTexture,
+  sRGBTransferEOTF,
+  sRGBTransferOETF,
+  perspectiveDepthToViewZ,
+  orthographicDepthToViewZ,
+  select,
+  clamp,
+  floor,
+  min,
+  mix,
+  mod,
+  pow,
+  vec4,
+} from 'three/tsl';
+import { frameSample, frameSliceDepth, frameFullscreenVertex } from './frameShaderChunks';
 
-const vertexShader = `
-  varying vec2 vUv;
+const maxSlices = 1024;
 
-  void main() {
-    vUv = position.xy * 0.5 + 0.5;
+// NOTE Marches the froxel slices of each screen pixel and stops at the scene depth.
+// NOTE Scene depth comes from the depth buffer of the current render (viewportDepthTexture).
+export class FrameIntegrateMaterial extends Three.NodeMaterial {
+  constructor({ froxelUniforms }) {
+    super();
 
-    gl_Position = vec4(position.xy, 0.0, 1.0);
+    this.name = 'FrameIntegrateMaterial';
+    this.froxelAtlas = texture(new Three.Texture());
+    this.frameCameraNear = uniform(0.1);
+    this.frameCameraFar = uniform(1000.0);
+    this.frameCameraOrthographic = uniform(0, 'int');
+    this.froxelUniforms = froxelUniforms;
+    this.srgbBlending = null;
+
+    this.vertexNode = frameFullscreenVertex;
+    this.setSrgbBlending(true);
+
+    this.side = Three.DoubleSide;
+    this.forceSinglePass = true;
+    this.transparent = true;
+    this.depthTest = false;
+    this.depthWrite = false;
   }
-`;
 
-const fragmentShader = `
-  precision highp float;
-
-  #define FRAME_MAX_SLICES 1024
-
-  uniform sampler2D froxelAtlas;
-  uniform vec2 froxelAtlasSize;
-  uniform vec3 froxelGrid;
-  uniform float froxelColumns;
-  uniform vec2 froxelRange;
-
-  uniform sampler2D frameDepthMap;
-  uniform float frameCameraNear;
-  uniform float frameCameraFar;
-
-  varying vec2 vUv;
-
-  #include <common>
-  #include <packing>
-
-  float frameSliceDepth(float t) {
-    return froxelRange.x * pow(froxelRange.y / froxelRange.x, t);
-  }
-
-  float frameSceneDepth() {
-    float depth = texture2D(frameDepthMap, vUv).x;
-
-    #ifdef USE_REVERSED_DEPTH_BUFFER
-      bool isEmpty = depth <= 0.0;
-    #else
-      bool isEmpty = depth >= 1.0;
-    #endif
-
-    if (isEmpty) {
-      return 1e20;
+  // NOTE WebGLRenderer blended on the sRGB canvas. WebGPURenderer blends in linear space.
+  // NOTE sRGB blending reads the scene color and blends in sRGB, the same as WebGLRenderer.
+  setSrgbBlending(srgbBlending) {
+    if (srgbBlending === this.srgbBlending) {
+      return;
     }
 
-    return -(isOrthographic
-      ? orthographicDepthToViewZ(depth, frameCameraNear, frameCameraFar)
-      : perspectiveDepthToViewZ(depth, frameCameraNear, frameCameraFar));
+    this.srgbBlending = srgbBlending;
+    this.fragmentNode = this.createFragmentNode();
+    this.needsUpdate = true;
+
+    if (srgbBlending) {
+      this.blending = Three.NoBlending;
+    } else {
+      this.blending = Three.CustomBlending;
+      this.blendEquation = Three.AddEquation;
+      this.blendSrc = Three.OneFactor;
+      this.blendDst = Three.OneMinusSrcAlphaFactor;
+      this.blendSrcAlpha = Three.OneFactor;
+      this.blendDstAlpha = Three.OneMinusSrcAlphaFactor;
+    }
   }
 
-  void main() {
-    float sceneDepth = frameSceneDepth();
+  createFragmentNode() {
+    const { froxelUniforms, srgbBlending } = this;
+    const { froxelGrid, froxelColumns, froxelRange, froxelAtlasSize } = froxelUniforms;
 
-    vec2 froxelUv = clamp(vUv * froxelGrid.xy, vec2(0.5), froxelGrid.xy - 0.5);
-    int sliceCount = int(froxelGrid.z);
+    // NOTE Empty depth (no geometry) gives an infinite scene depth
+    const sceneDepth = Fn((_, builder) => {
+      const depth = viewportDepthTexture().x;
+      const near = this.frameCameraNear;
+      const far = this.frameCameraFar;
+      const isEmpty = builder.renderer.reversedDepthBuffer
+        ? depth.lessThanEqual(0.0)
+        : depth.greaterThanEqual(1.0);
+      const viewZ = select(
+        this.frameCameraOrthographic.equal(1),
+        orthographicDepthToViewZ(depth, near, far),
+        perspectiveDepthToViewZ(depth, near, far),
+      );
 
-    vec3 radiance = vec3(0.0);
-    float transmittance = 1.0;
-    float sliceStart = froxelRange.x;
-
-    for (int i = 0; i < FRAME_MAX_SLICES; i++) {
-      if (i >= sliceCount || sliceStart >= sceneDepth || transmittance < 0.001) {
-        break;
-      }
-
-      float sliceEnd = frameSliceDepth(float(i + 1) / froxelGrid.z);
-      float coverage = (min(sliceEnd, sceneDepth) - sliceStart) / (sliceEnd - sliceStart);
-
-      vec2 tile = vec2(mod(float(i), froxelColumns), floor(float(i) / froxelColumns));
-      vec4 froxel = texture2D(froxelAtlas, (tile * froxelGrid.xy + froxelUv) / froxelAtlasSize);
-
-      float froxelAlpha = clamp(froxel.a, 0.0, 1.0);
-
-      // NOTE Froxels store premultiplied slice color and alpha. Scene depth can cut the last slice.
-      if (froxelAlpha > 0.0) {
-        float sliceAlpha = coverage < 1.0 ? 1.0 - pow(1.0 - froxelAlpha, coverage) : froxelAlpha;
-
-        radiance += transmittance * froxel.rgb * (sliceAlpha / froxelAlpha);
-        transmittance *= 1.0 - sliceAlpha;
-      }
-
-      sliceStart = sliceEnd;
-    }
-
-    float alpha = 1.0 - transmittance;
-
-    if (alpha <= 0.0) {
-      discard;
-    }
-
-    gl_FragColor = vec4(radiance / alpha, alpha);
-
-    #include <tonemapping_fragment>
-    #include <colorspace_fragment>
-    #include <premultiplied_alpha_fragment>
-  }
-`;
-
-export class FrameIntegrateMaterial extends Three.ShaderMaterial {
-  name = 'FrameIntegrateMaterial';
-
-  constructor(froxelUniforms) {
-    super({
-      uniforms: {
-        ...froxelUniforms,
-        froxelAtlas: { value: null },
-        froxelAtlasSize: { value: new Three.Vector2(1.0, 1.0) },
-        frameDepthMap: { value: null },
-        frameCameraNear: { value: 0.1 },
-        frameCameraFar: { value: 1000.0 },
-      },
-      vertexShader,
-      fragmentShader,
-      transparent: true,
-      depthTest: false,
-      depthWrite: false,
-      premultipliedAlpha: true,
+      return select(isEmpty, float(1e20), viewZ.negate());
     });
+
+    return Fn(() => {
+      const depth = sceneDepth().toVar();
+      const uv = vec2(screenUV.x, float(1.0).sub(screenUV.y));
+      const froxelUv = clamp(uv.mul(froxelGrid.xy), vec2(0.5), froxelGrid.xy.sub(0.5)).toVar();
+      const sliceCount = froxelGrid.z;
+
+      const radiance = vec3(0.0).toVar();
+      const transmittance = float(1.0).toVar();
+      const sliceStart = froxelRange.x.toVar();
+
+      Loop(maxSlices, ({ i }) => {
+        const slice = float(i);
+
+        If(
+          slice
+            .greaterThanEqual(sliceCount)
+            .or(sliceStart.greaterThanEqual(depth))
+            .or(transmittance.lessThan(0.001)),
+          () => {
+            Break();
+          },
+        );
+
+        const sliceEnd = frameSliceDepth(froxelUniforms, slice.add(1.0).div(sliceCount)).toVar();
+        const coverage = min(sliceEnd, depth).sub(sliceStart).div(sliceEnd.sub(sliceStart));
+
+        const tile = vec2(mod(slice, froxelColumns), floor(slice.div(froxelColumns)));
+        const froxel = frameSample(
+          this.froxelAtlas,
+          tile.mul(froxelGrid.xy).add(froxelUv).div(froxelAtlasSize),
+        ).toVar();
+        const froxelAlpha = clamp(froxel.a, 0.0, 1.0).toVar();
+
+        // NOTE Froxels store premultiplied slice color and alpha. Scene depth can cut the last slice.
+        If(froxelAlpha.greaterThan(0.0), () => {
+          const sliceAlpha = select(
+            coverage.lessThan(1.0),
+            float(1.0).sub(pow(float(1.0).sub(froxelAlpha), coverage)),
+            froxelAlpha,
+          ).toVar();
+
+          radiance.addAssign(transmittance.mul(froxel.rgb).mul(sliceAlpha.div(froxelAlpha)));
+          transmittance.mulAssign(float(1.0).sub(sliceAlpha));
+        });
+
+        sliceStart.assign(sliceEnd);
+      });
+
+      const alpha = float(1.0).sub(transmittance).toVar();
+
+      If(alpha.lessThanEqual(0.0), () => {
+        Discard();
+      });
+
+      if (srgbBlending) {
+        // NOTE The 8-bit sRGB canvas of WebGLRenderer clamped both colors to 0.0 - 1.0
+        const background = viewportTexture().toVar();
+        const volumeColor = clamp(sRGBTransferOETF(radiance.div(alpha)), 0.0, 1.0);
+        const backgroundColor = clamp(sRGBTransferOETF(background.rgb), 0.0, 1.0);
+
+        return vec4(
+          sRGBTransferEOTF(mix(backgroundColor, volumeColor, alpha)),
+          alpha.add(background.a.mul(float(1.0).sub(alpha))),
+        );
+      }
+
+      // NOTE Premultiplied output. The renderer output pass applies tone mapping and color space.
+      return vec4(radiance, alpha);
+    })();
   }
 }

@@ -2,18 +2,20 @@ import * as Three from 'three';
 import { GridDescriptor, Vector3 } from 'openvdb';
 import { frameLights } from './FrameInjectMaterial';
 import { frameRenderer, createFullscreenGeometry } from './FrameRenderer';
+import { disposeVolumeMipmaps } from './frameMipmaps';
 
 // NOTE Draw the frame after all other transparent objects
 const frameRenderOrder = 1000000;
 
 const allLights = Object.values(frameLights).reduce((mask, flag) => mask | flag, 0);
 
+// NOTE No GPU mipmaps. three.js WebGPU does not generate them for 3D textures. CPU mipmaps are in frameMipmaps.js.
 const createTexture3D = (data, dimensions, format) => {
   const texture = new Three.Data3DTexture(data, dimensions.x, dimensions.y, dimensions.z);
   texture.format = format;
-  texture.minFilter = Three.LinearMipmapLinearFilter;
+  texture.minFilter = Three.LinearFilter;
   texture.magFilter = Three.LinearFilter;
-  texture.generateMipmaps = true;
+  texture.generateMipmaps = false;
   texture.unpackAlignment = 1;
   texture.needsUpdate = true;
 
@@ -73,6 +75,10 @@ class SharedVolume {
     return this.source.maskMap3D;
   }
 
+  get mipMaps() {
+    return this.source.mipMaps;
+  }
+
   get matrix() {
     return this.source.matrix;
   }
@@ -98,6 +104,7 @@ const getProps = (frameVolume) => ({
   wrap3D: frameVolume.wrap3D,
   lights: frameVolume.lights,
   shadowSteps: frameVolume.shadowSteps,
+  mipmaps: frameVolume.mipmaps,
 });
 
 export class FrameVolume extends Three.Group {
@@ -138,6 +145,8 @@ export class FrameVolume extends Three.Group {
       wrap3D = Three.ClampToEdgeWrapping,
       lights = allLights,
       shadowSteps = 32,
+      // NOTE CPU mipmaps for far volumes and coarse shadow cascades. false saves memory (+25%) and GPU time.
+      mipmaps = true,
       // NOTE World box for all grids. Animation frames share one box. Then voxels do not move.
       bbox: sharedBbox,
     } = instanceSource ? { ...getProps(instanceSource), ...props } : props;
@@ -156,6 +165,7 @@ export class FrameVolume extends Three.Group {
     this.wrap3D = wrap3D;
     this.lights = lights;
     this.shadowSteps = shadowSteps;
+    this.mipmaps = mipmaps;
 
     this.proxy = new Three.Mesh(createFullscreenGeometry(), frameRenderer.integrateMaterial);
     this.proxy.frustumCulled = false;
@@ -201,6 +211,7 @@ export class FrameVolume extends Three.Group {
         emissiveMap3D: null,
         baseColorMap3D: null,
         maskMap3D: null,
+        mipMaps: {},
         matrix: new Three.Matrix4(),
         matrixWorld: new Three.Matrix4(),
         localToView: new Three.Matrix4(),
@@ -444,6 +455,8 @@ export class FrameVolume extends Three.Group {
             volume[key].dispose();
           }
         });
+
+        disposeVolumeMipmaps(volume);
       });
     }
 

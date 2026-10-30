@@ -1,68 +1,85 @@
-import * as Three from 'three';
-import { volumePars, gridPars, tileQuadVertexShader, createVolumeUniforms } from './frameShaderChunks';
+import * as Three from 'three/webgpu';
+import { Fn, If, Discard, vec4, uniform, max } from 'three/tsl';
+import {
+  frameFragCoord,
+  frameTileVertex,
+  createVolumeUniforms,
+  createVolumeNodes,
+  createGridNodes,
+} from './frameShaderChunks';
 
-const fragmentShader = `
-  precision highp float;
+// NOTE Writes the extinction of one volume into one cascade of the world-space shadow grid.
+// NOTE All volumes use this material. Pool meshes set the volume uniforms before each draw.
+export class FrameShadowDensityMaterial extends Three.NodeMaterial {
+  constructor({ gridUniforms, gridTileUniforms }) {
+    super();
 
-  layout(location = 0) out highp vec4 frameShadowDensity;
+    this.name = 'FrameShadowDensityMaterial';
+    this.volumeUniforms = createVolumeUniforms();
+    this.frameRect = uniform(new Three.Vector4());
+    this.frameSliceStart = uniform(0.0);
 
-  ${volumePars}
-  ${gridPars}
+    this.frameUniforms = { gridUniforms, gridTileUniforms };
+    this.mipmaps = false;
+    this.vertexNode = frameTileVertex(gridTileUniforms, this.frameRect, this.frameSliceStart);
+    this.fragmentNode = this.createFragmentNode();
 
-  void main() {
-    vec3 gridUvw;
-    int cascade = frameGetGridCell(gl_FragCoord.xy, gridUvw);
-
-    if (cascade >= frameGridCount) {
-      discard;
-    }
-
-    vec3 worldPosition = frameGridMin[cascade] + gridUvw * frameGridSize[cascade];
-    vec3 localPosition = (frameWorldToLocal * vec4(worldPosition, 1.0)).xyz;
-
-    if (!frameInsideBox(localPosition)) {
-      discard;
-    }
-
-    vec3 voxel = frameGridVoxel[cascade];
-    float voxelSize = max(voxel.x, max(voxel.y, voxel.z));
-    float lod = frameLod(voxelSize / frameWorldScale);
-
-    // NOTE Absorbance scales the shadow of this volume, not its look from the camera
-    float extinction = frameSampleExtinction(localPosition, lod) * frameAbsorbance;
-
-    if (extinction <= 0.0) {
-      discard;
-    }
-
-    frameShadowDensity = vec4(extinction, 0.0, 0.0, 0.0);
+    this.side = Three.DoubleSide;
+    this.forceSinglePass = true;
+    this.depthTest = false;
+    this.depthWrite = false;
+    this.transparent = true;
+    this.blending = Three.CustomBlending;
+    this.blendEquation = Three.AddEquation;
+    this.blendSrc = Three.OneFactor;
+    this.blendDst = Three.OneFactor;
+    this.blendSrcAlpha = Three.OneFactor;
+    this.blendDstAlpha = Three.OneFactor;
   }
-`;
 
-// NOTE Writes the extinction of one volume into one cascade of the world-space shadow grid
-export class FrameShadowDensityMaterial extends Three.ShaderMaterial {
-  name = 'FrameShadowDensityMaterial';
+  // NOTE Mip sampling is in the shader only when a volume uses mipmaps
+  setMipmaps(mipmaps) {
+    if (mipmaps !== this.mipmaps) {
+      this.mipmaps = mipmaps;
+      this.fragmentNode = this.createFragmentNode();
+      this.needsUpdate = true;
+    }
+  }
 
-  constructor(sharedUniforms) {
-    super({
-      glslVersion: Three.GLSL3,
-      uniforms: {
-        ...sharedUniforms,
-        ...createVolumeUniforms(),
-        frameRect: { value: new Three.Vector4() },
-        frameSliceStart: { value: 0.0 },
-      },
-      vertexShader: tileQuadVertexShader,
-      fragmentShader,
-      depthTest: false,
-      depthWrite: false,
-      transparent: true,
-      blending: Three.CustomBlending,
-      blendEquation: Three.AddEquation,
-      blendSrc: Three.OneFactor,
-      blendDst: Three.OneFactor,
-      blendSrcAlpha: Three.OneFactor,
-      blendDstAlpha: Three.OneFactor,
-    });
+  createFragmentNode() {
+    const { gridUniforms, gridTileUniforms } = this.frameUniforms;
+    const volume = createVolumeNodes(this.volumeUniforms, this.mipmaps);
+    const grid = createGridNodes(gridUniforms);
+    const { frameWorldToLocal, frameAbsorbance, frameWorldScale } = this.volumeUniforms;
+    const { frameGridMin, frameGridSize, frameGridVoxel, frameGridCount } = gridUniforms;
+
+    return Fn(() => {
+      const cell = grid.getGridCell(frameFragCoord(gridTileUniforms.frameTargetSize));
+      const cascade = cell.cascade.toVar();
+
+      If(cascade.greaterThanEqual(frameGridCount), () => {
+        Discard();
+      });
+
+      const worldPosition = frameGridMin
+        .element(cascade)
+        .add(cell.gridUvw.mul(frameGridSize.element(cascade)));
+      const localPosition = frameWorldToLocal.mul(vec4(worldPosition, 1.0)).xyz.toVar();
+
+      If(volume.insideBox(localPosition).not(), () => {
+        Discard();
+      });
+
+      // NOTE Absorbance scales the shadow of this volume, not its look from the camera
+      const voxel = frameGridVoxel.element(cascade);
+      const lod = volume.getLod(max(voxel.x, max(voxel.y, voxel.z)).div(frameWorldScale));
+      const extinction = volume.sampleExtinction(localPosition, lod).mul(frameAbsorbance).toVar();
+
+      If(extinction.lessThanEqual(0.0), () => {
+        Discard();
+      });
+
+      return vec4(extinction, 0.0, 0.0, 0.0);
+    })();
   }
 }

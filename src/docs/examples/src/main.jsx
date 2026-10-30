@@ -1,4 +1,5 @@
 import * as Three from 'three';
+import { WebGPURenderer } from 'three/webgpu';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import Stats from 'stats.js'
 import { exampleVDB } from './examples/vdb';
@@ -11,7 +12,11 @@ import { exampleWVDB } from './examples/wvdb';
 
 export const camera = new Three.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.01, 10000.0);
 export const scene = new Three.Scene();
-export const renderer = new Three.WebGLRenderer({ antialias: true });
+// NOTE ?webgl uses the WebGL2 fallback of WebGPURenderer
+export const renderer = new WebGPURenderer({
+  antialias: true,
+  forceWebGL: new URLSearchParams(window.location.search).has('webgl'),
+});
 
 document.querySelector('.package-version').innerHTML = `v${packageInfo.version}`;
 
@@ -39,8 +44,6 @@ const init = () => {
 };
 
 const animate = () => {
-  requestAnimationFrame(animate);
-
   stats.begin();
   
   renderer.render(scene, camera); 
@@ -51,5 +54,5 @@ const animate = () => {
 setActiveDemo('wvdb');
 
 init();
-animate();
+renderer.setAnimationLoop(animate);
 exampleWVDB({ scene });

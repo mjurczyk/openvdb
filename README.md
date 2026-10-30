@@ -30,10 +30,15 @@ Keep in mind that, due to memory-access and multithreading limitations of JS, th
 
 ### With `three.js`:
 
+> [!IMPORTANT]
+> `FrameVolume` needs `WebGPURenderer` (`three/webgpu`, three.js r186 or newer). It uses WebGPU, or WebGL2 with `forceWebGL: true`. `WebGLRenderer` is not supported.
+
 ```js
 import * as Three from 'three';
+import { WebGPURenderer } from 'three/webgpu';
 import * as OpenVDB from 'three-openvdb';
 
+const renderer = new WebGPURenderer({ antialias: true });
 const scene = new Three.Scene();
 
 // NOTE Load a .wvdb file. LOD 0 shows at once. Each finer LOD replaces it while the download continues.
@@ -191,7 +196,7 @@ new OpenVDB.WVDBLoader().load('./assets/bunny_cloud.wvdb', (volumeData) => {
 
 - `FrameVolume( vdb: OpenVDB.OpenVDBReader | OpenVDB.GridDescriptor | Array<OpenVDB.GridDescriptor>, { resolution, progressive, ... }, onConverted: () => void, onProgress: ({ convertedVoxels, totalVoxels, convertedGrids, totalGrids }) => void ): Three.Object3D`
 
-Converts the given `OpenVDBReader` to a volumetric `Three.Object3D`. `onConverted` and `onProgress` are called as the VDB is converted. For each frame, all visible `FrameVolume` objects are written into one frustum-aligned voxel grid (froxels). Then one fullscreen pass marches that grid. Overlapping volumes mix correctly. It works with a normal `renderer.render(scene, camera)` call.
+Converts the given `OpenVDBReader` to a volumetric `Three.Object3D`. `onConverted` and `onProgress` are called as the VDB is converted. For each frame, all visible `FrameVolume` objects are written into one frustum-aligned voxel grid (froxels). Then one fullscreen pass marches that grid. Overlapping volumes mix correctly. It works with a normal `renderer.render(scene, camera)` call of `WebGPURenderer`. The march stops at the depth buffer of that render, so a render target must have a depth buffer.
 
 * `resolution: number` - (default: `100`) resolution of the 3D texture of each grid.
 * `progressive: boolean` - set to `true` to render the volume while it is converted.
@@ -208,6 +213,7 @@ Converts the given `OpenVDBReader` to a volumetric `Three.Object3D`. `onConverte
 * `maskGrid` - static VDB grid mask applied to each voxel. Not affected by UV offset.
 * `lights` - bitmask of light types (`frameLights.useAmbientLights | frameLights.useDirectionalLights | frameLights.usePointLights | frameLights.useSpotLights | frameLights.useHemisphereLights | frameLights.useEnvironment`). Bit values are the same as `lights`.
 * `shadowSteps: number` - (default: `32`) steps of the shadow march toward each light, inside the volume.
+* `mipmaps: boolean` - (default: `true`) mipmaps of the 3D textures, made on the CPU (three.js WebGPU does not make 3D mipmaps). Far volumes and coarse shadow cascades sample a lower mip level. Without them, far volumes and shadows become noisy and blotchy. Cost: +25% memory for each grid, a CPU build of about 11 ms for a 128³ grid (one time, also for each new `.wvdb` LOD), and a second texture sample for each density sample.
 
 All properties can be changed after creation, for example `frameVolume.extinction = 50.0` or `frameVolume.baseColor.set(0xff00ff)`.
 
@@ -256,12 +262,13 @@ Froxel grid settings are global, in `frameRenderer.settings`:
 * `shadowResolution` - (default: `64`) voxels on each axis of each shadow grid cascade (`'frame'` lighting only).
 * `shadowCascades` - (default: `3`, max `4`) shadow grid cascades. The last cascade fits all volumes. Each finer cascade is half the size, around the camera. Shadows are dense near the camera and sparse far away (`'frame'` lighting only).
 * `shadowDistance` - (default: `512`) the finer shadow grid cascades cover only this distance from the camera. The last cascade covers all volumes, with coarser voxels (`'frame'` lighting only).
+* `srgbBlending` - (default: `true`) blends the volumes over the scene in sRGB, the same as `WebGLRenderer` did. `false` blends in linear space, the default of `WebGPURenderer`. Linear blending makes thin fog brighter.
 
-3D textures of `FrameVolume` have mipmaps. Large froxels far away sample a lower mip level, so small details fade to transparent.
+With `mipmaps`, large froxels far away sample a lower mip level, so small details fade to transparent.
 
 With `'frame'` lighting, the first directional, point and spot lights (6 in total) cast shadows. Hemisphere lights, light probes and the environment use the shadow grid in the up and down directions. Ambient light has no shadow. `lights` and `shadowSteps` are not used, `scatterColor` is added as emission, and `absorbance` scales the shadow of each volume.
 
-Limits: with `'volume'` lighting, volumes do not shadow other volumes. Point and spot lights have no distance falloff. Logarithmic depth buffers are not supported.
+Limits: with `'volume'` lighting, volumes do not shadow other volumes. Point and spot lights have no distance falloff. The first 16 directional, point and spot lights light the volumes. With `'volume'` lighting, the first 4 hemisphere lights are used. Logarithmic depth buffers are not supported.
 
 ---
 

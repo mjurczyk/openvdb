@@ -1,142 +1,182 @@
-import * as Three from 'three';
+import * as Three from 'three/webgpu';
 import {
-  froxelPars,
-  volumePars,
-  gridPars,
-  noisePars,
-  tileQuadVertexShader,
+  Fn,
+  If,
+  Loop,
+  Discard,
+  float,
+  vec4,
+  uniform,
+  texture,
+  property,
+  outputStruct,
+  select,
+  mix,
+  exp,
+  length,
+} from 'three/tsl';
+import {
+  frameFragCoord,
+  frameGetFroxel,
+  getFroxelLod,
+  frameNoise,
+  frameTileVertex,
   createVolumeUniforms,
+  createVolumeNodes,
+  createGridNodes,
 } from './frameShaderChunks';
 
-const fragmentShader = `
-  precision highp float;
-
-  layout(location = 0) out highp vec4 frameDensityAlbedo;
-  layout(location = 1) out highp vec4 frameDensityEmission;
-  layout(location = 2) out highp vec4 frameDensityShadow0;
-  layout(location = 3) out highp vec4 frameDensityShadow1;
-
-  ${froxelPars}
-  ${volumePars}
-  ${gridPars}
-  ${noisePars}
-
-  uniform sampler2D frameTransmittanceMap0;
-  uniform sampler2D frameTransmittanceMap1;
-  uniform bool frameUseShadows;
-  uniform mat4 frameCameraMatrixWorld;
-
-  void main() {
-    vec2 tile = floor(gl_FragCoord.xy / froxelGrid.xy);
-    float slice = tile.y * froxelColumns + tile.x;
-    vec2 uv = (gl_FragCoord.xy - tile * froxelGrid.xy) / froxelGrid.xy;
-
-    float sliceNear = frameSliceDepth(slice / froxelGrid.z);
-    float sliceFar = frameSliceDepth((slice + 1.0) / froxelGrid.z);
-    vec3 viewNear = frameGetViewPosition(uv, sliceNear);
-    vec3 viewFar = frameGetViewPosition(uv, sliceFar);
-    vec3 localNear = (frameViewToLocal * vec4(viewNear, 1.0)).xyz;
-    vec3 localFar = (frameViewToLocal * vec4(viewFar, 1.0)).xyz;
-
-    vec2 boxSegment = frameBoxSegment(localNear, localFar);
-
-    if (boxSegment.x >= boxSegment.y) {
-      discard;
-    }
-
-    // NOTE Pick the mip level from the froxel width or the sub-step length, the larger one
-    float subStepLength = length(viewFar - viewNear) / float(froxelSubSteps);
-    float sliceMiddle = (sliceNear + sliceFar) * 0.5;
-    float froxelWidth = length(
-      frameGetViewPosition(uv + vec2(1.0 / froxelGrid.x, 0.0), sliceMiddle) -
-      frameGetViewPosition(uv, sliceMiddle)
-    );
-    float lod = frameLod(max(froxelWidth, subStepLength) / frameWorldScale);
-
-    // NOTE Mean extinction of the slice. The visibility-weighted mean position is the light position in the lighting pass.
-    float extinctionSum = 0.0;
-    float transmittance = 1.0;
-    float visibleWeight = 0.0;
-    float visibleTSum = 0.0;
-    float jitter = frameNoise(gl_FragCoord.xy);
-
-    for (int i = 0; i < froxelSubSteps; i++) {
-      float t = (float(i) + jitter) / float(froxelSubSteps);
-
-      if (t < boxSegment.x || t > boxSegment.y) {
-        continue;
-      }
-
-      float extinction = frameSampleExtinction(mix(localNear, localFar, t), lod) * frameOpacity;
-      float stepTransmittance = exp(-extinction * subStepLength);
-      float weight = transmittance * (1.0 - stepTransmittance);
-
-      visibleWeight += weight;
-      visibleTSum += weight * t;
-      extinctionSum += extinction;
-      transmittance *= stepTransmittance;
-    }
-
-    float extinction = extinctionSum / float(froxelSubSteps);
-
-    if (extinction <= 0.0) {
-      discard;
-    }
-
-    float visibleT = visibleWeight > 0.0 ? visibleTSum / visibleWeight : 0.5;
-    vec3 visiblePosition = mix(localNear, localFar, visibleT);
-    vec3 albedo = frameSampleAlbedo(visiblePosition, lod);
-    vec3 emission = frameSampleEmission(visiblePosition, lod) + frameScatterColor;
-
-    // NOTE Shadows at the visible position of this volume, not of other volumes in the froxel
-    vec4 shadow0 = vec4(1.0);
-    vec4 shadow1 = vec4(1.0);
-
-    if (frameUseShadows) {
-      vec3 viewPosition = mix(viewNear, viewFar, visibleT);
-      vec3 worldPosition = (frameCameraMatrixWorld * vec4(viewPosition, 1.0)).xyz;
-
-      frameSampleShadows(
-        frameTransmittanceMap0,
-        frameTransmittanceMap1,
-        worldPosition,
-        shadow0,
-        shadow1
-      );
-    }
-
-    // NOTE Values are weighted by extinction. Additive blending then gives extinction-weighted means.
-    frameDensityAlbedo = vec4(albedo * extinction, extinction);
-    frameDensityEmission = vec4(emission * extinction, visibleT * extinction);
-    frameDensityShadow0 = shadow0 * extinction;
-    frameDensityShadow1 = shadow1 * extinction;
-  }
-`;
+// NOTE Shadow grid data for the density pass. Each volume samples its own visible position.
+export const createDensityShadowUniforms = () => ({
+  frameTransmittanceMap0: texture(new Three.Texture()),
+  frameTransmittanceMap1: texture(new Three.Texture()),
+  frameUseShadows: uniform(0, 'int'),
+  frameCameraMatrixWorld: uniform(new Three.Matrix4()),
+});
 
 // NOTE Writes the extinction and material of one volume into the froxel grid. No lighting.
-export class FrameDensityMaterial extends Three.ShaderMaterial {
-  name = 'FrameDensityMaterial';
+// NOTE All volumes use this material. Pool meshes set the volume uniforms before each draw.
+export class FrameDensityMaterial extends Three.NodeMaterial {
+  constructor({ froxelUniforms, froxelTileUniforms, gridUniforms, densityShadowUniforms }) {
+    super();
 
-  constructor(sharedUniforms) {
-    super({
-      glslVersion: Three.GLSL3,
-      uniforms: {
-        ...sharedUniforms,
-        ...createVolumeUniforms(),
-        frameRect: { value: new Three.Vector4() },
-        frameSliceStart: { value: 0.0 },
-      },
-      vertexShader: tileQuadVertexShader,
-      fragmentShader,
-      depthTest: false,
-      depthWrite: false,
-      transparent: true,
-      blending: Three.CustomBlending,
-      blendEquation: Three.AddEquation,
-      blendSrc: Three.OneFactor,
-      blendDst: Three.OneFactor,
-      blendSrcAlpha: Three.OneFactor,
-      blendDstAlpha: Three.OneFactor,
-    });
+    this.name = 'FrameDensityMaterial';
+    this.volumeUniforms = createVolumeUniforms();
+    this.frameRect = uniform(new Three.Vector4());
+    this.frameSliceStart = uniform(0.0);
+
+    this.frameUniforms = {
+      froxelUniforms,
+      froxelTileUniforms,
+      gridUniforms,
+      densityShadowUniforms,
+    };
+    this.mipmaps = false;
+    this.buildNodes();
+
+    this.side = Three.DoubleSide;
+    this.forceSinglePass = true;
+    this.depthTest = false;
+    this.depthWrite = false;
+    this.transparent = true;
+    this.blending = Three.CustomBlending;
+    this.blendEquation = Three.AddEquation;
+    this.blendSrc = Three.OneFactor;
+    this.blendDst = Three.OneFactor;
+    this.blendSrcAlpha = Three.OneFactor;
+    this.blendDstAlpha = Three.OneFactor;
+  }
+
+  // NOTE Mip sampling is in the shader only when a volume uses mipmaps
+  setMipmaps(mipmaps) {
+    if (mipmaps !== this.mipmaps) {
+      this.mipmaps = mipmaps;
+      this.buildNodes();
+      this.needsUpdate = true;
+    }
+  }
+
+  buildNodes() {
+    const { froxelUniforms, froxelTileUniforms, gridUniforms, densityShadowUniforms } =
+      this.frameUniforms;
+    const volume = createVolumeNodes(this.volumeUniforms, this.mipmaps);
+    const grid = createGridNodes(gridUniforms);
+    const { frameViewToLocal, frameOpacity, frameScatterColor, frameWorldScale } =
+      this.volumeUniforms;
+    const { froxelSubSteps, frameJitter } = froxelUniforms;
+
+    const densityAlbedo = property('vec4');
+    const densityEmission = property('vec4');
+    const densityShadow0 = property('vec4');
+    const densityShadow1 = property('vec4');
+
+    this.vertexNode = frameTileVertex(froxelTileUniforms, this.frameRect, this.frameSliceStart);
+
+    this.colorNode = Fn(() => {
+      const fragCoord = frameFragCoord(froxelTileUniforms.frameTargetSize).toVar();
+      const froxel = frameGetFroxel(froxelUniforms, fragCoord);
+      const viewNear = froxel.viewNear.toVar();
+      const viewFar = froxel.viewFar.toVar();
+      const localNear = frameViewToLocal.mul(vec4(viewNear, 1.0)).xyz.toVar();
+      const localFar = frameViewToLocal.mul(vec4(viewFar, 1.0)).xyz.toVar();
+      const boxSegment = volume.boxSegment(localNear, localFar).toVar();
+
+      If(boxSegment.x.greaterThanEqual(boxSegment.y), () => {
+        Discard();
+      });
+
+      const subStepCount = float(froxelSubSteps);
+      const subStepLength = length(viewFar.sub(viewNear)).div(subStepCount).toVar();
+      const lod = getFroxelLod(froxelUniforms, froxel, volume, subStepLength, frameWorldScale);
+
+      // NOTE Mean extinction of the slice. The visibility-weighted mean position is the light position in the lighting pass.
+      const extinctionSum = float(0.0).toVar();
+      const transmittance = float(1.0).toVar();
+      const visibleWeight = float(0.0).toVar();
+      const visibleTSum = float(0.0).toVar();
+      const jitter = frameNoise(frameJitter, fragCoord).toVar();
+
+      Loop(froxelSubSteps, ({ i }) => {
+        const t = float(i).add(jitter).div(subStepCount).toVar();
+
+        If(t.greaterThanEqual(boxSegment.x).and(t.lessThanEqual(boxSegment.y)), () => {
+          const extinction = volume
+            .sampleExtinction(mix(localNear, localFar, t), lod)
+            .mul(frameOpacity)
+            .toVar();
+          const stepTransmittance = exp(extinction.mul(subStepLength).negate()).toVar();
+          const weight = transmittance.mul(float(1.0).sub(stepTransmittance)).toVar();
+
+          visibleWeight.addAssign(weight);
+          visibleTSum.addAssign(weight.mul(t));
+          extinctionSum.addAssign(extinction);
+          transmittance.mulAssign(stepTransmittance);
+        });
+      });
+
+      const extinction = extinctionSum.div(subStepCount).toVar();
+
+      If(extinction.lessThanEqual(0.0), () => {
+        Discard();
+      });
+
+      const visibleT = select(
+        visibleWeight.greaterThan(0.0),
+        visibleTSum.div(visibleWeight),
+        float(0.5),
+      ).toVar();
+      const visiblePosition = mix(localNear, localFar, visibleT).toVar();
+      const albedo = volume.sampleAlbedo(visiblePosition, lod);
+      const emission = volume.sampleEmission(visiblePosition, lod).add(frameScatterColor);
+
+      // NOTE Shadows at the visible position of this volume, not of other volumes in the froxel
+      const shadow0 = vec4(1.0).toVar();
+      const shadow1 = vec4(1.0).toVar();
+
+      If(densityShadowUniforms.frameUseShadows.equal(1), () => {
+        const viewPosition = mix(viewNear, viewFar, visibleT);
+        const worldPosition = densityShadowUniforms.frameCameraMatrixWorld
+          .mul(vec4(viewPosition, 1.0))
+          .xyz.toVar();
+        const shadows = grid.sampleShadows(
+          densityShadowUniforms.frameTransmittanceMap0,
+          densityShadowUniforms.frameTransmittanceMap1,
+          worldPosition,
+        );
+
+        shadow0.assign(shadows.shadow0);
+        shadow1.assign(shadows.shadow1);
+      });
+
+      // NOTE Values are weighted by extinction. Additive blending then gives extinction-weighted means.
+      densityAlbedo.assign(vec4(albedo.mul(extinction), extinction));
+      densityEmission.assign(vec4(emission.mul(extinction), visibleT.mul(extinction)));
+      densityShadow0.assign(shadow0.mul(extinction));
+      densityShadow1.assign(shadow1.mul(extinction));
+
+      return vec4(0.0);
+    })();
+
+    this.outputNode = outputStruct(densityAlbedo, densityEmission, densityShadow0, densityShadow1);
   }
 }
