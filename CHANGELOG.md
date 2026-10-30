@@ -1,5 +1,6 @@
 # Unreleased
 
+- Fix: with `'frame'` (combined) lighting, the environment lit volumes only from the sky up and down directions, so an HDRI gave a flat, grey light. Now each volume samples the environment along its outward direction, the same as `'volume'` lighting. Both `three-openvdb` and `three-openvdb/webgl`
 - `three-openvdb/webgl`: `FrameVolume` for `WebGLRenderer`, with the GLSL froxel renderer of v0.7.0. The same API as `three-openvdb`. For backwards compatibility, it will be removed in a later version. Mipmaps are GPU mipmaps, no `srgbBlending` setting (WebGLRenderer blends on the sRGB canvas), no light limit
 - `three-openvdb` code: `frame/core` (shared), `frame/webgpu` and `frame/webgl`. The two renderer folders do not import each other
 - Examples: `npm run dev:webgl` runs the examples with `WebGLRenderer`

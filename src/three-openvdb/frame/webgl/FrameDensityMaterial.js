@@ -25,6 +25,13 @@ const fragmentShader = `
   uniform sampler2D frameTransmittanceMap1;
   uniform bool frameUseShadows;
   uniform mat4 frameCameraMatrixWorld;
+  uniform vec3 frameSkyDirection;
+
+  #include <common>
+  #include <lights_pars_begin>
+  #include <envmap_common_pars_fragment>
+  #include <cube_uv_reflection_fragment>
+  #include <envmap_physical_pars_fragment>
 
   void main() {
     vec2 tile = floor(gl_FragCoord.xy / froxelGrid.xy);
@@ -105,6 +112,19 @@ const fragmentShader = `
       );
     }
 
+    // NOTE Environment along the outward direction from the volume center, the same as per-volume lighting.
+    // NOTE Its shadow is between the sky down and sky up transmittance of the shadow grid.
+    #if defined( USE_ENVMAP )
+      vec3 skyDirection = normalize(frameSkyDirection);
+      vec3 outwardDirection = length(visiblePosition) > 1e-4
+        ? normalize(mat3(frameCameraMatrixWorld) * (mat3(frameLocalToView) * visiblePosition))
+        : skyDirection;
+      float environmentShadow = mix(shadow0.y, shadow0.x, dot(outwardDirection, skyDirection) * 0.5 + 0.5);
+
+      // NOTE getIBLIrradiance takes a view-space normal
+      emission += albedo * getIBLIrradiance(normalize(mat3(viewMatrix) * outwardDirection)) * environmentShadow * RECIPROCAL_PI;
+    #endif
+
     // NOTE Values are weighted by extinction. Additive blending then gives extinction-weighted means.
     frameDensityAlbedo = vec4(albedo * extinction, extinction);
     frameDensityEmission = vec4(emission * extinction, visibleT * extinction);
@@ -113,30 +133,39 @@ const fragmentShader = `
   }
 `;
 
-// NOTE Writes the extinction and material of one volume into the froxel grid. No lighting.
-export class FrameDensityMaterial extends Three.ShaderMaterial {
+// NOTE Writes the extinction and material of one volume into the froxel grid. Lights are added in the lighting pass.
+// NOTE The environment is added here, along the outward direction of each volume.
+// NOTE MeshStandardMaterial gives the PMREM environment. The shader is fully replaced. GLSL3 keeps the 4 outputs.
+export class FrameDensityMaterial extends Three.MeshStandardMaterial {
   name = 'FrameDensityMaterial';
+  customProgramCacheKey = () => 'FrameDensityMaterial';
 
   constructor(sharedUniforms) {
-    super({
-      glslVersion: Three.GLSL3,
-      uniforms: {
-        ...sharedUniforms,
-        ...createVolumeUniforms(),
-        frameRect: { value: new Three.Vector4() },
-        frameSliceStart: { value: 0.0 },
-      },
-      vertexShader: tileQuadVertexShader,
-      fragmentShader,
-      depthTest: false,
-      depthWrite: false,
-      transparent: true,
-      blending: Three.CustomBlending,
-      blendEquation: Three.AddEquation,
-      blendSrc: Three.OneFactor,
-      blendDst: Three.OneFactor,
-      blendSrcAlpha: Three.OneFactor,
-      blendDstAlpha: Three.OneFactor,
-    });
+    super();
+
+    this.frameUniforms = {
+      ...sharedUniforms,
+      ...createVolumeUniforms(),
+      frameRect: { value: new Three.Vector4() },
+      frameSliceStart: { value: 0.0 },
+    };
+
+    this.glslVersion = Three.GLSL3;
+    this.depthTest = false;
+    this.depthWrite = false;
+    this.transparent = true;
+    this.blending = Three.CustomBlending;
+    this.blendEquation = Three.AddEquation;
+    this.blendSrc = Three.OneFactor;
+    this.blendDst = Three.OneFactor;
+    this.blendSrcAlpha = Three.OneFactor;
+    this.blendDstAlpha = Three.OneFactor;
+
+    this.onBeforeCompile = (shader) => {
+      Object.assign(shader.uniforms, this.frameUniforms);
+
+      shader.vertexShader = tileQuadVertexShader;
+      shader.fragmentShader = fragmentShader;
+    };
   }
 }

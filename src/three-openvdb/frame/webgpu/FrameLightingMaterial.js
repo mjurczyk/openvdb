@@ -21,10 +21,9 @@ import {
   getShIrradianceAt,
 } from 'three/tsl';
 import { frameFragCoord, frameLoad, frameGetFroxel, frameFullscreenVertex } from './frameShaderChunks';
-import { FrameEnvironmentMaterial } from './FrameEnvironmentMaterial';
-
-// NOTE Lights each froxel one time from the combined data of all volumes
-export class FrameLightingMaterial extends FrameEnvironmentMaterial {
+// NOTE Lights each froxel one time from the combined data of all volumes.
+// NOTE The environment is added in the density pass, along the outward direction of each volume.
+export class FrameLightingMaterial extends Three.NodeMaterial {
   constructor({ froxelUniforms, lightUniforms }) {
     super();
 
@@ -99,11 +98,6 @@ export class FrameLightingMaterial extends FrameEnvironmentMaterial {
       irradiance.addAssign(getShIrradianceAt(skyDirection.negate(), frameLightProbe).mul(skyDown));
       irradiance.addAssign(frameHemiSkyColor.mul(skyUp));
       irradiance.addAssign(frameHemiGroundColor.mul(skyDown));
-
-      if (this.environment) {
-        irradiance.addAssign(this.environmentIrradiance(skyDirection).mul(skyUp));
-        irradiance.addAssign(this.environmentIrradiance(skyDirection.negate()).mul(skyDown));
-      }
 
       // NOTE Point and spot lights have no distance falloff
       Loop(frameLightCount, ({ i }) => {

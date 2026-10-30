@@ -13,7 +13,10 @@ import {
   select,
   mix,
   exp,
+  dot,
   length,
+  normalize,
+  mat3,
 } from 'three/tsl';
 import {
   frameFragCoord,
@@ -25,6 +28,7 @@ import {
   createVolumeNodes,
   createGridNodes,
 } from './frameShaderChunks';
+import { FrameEnvironmentMaterial } from './FrameEnvironmentMaterial';
 
 // NOTE Shadow grid data for the density pass. Each volume samples its own visible position.
 export const createDensityShadowUniforms = () => ({
@@ -34,10 +38,17 @@ export const createDensityShadowUniforms = () => ({
   frameCameraMatrixWorld: uniform(new Three.Matrix4()),
 });
 
-// NOTE Writes the extinction and material of one volume into the froxel grid. No lighting.
+// NOTE Writes the extinction and material of one volume into the froxel grid. Lights are added in the lighting pass.
+// NOTE The environment is added here, along the outward direction of each volume.
 // NOTE All volumes use this material. Pool meshes set the volume uniforms before each draw.
-export class FrameDensityMaterial extends Three.NodeMaterial {
-  constructor({ froxelUniforms, froxelTileUniforms, gridUniforms, densityShadowUniforms }) {
+export class FrameDensityMaterial extends FrameEnvironmentMaterial {
+  constructor({
+    froxelUniforms,
+    froxelTileUniforms,
+    gridUniforms,
+    densityShadowUniforms,
+    lightUniforms,
+  }) {
     super();
 
     this.name = 'FrameDensityMaterial';
@@ -50,6 +61,7 @@ export class FrameDensityMaterial extends Three.NodeMaterial {
       froxelTileUniforms,
       gridUniforms,
       densityShadowUniforms,
+      lightUniforms,
     };
     this.mipmaps = false;
     this.buildNodes();
@@ -71,18 +83,29 @@ export class FrameDensityMaterial extends Three.NodeMaterial {
   setMipmaps(mipmaps) {
     if (mipmaps !== this.mipmaps) {
       this.mipmaps = mipmaps;
+      this.environmentNodes = [];
       this.buildNodes();
       this.needsUpdate = true;
     }
   }
 
+  rebuildNodes() {
+    this.buildNodes();
+  }
+
   buildNodes() {
-    const { froxelUniforms, froxelTileUniforms, gridUniforms, densityShadowUniforms } =
-      this.frameUniforms;
+    const {
+      froxelUniforms,
+      froxelTileUniforms,
+      gridUniforms,
+      densityShadowUniforms,
+      lightUniforms,
+    } = this.frameUniforms;
     const volume = createVolumeNodes(this.volumeUniforms, this.mipmaps);
     const grid = createGridNodes(gridUniforms);
-    const { frameViewToLocal, frameOpacity, frameScatterColor, frameWorldScale } =
+    const { frameViewToLocal, frameLocalToView, frameOpacity, frameScatterColor, frameWorldScale } =
       this.volumeUniforms;
+    const { frameCameraMatrixWorld } = densityShadowUniforms;
     const { froxelSubSteps, frameJitter } = froxelUniforms;
 
     const densityAlbedo = property('vec4');
@@ -146,8 +169,8 @@ export class FrameDensityMaterial extends Three.NodeMaterial {
         float(0.5),
       ).toVar();
       const visiblePosition = mix(localNear, localFar, visibleT).toVar();
-      const albedo = volume.sampleAlbedo(visiblePosition, lod);
-      const emission = volume.sampleEmission(visiblePosition, lod).add(frameScatterColor);
+      const albedo = volume.sampleAlbedo(visiblePosition, lod).toVar();
+      const emission = volume.sampleEmission(visiblePosition, lod).add(frameScatterColor).toVar();
 
       // NOTE Shadows at the visible position of this volume, not of other volumes in the froxel
       const shadow0 = vec4(1.0).toVar();
@@ -167,6 +190,29 @@ export class FrameDensityMaterial extends Three.NodeMaterial {
         shadow0.assign(shadows.shadow0);
         shadow1.assign(shadows.shadow1);
       });
+
+      // NOTE Environment along the outward direction from the volume center, the same as per-volume lighting.
+      // NOTE Its shadow is between the sky down and sky up transmittance of the shadow grid.
+      if (this.environment) {
+        const skyDirection = normalize(lightUniforms.frameSkyDirection).toVar();
+        const outwardDirection = select(
+          length(visiblePosition).greaterThan(1e-4),
+          normalize(mat3(frameCameraMatrixWorld).mul(mat3(frameLocalToView).mul(visiblePosition))),
+          skyDirection,
+        ).toVar();
+        const environmentShadow = mix(
+          shadow0.y,
+          shadow0.x,
+          dot(outwardDirection, skyDirection).mul(0.5).add(0.5),
+        );
+
+        emission.addAssign(
+          albedo
+            .mul(this.environmentIrradiance(outwardDirection))
+            .mul(environmentShadow)
+            .mul(1.0 / Math.PI),
+        );
+      }
 
       // NOTE Values are weighted by extinction. Additive blending then gives extinction-weighted means.
       densityAlbedo.assign(vec4(albedo.mul(extinction), extinction));
