@@ -1,0 +1,6 @@
+{
+  "demo": "vdb",
+  "drop": [
+    "./assets/cube.vdb"
+  ]
+}

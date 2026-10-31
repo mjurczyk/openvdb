@@ -1,0 +1,7 @@
+{
+  "demo": "vdb",
+  "drop": [
+    "./assets/smoke.vdb"
+  ],
+  "fogColor": "#ff4040"
+}

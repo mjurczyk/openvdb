@@ -1,0 +1,6 @@
+{
+  "demo": "vdb",
+  "drop": [
+    "./assets/bunny_cloud.wvdb"
+  ]
+}

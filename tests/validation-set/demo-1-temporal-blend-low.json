@@ -1,0 +1,5 @@
+{
+  "demo": "frame",
+  "jitter": true,
+  "temporalBlend": 0.05
+}

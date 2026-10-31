@@ -12,14 +12,14 @@
   "devDependencies": {
     "@types/react": "^18.0.17",
     "@types/react-dom": "^18.0.6",
-    "@vitejs/plugin-react": "^2.1.0",
+    "@vitejs/plugin-react": "^4.7.0",
     "lil-gui": "^0.18.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "simple-dropzone": "^0.8.1",
     "styled-components": "^5.3.6",
     "three": "^0.187.0",
-    "vite": "^3.1.0",
+    "vite": "^6.4.5",
     "zip-js-esm": "^1.1.1"
   },
   "dependencies": {
