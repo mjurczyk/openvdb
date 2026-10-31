@@ -15,6 +15,7 @@ import { setFrameBackend } from './frame/core/frameBackend';
 import { FrameVolumeAnimation, FrameVolumeAnimationInstance } from './frame/core/FrameVolumeAnimation';
 import { VDBAnimationLoader } from './frame/core/VDBAnimationLoader';
 import { frameRenderer } from './frame/webgpu/FrameRenderer';
+import { FrameEmissionLight } from './frame/webgpu/FrameEmissionLight';
 import { WVDBLoader } from './wvdb/WVDBLoader';
 import { WVDBAnimationLoader } from './wvdb/WVDBAnimationLoader';
 import { WVDBReader } from './wvdb/WVDBReader';
@@ -42,6 +43,7 @@ export {
   FrameVolume,
   frameRenderer,
   frameLights,
+  FrameEmissionLight,
   FrameVolumeAnimation,
   FrameVolumeAnimationInstance,
   VDBAnimationLoader,

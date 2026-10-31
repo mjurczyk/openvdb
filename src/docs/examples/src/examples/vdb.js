@@ -7,6 +7,8 @@ import zip from 'zip-js-esm';
 import { setLoading } from '../utils/loading';
 
 let animation, volumePivot, targetScene;
+// NOTE Instances of the animation, for the Copies field. Disposed before the animation.
+let copies = [];
 let dropId = 0;
 let lastFiles = null;
 // NOTE Object URLs of the .wvdb frames. Finer LODs read them later, so they are released with the animation.
@@ -38,6 +40,12 @@ const params = {
   playing: true,
   fps: 24,
   loop: true,
+  emissionLight: false,
+  emissionIntensity: 1.0,
+  emissionResolution: 16,
+  emissionCascades: 1,
+  copies: 1,
+  sceneMeshes: false,
 };
 
 const getController = (id) =>
@@ -56,6 +64,26 @@ const applyVolumeParams = () => {
   animation.shadowSteps = params.shadowSteps;
   animation.emissiveIntensity = params.emissiveIntensity;
   animation.temperatureRange = [params.temperatureMin, params.temperatureMax];
+
+  copies.forEach((copy) => {
+    copy.baseColor = params.baseColor;
+    copy.absorbance = params.absorbance;
+    copy.densityScale = params.densityScale;
+    copy.opacity = params.opacity;
+    copy.extinction = params.extinction;
+    copy.shadowSteps = params.shadowSteps;
+    copy.emissiveIntensity = params.emissiveIntensity;
+    copy.temperatureRange = [params.temperatureMin, params.temperatureMax];
+  });
+};
+
+const removeCopies = () => {
+  copies.forEach((copy) => {
+    copy.removeFromParent();
+    copy.dispose();
+  });
+
+  copies = [];
 };
 
 const applyPlaybackParams = () => {
@@ -79,6 +107,9 @@ const removeAnimation = () => {
   }
 
   if (volumePivot.parent) volumePivot.parent.remove(volumePivot);
+
+  // NOTE Instances first, then the animation
+  removeCopies();
 
   // NOTE dispose() also stops the frame downloads
   animation.dispose();
@@ -403,6 +434,117 @@ export const exampleVDB = ({ scene }) => {
   const orbitSpotPivot = addPivotLight(orbitSpotLight, 50.0, 80.0, 0.0);
   addPivotLight(topSpotLight, 0.0, 80.0, 0.0);
 
+  // NOTE One light for all emissive volumes of the scene
+  const emissionLight = new OpenVDB.FrameEmissionLight({
+    intensity: params.emissionIntensity,
+    resolution: params.emissionResolution,
+  });
+
+  emissionLight.visible = params.emissionLight;
+  scene.add(emissionLight);
+
+  // NOTE Lit meshes around the volume, in units of the box width. They stand on the bottom of the box.
+  const sceneMeshes = new Three.Group();
+  const meshMaterial = new Three.MeshStandardMaterial({ color: 0x9a9a9a, roughness: 0.8 });
+  const ground = new Three.Mesh(new Three.PlaneGeometry(8.0, 8.0), meshMaterial);
+  const pillarGeometry = new Three.BoxGeometry(0.12, 0.5, 0.12);
+  const sphereGeometry = new Three.SphereGeometry(0.15, 32, 16);
+
+  ground.rotation.x = -Math.PI / 2.0;
+  sceneMeshes.add(ground);
+
+  for (let i = 0; i < 8; i++) {
+    const angle = (i / 8) * Math.PI * 2.0;
+    const pillar = new Three.Mesh(pillarGeometry, meshMaterial);
+    const sphere = new Three.Mesh(sphereGeometry, meshMaterial);
+
+    pillar.position.set(Math.cos(angle) * 1.0, 0.25, Math.sin(angle) * 1.0);
+    sphere.position.set(Math.cos(angle + 0.4) * 1.6, 0.15, Math.sin(angle + 0.4) * 1.6);
+    sceneMeshes.add(pillar, sphere);
+  }
+
+  sceneMeshes.visible = params.sceneMeshes;
+  scene.add(sceneMeshes);
+
+  const getGroundSize = () => {
+    const size = animation.bbox.getSize(new Three.Vector3());
+
+    return {
+      height: params.upAxis === 'z' ? size.z : size.y,
+      width: Math.max(size.x, params.upAxis === 'z' ? size.y : size.z),
+    };
+  };
+
+  const placeSceneMeshes = () => {
+    if (!animation || animation.bbox.isEmpty()) {
+      return;
+    }
+
+    const { height, width } = getGroundSize();
+
+    sceneMeshes.position.y = -height / 2.0;
+    sceneMeshes.scale.setScalar(width);
+    ground.scale.setScalar(Math.max(1.0, (Math.ceil(Math.sqrt(params.copies)) * 1.5 + 4.0) / 8.0));
+  };
+
+  // NOTE Copies stand on a square grid around the animation, 1.5 box widths apart. Each one starts at another frame.
+  const updateCopies = (delta) => {
+    if (!animation || animation.frames.length === 0 || animation.bbox.isEmpty()) {
+      return;
+    }
+
+    const wrongAnimation = copies.length > 0 && copies[0].animation !== animation;
+
+    if (copies.length !== params.copies - 1 || wrongAnimation) {
+      removeCopies();
+
+      copies = Array.from({ length: params.copies - 1 }, (_, index) => {
+        const copy = animation.createInstance();
+
+        copy.frame = Math.round(((index + 1) / params.copies) * animation.frames.length);
+        volumePivot.add(copy);
+
+        return copy;
+      });
+
+      applyVolumeParams();
+    }
+
+    const spacing = getGroundSize().width * 1.5;
+    const side = Math.ceil(Math.sqrt(params.copies));
+    const middle = Math.floor(side / 2);
+    let slot = 0;
+
+    copies.forEach((copy) => {
+      // NOTE The middle slot is the animation
+      if (slot === middle * side + middle) {
+        slot++;
+      }
+
+      copy.position.copy(animation.position);
+      copy.position.x += ((slot % side) - middle) * spacing;
+
+      // NOTE The pivot turns Z-up volumes, so the second ground axis is Y in the pivot
+      if (params.upAxis === 'z') {
+        copy.position.y += (Math.floor(slot / side) - middle) * spacing;
+      } else {
+        copy.position.z += (Math.floor(slot / side) - middle) * spacing;
+      }
+
+      copy.fps = params.fps;
+      copy.loop = params.loop;
+
+      if (params.playing) {
+        copy.play();
+      } else {
+        copy.pause();
+      }
+
+      copy.update(delta);
+      slot++;
+    });
+  };
+
   const lightSetups = {
     sunHemi: [sun, hemiLight],
     dir: [sun],
@@ -443,6 +585,9 @@ export const exampleVDB = ({ scene }) => {
 
   setInterval(() => {
     const now = performance.now();
+
+    updateCopies((now - lastTime) / 1000.0);
+    placeSceneMeshes();
 
     if (animation) {
       const previousFrame = animation.frame;
@@ -557,7 +702,72 @@ export const exampleVDB = ({ scene }) => {
       ],
     },
     {
+      folder: 'Light Emission',
+      closed: true,
+      children: [
+        {
+          id: 'emissionLight',
+          name: 'Emission Light',
+          defaultValue: params.emissionLight,
+          onChange: (value) => {
+            params.emissionLight = value;
+            emissionLight.visible = value;
+          },
+        },
+        {
+          id: 'emissionIntensity',
+          name: 'Light Intensity',
+          defaultValue: params.emissionIntensity,
+          min: 0.0,
+          max: 50.0,
+          onChange: (value) => {
+            params.emissionIntensity = value;
+            emissionLight.intensity = value;
+          },
+        },
+        {
+          id: 'emissionResolution',
+          name: 'Probes',
+          defaultValue: params.emissionResolution,
+          options: { '8³': 8, '16³': 16, '32³': 32 },
+          onChange: (value) => {
+            params.emissionResolution = value;
+            emissionLight.resolution = value;
+          },
+        },
+        {
+          id: 'emissionCascades',
+          name: 'Cascades',
+          defaultValue: params.emissionCascades,
+          options: { 1: 1, 2: 2, 3: 3, 4: 4 },
+          onChange: (value) => {
+            params.emissionCascades = value;
+            emissionLight.cascades = value;
+          },
+        },
+        {
+          id: 'copies',
+          name: 'Copies',
+          defaultValue: params.copies,
+          options: { 1: 1, 10: 10, 100: 100 },
+          onChange: (value) => {
+            params.copies = value;
+          },
+        },
+        {
+          id: 'sceneMeshes',
+          name: 'Ground + Props',
+          defaultValue: params.sceneMeshes,
+          onChange: (value) => {
+            params.sceneMeshes = value;
+            sceneMeshes.visible = value;
+          },
+        },
+      ],
+    },
+    {
       folder: 'Animation',
+      closed: true,
       children: [
         {
           id: 'playing',
@@ -605,6 +815,7 @@ export const exampleVDB = ({ scene }) => {
     },
     {
       folder: 'Volume',
+      closed: true,
       children: [
         {
           id: 'upAxis',
