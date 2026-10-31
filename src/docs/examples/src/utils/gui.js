@@ -97,7 +97,14 @@ export const showGui = () => {
 
     fields.forEach(field => {
       if (field.folder) {
-        traverse(gui.addFolder(field.folder), field.children);
+        const folder = gui.addFolder(field.folder);
+
+        // NOTE closed: true starts the folder collapsed
+        if (field.closed) {
+          folder.close();
+        }
+
+        traverse(folder, field.children);
       } else {
         let input;
 
