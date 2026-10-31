@@ -18,12 +18,12 @@
     "react-dom": "^18.2.0",
     "simple-dropzone": "^0.8.1",
     "styled-components": "^5.3.6",
-    "three": "^0.186.1",
-    "vite": "^6.4.4",
+    "three": "^0.187.0",
+    "vite": "^6.4.5",
     "zip-js-esm": "^1.1.1"
   },
   "dependencies": {
-    "openvdb": "^0.9.0",
-    "three-openvdb": "^0.9.0"
+    "openvdb": "^0.10.0",
+    "three-openvdb": "^0.10.0"
   }
 }
