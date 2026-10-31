@@ -13,7 +13,11 @@ class VDBLoader extends Three.Loader {
         onLoad(vdb);
       })
       .catch((error) => {
-        onError(error);
+        if (onError) {
+          onError(error);
+        } else {
+          console.error(error);
+        }
       });
   }
 }

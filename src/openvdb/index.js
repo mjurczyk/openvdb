@@ -23,18 +23,22 @@ export { CloudVolume, CubeVolume, SphereVolume, ParametricVolume } from './utils
 export { getUuid } from './utils/uuid';
 export * from './wvdb/format';
 
-export const loadVDB = (url) =>
-  new Promise((resolve, reject) => {
-    fetch(url).then(async (vdb) => {
-      const source = new Uint8Array(await vdb.arrayBuffer());
-      const vdbReader = new OpenVDBReader();
+export const loadVDB = async (url) => {
+  const response = await fetch(url);
 
-      try {
-        await vdbReader.read(source);
-        resolve(vdbReader);
-      } catch (error) {
-        console.error({ error });
-        reject('VDB could not be parsed.');
-      }
-    });
-  });
+  if (!response.ok) {
+    throw new Error(`Could not load ${url} (${response.status}).`);
+  }
+
+  const source = new Uint8Array(await response.arrayBuffer());
+  const vdbReader = new OpenVDBReader();
+
+  try {
+    await vdbReader.read(source);
+  } catch (error) {
+    console.error({ error });
+    throw 'VDB could not be parsed.';
+  }
+
+  return vdbReader;
+};
