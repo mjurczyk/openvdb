@@ -147,7 +147,7 @@ vdbReader.grids.forEach(function (grid) {
 
 - `loadVDB( url ): Promise<OpenVDB.OpenVDBReader>`
 
-Loads OpenVDB file and parses its grids. Grids can be accessed via `.grids` property of the value returned from the Promise.
+Loads OpenVDB file and parses its grids. Grids can be accessed via `.grids` property of the value returned from the Promise. The Promise rejects on network errors, HTTP errors (for example 404), and parse errors.
 
 Each grid has a `.getValue( position: { x, y, z } ): float` method, which returns the voxel value saved in the file for the given position (density for fog volumes, signed distance for level sets). The `.isActive( position: { x, y, z } ): boolean` method returns `true` if the voxel at the given position is active. See `src/three-openvdb/frame/FrameVolume.js` for an example of VDB file parsing.
 
