@@ -65,6 +65,20 @@ const guiBaseFields = () => [
 
 let guiExtendedFields = [];
 
+// NOTE A demo folder named General adds its fields to the General folder, after the Example field
+const mergeGeneralFields = (baseFields, extendedFields) => {
+  const generalFields = extendedFields
+    .filter((field) => field.folder === 'General')
+    .flatMap((field) => field.children);
+
+  return [
+    ...baseFields.map((field) =>
+      field.folder === 'General' ? { ...field, children: [...field.children, ...generalFields] } : field,
+    ),
+    ...extendedFields.filter((field) => field.folder !== 'General'),
+  ];
+};
+
 // NOTE On phones the GUI starts closed, because it covers most of the screen. A demo change keeps the state.
 let guiClosed = isPhone;
 
@@ -128,6 +142,5 @@ export const showGui = () => {
     });
   };
 
-  traverse(gui, guiBaseFields());
-  traverse(gui, guiExtendedFields);
+  traverse(gui, mergeGeneralFields(guiBaseFields(), guiExtendedFields));
 };

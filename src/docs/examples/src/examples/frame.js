@@ -1,14 +1,37 @@
 import * as Three from 'three';
 import * as OpenVDB from 'three-openvdb';
-import { setGuiFields } from '../utils/gui';
+import { gui, setGuiFields } from '../utils/gui';
 import { loadAndCacheVDB, loadEnvironment } from '../utils/resources';
 import { setLoading } from '../utils/loading';
+import { createEmissionDemo } from '../utils/emission';
+import { isPhone } from '../utils/device';
 
 // NOTE Stress test: one bunny is converted one time, in a cube box.
 // All grid volumes use its raw density data.
 const bunnyGridResolution = 100;
 const bunnyGridSize = 10;
 let bunnyGridData = null;
+
+// NOTE The Ground Explosion sequence of the Streaming demo. Z-up, scaled to explosionSize units.
+const explosion = {
+  frames: './assets/ground_explosion/frames.json',
+  emissiveGrid: 'flames',
+  // NOTE Approximately the 99th percentile of the flames grid
+  emissiveScale: 6.0,
+  baseColor: '#888888',
+  extinction: 450.0,
+  emissiveIntensity: 25.0,
+  // NOTE Emission light settings for the explosion
+  lightIntensity: 25.0,
+  probes: 32,
+  fps: 60,
+  // NOTE On phones the sequence stops at LOD 1 (64³), the same as the Streaming demo
+  maxLod: isPhone ? 1 : Infinity,
+};
+const explosionSize = 100.0;
+
+const getController = (id) =>
+  gui.controllersRecursive().find((controller) => controller.property === id);
 
 const getBunnyGridData = (vdb, center, size) => {
   if (bunnyGridData) {
@@ -42,6 +65,7 @@ export const exampleFrame = ({ scene }) => {
     densityScale: 1.0,
     opacity: 1.0,
     extinction: 100.0,
+    emissiveIntensity: 1.0,
     shadowSteps: 32,
     rotate: true,
     lighting: 'frame',
@@ -54,6 +78,9 @@ export const exampleFrame = ({ scene }) => {
   let streams = [];
   let buildId = 0;
   let rotation = null;
+
+  // NOTE One light for all emissive volumes of the scene, and lit meshes
+  const emission = createEmissionDemo(scene);
 
   const debugObstacle = new Three.Mesh(
     new Three.SphereGeometry(20.0, 32, 32),
@@ -145,12 +172,19 @@ export const exampleFrame = ({ scene }) => {
     }
   }, 1000 / 60);
 
+  // NOTE Animation props apply to all frames. A FrameVolume keeps its own Color.
   const applyVolumeParams = (volume) => {
-    volume.baseColor.set(params.baseColor);
+    if (volume.isFrameVolumeAnimation) {
+      volume.baseColor = params.baseColor;
+    } else {
+      volume.baseColor.set(params.baseColor);
+    }
+
     volume.absorbance = params.absorbance;
     volume.densityScale = params.densityScale;
     volume.opacity = params.opacity;
     volume.extinction = params.extinction;
+    volume.emissiveIntensity = params.emissiveIntensity;
     volume.shadowSteps = params.shadowSteps;
     volume.mipmaps = params.mipmaps;
   };
@@ -158,6 +192,16 @@ export const exampleFrame = ({ scene }) => {
   const applyParams = () => {
     entries.forEach(({ volume }) => applyVolumeParams(volume));
   };
+
+  let lastTime = performance.now();
+
+  // NOTE The explosion sequence plays in a FrameVolumeAnimation
+  setInterval(() => {
+    const now = performance.now();
+
+    entries.forEach(({ volume }) => volume.update?.((now - lastTime) / 1000.0));
+    lastTime = now;
+  }, 1000 / 60);
 
   const removeVolumes = () => {
     if (rotation) {
@@ -203,11 +247,73 @@ export const exampleFrame = ({ scene }) => {
       }
     };
 
+    // NOTE LOD 0 of all frames loads first. The animation shows when it can play.
+    const addExplosion = () => {
+      const onError = (error) => {
+        console.error('WVDBAnimationLoader', { error });
+        onBuilt();
+      };
+
+      fetch(explosion.frames)
+        .then((response) => response.json())
+        .then(({ frames }) => {
+          if (currentBuildId !== buildId) {
+            return;
+          }
+
+          const folder = explosion.frames.slice(0, explosion.frames.lastIndexOf('/') + 1);
+          const animation = new OpenVDB.WVDBAnimationLoader()
+            .setOptions({ emissiveGrid: explosion.emissiveGrid, emissiveScale: explosion.emissiveScale })
+            .setMaxLod(explosion.maxLod)
+            .load(
+              frames.map((frame) => `${folder}${frame}`),
+              () => {
+                if (currentBuildId !== buildId) {
+                  return;
+                }
+
+                const size = animation.bbox.getSize(new Three.Vector3());
+                const scale = explosionSize / Math.max(size.x, size.y, size.z);
+
+                animation.scale.setScalar(scale);
+                animation.position.copy(animation.bbox.getCenter(new Three.Vector3())).multiplyScalar(-scale);
+                animation.visible = true;
+                animation.play();
+
+                // NOTE Z-up: the height is the Z side of the box
+                emission.placeMeshes(size.z * scale, Math.max(size.x, size.y) * scale);
+                onBuilt();
+              },
+              undefined,
+              onError,
+            );
+
+          // NOTE In entries at once, so a rebuild stops the downloads
+          const pivot = new Three.Group();
+
+          animation.fps = explosion.fps;
+          animation.visible = false;
+          pivot.rotation.x = -Math.PI / 2.0;
+          pivot.add(animation);
+          applyVolumeParams(animation);
+          scene.add(pivot);
+          entries.push({ pivot, volume: animation });
+        })
+        .catch(onError);
+    };
+
+    if (params.source === 'explosion') {
+      addExplosion();
+
+      return;
+    }
+
     // NOTE One bunny, or two bunnies that overlap. createBunny() gives a new volume.
     const addBunnies = (center, size, createBunny) => {
       // NOTE Center the first bunny at the scene origin
       const firstPivot = addVolume(createBunny(), center);
       firstPivot.position.set(0.0, 0.0, 0.0);
+      emission.placeMeshes(size.y, Math.max(size.x, size.z));
 
       if (params.source !== 'twoBunnies') {
         return;
@@ -230,6 +336,9 @@ export const exampleFrame = ({ scene }) => {
       const spacing = side * 1.1;
       const offset = ((bunnyGridSize - 1) * spacing) / 2.0;
       let source = null;
+
+      // NOTE The ground covers the grid
+      emission.placeMeshes(side, side, (bunnyGridSize * 1.1 + 4.0) / 8.0);
 
       const createBunny = () => {
         if (!source) {
@@ -361,7 +470,42 @@ export const exampleFrame = ({ scene }) => {
 
   setGuiFields([
     {
+      folder: 'General',
+      children: [
+        {
+          id: 'source',
+          name: 'Source',
+          defaultValue: params.source,
+          options: {
+            'Bunny Cloud': 'bunny',
+            'Two Bunnies': 'twoBunnies',
+            '100 Bunnies (stress test)': 'bunnyGrid',
+            'Explosion (Emissive)': 'explosion',
+          },
+          onChange: (value) => {
+            params.source = value;
+
+            // NOTE The explosion lights the ground at night
+            if (value === 'explosion') {
+              getController('emissionLight')?.setValue(true);
+              getController('emissionIntensity')?.setValue(explosion.lightIntensity);
+              getController('emissionResolution')?.setValue(explosion.probes);
+              getController('sceneMeshes')?.setValue(true);
+              getController('environment')?.setValue('night');
+              getController('lightIntensity')?.setValue(0.0);
+              getController('fogColor')?.setValue(explosion.baseColor);
+              getController('extinction')?.setValue(explosion.extinction);
+              getController('emissiveIntensity')?.setValue(explosion.emissiveIntensity);
+            }
+
+            rebuild();
+          },
+        },
+      ],
+    },
+    {
       folder: 'Scene',
+      closed: true,
       children: [
         {
           id: 'environment',
@@ -466,22 +610,8 @@ export const exampleFrame = ({ scene }) => {
     },
     {
       folder: 'Rendering',
+      closed: true,
       children: [
-        {
-          id: 'source',
-          name: 'Source',
-          defaultValue: params.source,
-          options: {
-            'Bunny Cloud': 'bunny',
-            'Two Bunnies': 'twoBunnies',
-            '100 Bunnies (stress test)': 'bunnyGrid',
-          },
-          onChange: (value) => {
-            params.source = value;
-
-            rebuild();
-          },
-        },
         {
           id: 'format',
           name: 'Format',
@@ -616,6 +746,11 @@ export const exampleFrame = ({ scene }) => {
       ],
     },
     {
+      folder: 'Light Emission',
+      closed: true,
+      children: [...emission.lightFields, emission.meshesField],
+    },
+    {
       folder: 'Volume',
       children: [
         {
@@ -655,6 +790,14 @@ export const exampleFrame = ({ scene }) => {
           min: 1.0,
           max: 1000.0,
           onChange: setParam('extinction'),
+        },
+        {
+          id: 'emissiveIntensity',
+          name: 'Emissive Intensity',
+          defaultValue: params.emissiveIntensity,
+          min: 0.0,
+          max: 50.0,
+          onChange: setParam('emissiveIntensity'),
         },
         {
           id: 'shadowSteps',

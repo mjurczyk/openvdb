@@ -5,6 +5,7 @@ import { loadEnvironment } from '../utils/resources';
 import { SimpleDropzone } from 'simple-dropzone';
 import zip from 'zip-js-esm';
 import { setLoading } from '../utils/loading';
+import { createEmissionDemo } from '../utils/emission';
 
 let animation, volumePivot, targetScene;
 // NOTE Instances of the animation, for the Copies field. Disposed before the animation.
@@ -40,12 +41,7 @@ const params = {
   playing: true,
   fps: 24,
   loop: true,
-  emissionLight: false,
-  emissionIntensity: 1.0,
-  emissionResolution: 16,
-  emissionCascades: 1,
   copies: 1,
-  sceneMeshes: false,
 };
 
 const getController = (id) =>
@@ -434,37 +430,8 @@ export const exampleVDB = ({ scene }) => {
   const orbitSpotPivot = addPivotLight(orbitSpotLight, 50.0, 80.0, 0.0);
   addPivotLight(topSpotLight, 0.0, 80.0, 0.0);
 
-  // NOTE One light for all emissive volumes of the scene
-  const emissionLight = new OpenVDB.FrameEmissionLight({
-    intensity: params.emissionIntensity,
-    resolution: params.emissionResolution,
-  });
-
-  emissionLight.visible = params.emissionLight;
-  scene.add(emissionLight);
-
-  // NOTE Lit meshes around the volume, in units of the box width. They stand on the bottom of the box.
-  const sceneMeshes = new Three.Group();
-  const meshMaterial = new Three.MeshStandardMaterial({ color: 0x9a9a9a, roughness: 0.8 });
-  const ground = new Three.Mesh(new Three.PlaneGeometry(8.0, 8.0), meshMaterial);
-  const pillarGeometry = new Three.BoxGeometry(0.12, 0.5, 0.12);
-  const sphereGeometry = new Three.SphereGeometry(0.15, 32, 16);
-
-  ground.rotation.x = -Math.PI / 2.0;
-  sceneMeshes.add(ground);
-
-  for (let i = 0; i < 8; i++) {
-    const angle = (i / 8) * Math.PI * 2.0;
-    const pillar = new Three.Mesh(pillarGeometry, meshMaterial);
-    const sphere = new Three.Mesh(sphereGeometry, meshMaterial);
-
-    pillar.position.set(Math.cos(angle) * 1.0, 0.25, Math.sin(angle) * 1.0);
-    sphere.position.set(Math.cos(angle + 0.4) * 1.6, 0.15, Math.sin(angle + 0.4) * 1.6);
-    sceneMeshes.add(pillar, sphere);
-  }
-
-  sceneMeshes.visible = params.sceneMeshes;
-  scene.add(sceneMeshes);
+  // NOTE One light for all emissive volumes of the scene, and lit meshes
+  const emission = createEmissionDemo(scene);
 
   const getGroundSize = () => {
     const size = animation.bbox.getSize(new Three.Vector3());
@@ -482,9 +449,8 @@ export const exampleVDB = ({ scene }) => {
 
     const { height, width } = getGroundSize();
 
-    sceneMeshes.position.y = -height / 2.0;
-    sceneMeshes.scale.setScalar(width);
-    ground.scale.setScalar(Math.max(1.0, (Math.ceil(Math.sqrt(params.copies)) * 1.5 + 4.0) / 8.0));
+    // NOTE The ground covers the copies, which are 1.5 box widths apart
+    emission.placeMeshes(height, width, Math.max(1.0, (Math.ceil(Math.sqrt(params.copies)) * 1.5 + 4.0) / 8.0));
   };
 
   // NOTE Copies stand on a square grid around the animation, 1.5 box widths apart. Each one starts at another frame.
@@ -705,46 +671,7 @@ export const exampleVDB = ({ scene }) => {
       folder: 'Light Emission',
       closed: true,
       children: [
-        {
-          id: 'emissionLight',
-          name: 'Emission Light',
-          defaultValue: params.emissionLight,
-          onChange: (value) => {
-            params.emissionLight = value;
-            emissionLight.visible = value;
-          },
-        },
-        {
-          id: 'emissionIntensity',
-          name: 'Light Intensity',
-          defaultValue: params.emissionIntensity,
-          min: 0.0,
-          max: 50.0,
-          onChange: (value) => {
-            params.emissionIntensity = value;
-            emissionLight.intensity = value;
-          },
-        },
-        {
-          id: 'emissionResolution',
-          name: 'Probes',
-          defaultValue: params.emissionResolution,
-          options: { '8³': 8, '16³': 16, '32³': 32 },
-          onChange: (value) => {
-            params.emissionResolution = value;
-            emissionLight.resolution = value;
-          },
-        },
-        {
-          id: 'emissionCascades',
-          name: 'Cascades',
-          defaultValue: params.emissionCascades,
-          options: { 1: 1, 2: 2, 3: 3, 4: 4 },
-          onChange: (value) => {
-            params.emissionCascades = value;
-            emissionLight.cascades = value;
-          },
-        },
+        ...emission.lightFields,
         {
           id: 'copies',
           name: 'Copies',
@@ -754,15 +681,7 @@ export const exampleVDB = ({ scene }) => {
             params.copies = value;
           },
         },
-        {
-          id: 'sceneMeshes',
-          name: 'Ground + Props',
-          defaultValue: params.sceneMeshes,
-          onChange: (value) => {
-            params.sceneMeshes = value;
-            sceneMeshes.visible = value;
-          },
-        },
+        emission.meshesField,
       ],
     },
     {
