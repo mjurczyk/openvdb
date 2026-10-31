@@ -250,19 +250,21 @@ new OpenVDB.WVDBAnimationLoader()
 
 #### Emission light
 
-- `FrameEmissionLight( { color, intensity, resolution, range, steps } ): Three.Light`
+- `FrameEmissionLight( { color, intensity, resolution, range, cascades, distance, steps } ): Three.Light`
 
 `three-openvdb` (`WebGPURenderer`) only. Lights the scene meshes with the emissive grids of all visible `FrameVolume` objects in the scene, also instances and animation frames. Add one to the scene. three.js lit materials get the light as diffuse irradiance.
 
 1. Each volume that changes (new animation frame, other props, new transform) gets its emitted light. Rays go through the volume in 16 directions and add the emission, with the transmittance of the volume. Smoke in front of the flames blocks their light.
 2. A probe grid around all emitting volumes adds their light. Each volume is a point light at the center of its visible emission.
-3. Each lit pixel reads 6 texels. This does not change with the number of volumes.
+3. Each lit pixel reads 6 texels (12 near the side of a cascade). This does not change with the number of volumes.
 
 The passes run before the first lit mesh of each render, the same as shadow maps, and only when a volume changes.
 
 * `color`, `intensity` - (default: `0xffffff`, `1.0`) multiply the light.
-* `resolution` - (default: `16`, `2` to `32`) probes on each axis of the grid. The probe texture has the size for `32`, so changes do not make a new texture.
+* `resolution` - (default: `16`, `2` to `32`) probes on each axis of each cascade. The probe texture has the size for `32`, so changes do not make a new texture.
 * `range` - (default: `3.0`) size of the probe grid, as a multiple of the box of all emitting volumes. Past the grid, the light falls off with distance squared.
+* `cascades` - (default: `1`, max `4`) probe grid cascades. `1` is one grid for all volumes. More cascades add finer grids around the camera, each one half the size of the next. Use them when volumes are far apart. The probes are calculated again when the camera moves to a new grid cell.
+* `distance` - (default: `512`) the finer cascades cover only this distance from the camera.
 * `steps` - (default: `24`) emission samples on each ray, in a volume.
 
 The light is physically scaled: a surface near a fireball gets a part of the fireball brightness. Increase `intensity` for a stronger light. `absorbance` of a volume scales its shadow, the same as for scene lights.

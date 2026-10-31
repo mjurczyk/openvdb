@@ -43,6 +43,7 @@ const params = {
   emissionLight: false,
   emissionIntensity: 1.0,
   emissionResolution: 16,
+  emissionCascades: 1,
   copies: 1,
   sceneMeshes: false,
 };
@@ -738,6 +739,16 @@ export const exampleVDB = ({ scene }) => {
                 onChange: (value) => {
                   params.emissionResolution = value;
                   emissionLight.resolution = value;
+                },
+              },
+              {
+                id: 'emissionCascades',
+                name: 'Cascades',
+                defaultValue: params.emissionCascades,
+                options: { 1: 1, 2: 2, 3: 3, 4: 4 },
+                onChange: (value) => {
+                  params.emissionCascades = value;
+                  emissionLight.cascades = value;
                 },
               },
             ]

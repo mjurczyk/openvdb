@@ -8,10 +8,10 @@ import {
   float,
   int,
   ivec2,
-  vec2,
   vec3,
   vec4,
   uniform,
+  uniformArray,
   texture,
   property,
   outputStruct,
@@ -31,31 +31,34 @@ import {
   dot,
   clamp,
   floor,
-  mod,
   min,
   max,
   abs,
+  smoothstep,
   inverseSqrt,
 } from 'three/tsl';
 import { updateVolumeMipmaps } from './frameMipmaps';
 import {
   frameFragCoord,
   frameLoad,
-  frameSample,
   frameFullscreenVertex,
   createVolumeUniforms,
   createVolumeNodes,
   setVolumeUniforms,
+  createGridNodes,
+  frameMaxShadowCascades,
 } from './frameShaderChunks';
 
 // NOTE Directions of the emitted light of each volume, and rays on each side of the square that covers the volume
 const directionCount = 16;
 const rayCount = 8;
 
-// NOTE The probe atlas has the size for the largest grid. Then a new resolution does not make a new texture.
+// NOTE The probe atlas has the size for the largest grid and all cascades. Then settings do not make a new texture.
 // NOTE Lit materials keep old texture bindings until they change, so the probe texture must stay the same.
+// NOTE Z slices of all cascades are tiles of the atlas, the same layout as the shadow grid (createGridNodes).
 const maxResolution = 32;
-const atlasColumns = Math.ceil(Math.sqrt(maxResolution));
+const maxCascades = frameMaxShadowCascades;
+const atlasColumns = Math.ceil(Math.sqrt(maxResolution * maxCascades));
 const atlasSize = maxResolution * atlasColumns;
 
 // NOTE Golden angle in radians. Fibonacci directions turn by this angle.
@@ -66,8 +69,44 @@ const unitBox = new Three.Box3(
   new Three.Vector3(0.5, 0.5, 0.5),
 );
 const gridBox = new Three.Box3();
+const cascadeBox = new Three.Box3();
 const boxSize = new Three.Vector3();
+const cameraPosition = new Three.Vector3();
 const corner = new Three.Vector3();
+
+// NOTE Probe cascades in the uniform names of createGridNodes. Cascade 0 is the finest.
+const createProbeGridUniforms = (group) => {
+  const nodes = {
+    frameGridMin: uniformArray(
+      Array.from({ length: maxCascades }, () => new Three.Vector3()),
+      'vec3',
+    ),
+    frameGridSize: uniformArray(
+      Array.from({ length: maxCascades }, () => new Three.Vector3(1.0, 1.0, 1.0)),
+      'vec3',
+    ),
+    frameGridCount: uniform(0, 'int'),
+    frameGridResolution: uniform(1.0),
+    frameGridColumns: uniform(atlasColumns),
+    frameGridAtlasSize: uniform(new Three.Vector2(atlasSize, atlasSize)),
+  };
+
+  if (group) {
+    Object.values(nodes).forEach((node) => node.setGroup(group));
+  }
+
+  return nodes;
+};
+
+const setProbeGridUniforms = (uniforms, light) => {
+  for (let i = 0; i < maxCascades; i++) {
+    uniforms.frameGridMin.array[i].copy(light.cascadeMin[i]);
+    uniforms.frameGridSize.array[i].copy(light.cascadeSize[i]);
+  }
+
+  uniforms.frameGridCount.value = light.cascadeCount;
+  uniforms.frameGridResolution.value = light.probeResolution;
+};
 
 const fullscreenPositions = [-1, -1, 0, 3, -1, 0, -1, 3, 0];
 const quadPositions = [-1, -1, 0, 1, -1, 0, 1, 1, 0, -1, -1, 0, 1, 1, 0, -1, 1, 0];
@@ -269,11 +308,7 @@ class FrameEmissionProbeMaterial extends Three.NodeMaterial {
     super();
 
     this.name = 'FrameEmissionProbeMaterial';
-    this.frameResolution = uniform(1.0);
-    this.frameColumns = uniform(1.0);
-    this.frameAtlasSize = uniform(new Three.Vector2(1.0, 1.0));
-    this.frameProbeMin = uniform(new Three.Vector3());
-    this.frameProbeSize = uniform(new Three.Vector3(1.0, 1.0, 1.0));
+    this.gridUniforms = createProbeGridUniforms();
     this.frameEmitterCount = uniform(0, 'int');
     this.frameEmitterSize = uniform(new Three.Vector2(1.0, 1.0));
     this.frameEmitterIntensity = texture(new Three.Texture());
@@ -283,21 +318,30 @@ class FrameEmissionProbeMaterial extends Three.NodeMaterial {
     const outputGreen = property('vec4');
     const outputBlue = property('vec4');
 
+    const grid = createGridNodes(this.gridUniforms);
+    const { frameGridMin, frameGridSize, frameGridCount, frameGridResolution, frameGridAtlasSize } =
+      this.gridUniforms;
+
     this.vertexNode = frameFullscreenVertex;
 
     this.colorNode = Fn(() => {
-      const fragCoord = frameFragCoord(this.frameAtlasSize).toVar();
-      const tile = floor(fragCoord.div(this.frameResolution)).toVar();
-      const slice = tile.y.mul(this.frameColumns).add(tile.x).toVar();
+      const fragCoord = frameFragCoord(frameGridAtlasSize).toVar();
 
-      If(tile.x.greaterThanEqual(this.frameColumns).or(slice.greaterThanEqual(this.frameResolution)), () => {
+      // NOTE Tiles right of the atlas columns are not used. Smaller grids leave them empty.
+      If(fragCoord.x.greaterThanEqual(frameGridResolution.mul(atlasColumns)), () => {
         Discard();
       });
 
-      const probeUvw = vec3(fragCoord.sub(tile.mul(this.frameResolution)), slice.add(0.5)).div(
-        this.frameResolution,
-      );
-      const probe = this.frameProbeMin.add(probeUvw.mul(this.frameProbeSize)).toVar();
+      const cell = grid.getGridCell(fragCoord);
+
+      If(cell.cascade.greaterThanEqual(frameGridCount), () => {
+        Discard();
+      });
+
+      const probe = frameGridMin
+        .element(cell.cascade)
+        .add(cell.gridUvw.mul(frameGridSize.element(cell.cascade)))
+        .toVar();
 
       const constant = vec3(0.0).toVar();
       const directionRed = vec3(0.0).toVar();
@@ -375,8 +419,9 @@ const getPasses = () => {
   return passes;
 };
 
-// NOTE Probe grid irradiance at the shaded point. Past the grid, the edge probes fall off with distance squared.
-// NOTE Hardware bilinear filter in a slice, manual linear filter between slices.
+// NOTE Probe irradiance at the shaded point, from the finest cascade that contains it.
+// NOTE Past the last cascade, its edge probes fall off with distance squared.
+// NOTE Near the side of a cascade, the next cascade blends in, the same as the shadow grid.
 class FrameEmissionLightNode extends Three.AnalyticLightNode {
   static get type() {
     return 'FrameEmissionLightNode';
@@ -393,13 +438,10 @@ class FrameEmissionLightNode extends Three.AnalyticLightNode {
       ? light.probeTarget.textures
       : [new Three.Texture(), new Three.Texture(), new Three.Texture()];
 
-    // NOTE Render group, the same as three.js lights. Lit materials without node changes refresh only shared bindings.
-    this.probeMaps = maps.map((map) => texture(map).setGroup(renderGroup));
-    this.probeResolution = uniform(1.0).setGroup(renderGroup);
-    this.probeColumns = uniform(1.0).setGroup(renderGroup);
-    this.probeAtlasSize = uniform(new Three.Vector2(1.0, 1.0)).setGroup(renderGroup);
-    this.probeMin = uniform(new Three.Vector3()).setGroup(renderGroup);
-    this.probeSize = uniform(new Three.Vector3(1.0, 1.0, 1.0)).setGroup(renderGroup);
+    this.probeMaps = maps.map((map) => texture(map));
+
+    // NOTE Render group, the same as three.js lights. Lit materials without node changes update only shared uniforms.
+    this.gridUniforms = createProbeGridUniforms(renderGroup);
     this.probeCenter = uniform(new Three.Vector3()).setGroup(renderGroup);
     this.probeActive = uniform(0.0).setGroup(renderGroup);
   }
@@ -410,7 +452,7 @@ class FrameEmissionLightNode extends Three.AnalyticLightNode {
       return;
     }
 
-    this.light.updateProbes(frame.renderer, frame.scene);
+    this.light.updateProbes(frame.renderer, frame.scene, frame.camera);
   }
 
   update(frame) {
@@ -418,50 +460,69 @@ class FrameEmissionLightNode extends Three.AnalyticLightNode {
 
     const { light } = this;
 
-    this.probeResolution.value = light.probeLayout.resolution;
-    this.probeColumns.value = light.probeLayout.columns;
-    this.probeAtlasSize.value.set(light.probeTarget.width, light.probeTarget.height);
-    this.probeMin.value.copy(light.probeMin);
-    this.probeSize.value.copy(light.probeSize);
+    setProbeGridUniforms(this.gridUniforms, light);
     this.probeCenter.value.copy(light.probeCenter);
     this.probeActive.value = light.emitterCount > 0 ? 1.0 : 0.0;
-
   }
 
   setup(builder) {
-    const { probeResolution, probeColumns, probeAtlasSize, probeMin, probeSize, probeCenter } = this;
+    const grid = createGridNodes(this.gridUniforms);
+    const { frameGridMin, frameGridSize, frameGridCount, frameGridResolution } = this.gridUniforms;
+    const { probeCenter, probeActive } = this;
     const [redMap, greenMap, blueMap] = this.probeMaps;
 
     const irradiance = Fn(() => {
       const position = positionWorld.toVar();
-      const inset = float(0.5).div(probeResolution);
-      const probeUvw = clamp(
-        position.sub(probeMin).div(probeSize),
-        vec3(inset),
-        vec3(float(1.0).sub(inset)),
-      ).toVar();
-      const toEdge = probeMin.add(probeUvw.mul(probeSize)).sub(probeCenter);
-      const toPoint = position.sub(probeCenter);
-      const falloff = min(1.0, dot(toEdge, toEdge).div(max(dot(toPoint, toPoint), 1e-6)));
+      const red = vec4(0.0).toVar();
+      const green = vec4(0.0).toVar();
+      const blue = vec4(0.0).toVar();
+      const falloff = float(1.0).toVar();
 
-      const z = probeUvw.z.mul(probeResolution).sub(0.5);
-      const z0 = clamp(floor(z), 0.0, probeResolution.sub(1.0)).toVar();
-      const z1 = min(z0.add(1.0), probeResolution.sub(1.0)).toVar();
-      const blend = clamp(z.sub(z0), 0.0, 1.0).toVar();
-      const xy = probeUvw.xy.mul(probeResolution).toVar();
+      const sampleProbes = (cascade, uvw, weight) => {
+        red.assign(mix(red, grid.sampleGrid(redMap, cascade, uvw), weight));
+        green.assign(mix(green, grid.sampleGrid(greenMap, cascade, uvw), weight));
+        blue.assign(mix(blue, grid.sampleGrid(blueMap, cascade, uvw), weight));
+      };
 
-      const tileUv = (slice) =>
-        vec2(mod(slice, probeColumns), floor(slice.div(probeColumns)))
-          .mul(probeResolution)
-          .add(xy)
-          .div(probeAtlasSize);
+      If(frameGridCount.greaterThan(0), () => {
+        const cascade = grid.findCascade(position, int(0)).toVar();
 
-      const sampleProbes = (map) =>
-        mix(frameSample(map, tileUv(z0)), frameSample(map, tileUv(z1)), blend).toVar();
+        If(cascade.greaterThanEqual(0), () => {
+          const uvw = grid.gridUvw(cascade, position).toVar();
 
-      const red = sampleProbes(redMap);
-      const green = sampleProbes(greenMap);
-      const blue = sampleProbes(blueMap);
+          sampleProbes(cascade, uvw, float(1.0));
+
+          const sideDistance = min(uvw, vec3(1.0).sub(uvw));
+          const blend = float(1.0)
+            .sub(smoothstep(0.0, 0.1, min(sideDistance.x, min(sideDistance.y, sideDistance.z))))
+            .toVar();
+
+          If(blend.greaterThan(0.0), () => {
+            const nextCascade = grid.findCascade(position, cascade.add(1)).toVar();
+
+            If(nextCascade.greaterThanEqual(0), () => {
+              sampleProbes(nextCascade, grid.gridUvw(nextCascade, position), blend);
+            });
+          });
+        }).Else(() => {
+          const lastCascade = frameGridCount.sub(1).toVar();
+          const inset = float(0.5).div(frameGridResolution);
+          const uvw = clamp(
+            grid.gridUvw(lastCascade, position),
+            vec3(inset),
+            vec3(float(1.0).sub(inset)),
+          ).toVar();
+          const toEdge = frameGridMin
+            .element(lastCascade)
+            .add(uvw.mul(frameGridSize.element(lastCascade)))
+            .sub(probeCenter);
+          const toPoint = position.sub(probeCenter);
+
+          sampleProbes(lastCascade, uvw, float(1.0));
+          falloff.assign(min(1.0, dot(toEdge, toEdge).div(max(dot(toPoint, toPoint), 1e-6))));
+        });
+      });
+
       const normal = normalWorld;
 
       return max(
@@ -471,7 +532,7 @@ class FrameEmissionLightNode extends Three.AnalyticLightNode {
           blue.x.add(dot(blue.yzw, normal)),
         ),
         vec3(0.0),
-      ).mul(falloff.mul(this.probeActive));
+      ).mul(falloff.mul(probeActive));
     })();
 
     builder.context.irradiance.addAssign(this.colorNode.mul(irradiance));
@@ -523,10 +584,14 @@ export class FrameEmissionLight extends Three.Light {
     const {
       color = 0xffffff,
       intensity = 1.0,
-      // NOTE Probes on each axis of the probe grid, 2 to 32
+      // NOTE Probes on each axis of each cascade, 2 to 32
       resolution = 16,
-      // NOTE Size of the probe grid, as a multiple of the box of all emitting volumes. Past it, light falls off with distance squared.
+      // NOTE Size of the last cascade, as a multiple of the box of all emitting volumes. Past it, light falls off with distance squared.
       range = 3.0,
+      // NOTE 1 is one grid for all volumes. More cascades (up to 4) add finer grids around the camera.
+      cascades = 1,
+      // NOTE The finer cascades cover only this distance from the camera
+      distance = 512,
       // NOTE Steps of each ray in a volume
       steps = 24,
     } = props;
@@ -536,12 +601,15 @@ export class FrameEmissionLight extends Three.Light {
     this.type = 'FrameEmissionLight';
     this.resolution = resolution;
     this.range = range;
+    this.cascades = cascades;
+    this.distance = distance;
     this.steps = steps;
 
-    this.probeMin = new Three.Vector3();
-    this.probeSize = new Three.Vector3(1.0, 1.0, 1.0);
+    this.cascadeMin = Array.from({ length: maxCascades }, () => new Three.Vector3());
+    this.cascadeSize = Array.from({ length: maxCascades }, () => new Three.Vector3(1.0, 1.0, 1.0));
+    this.cascadeCount = 0;
+    this.probeResolution = 2;
     this.probeCenter = new Three.Vector3();
-    this.probeLayout = { resolution: 2, columns: atlasColumns, width: atlasSize, height: atlasSize };
 
     // NOTE Float targets for the volumes: intensities in world units do not overflow
     this.directionTarget = createTarget(2, Three.FloatType, Three.NearestFilter);
@@ -634,11 +702,15 @@ export class FrameEmissionLight extends Three.Light {
     this.emitterCount = count;
   }
 
-  // NOTE The box of all emitters, with a margin of (range - 1) / 2 of its longest side on each side
-  updateProbeGrid() {
+  // NOTE The last cascade is the box of all emitters, with a margin of (range - 1) / 2 of its longest side on each side.
+  // NOTE Finer cascades are cubes around the camera, each one half the size of the next.
+  // NOTE Power-of-two voxels and snapped bounds keep them stable when the camera moves.
+  // NOTE Returns a key that changes with the cascades.
+  updateProbeGrid(camera) {
     const resolution = Three.MathUtils.clamp(Math.round(this.resolution), 2, maxResolution);
+    const cascades = Three.MathUtils.clamp(Math.round(this.cascades), 1, maxCascades);
 
-    this.probeLayout = { resolution, columns: atlasColumns, width: atlasSize, height: atlasSize };
+    this.probeResolution = resolution;
 
     gridBox.makeEmpty();
 
@@ -649,8 +721,46 @@ export class FrameEmissionLight extends Three.Light {
     gridBox.getCenter(this.probeCenter);
     gridBox.getSize(boxSize);
     gridBox.expandByScalar((Math.max(boxSize.x, boxSize.y, boxSize.z) * Math.max(0.0, this.range - 1.0)) / 2.0);
-    this.probeMin.copy(gridBox.min);
-    gridBox.getSize(this.probeSize).max(corner.set(1e-6, 1e-6, 1e-6));
+    gridBox.getSize(boxSize).max(corner.set(1e-6, 1e-6, 1e-6));
+
+    const lastSize = Math.max(boxSize.x, boxSize.y, boxSize.z);
+    const fineHalfSize = Math.min(this.distance, lastSize / 2.0);
+
+    cameraPosition.setFromMatrixPosition(camera.matrixWorld);
+
+    let count = 0;
+
+    for (let cascade = 0; cascade < cascades - 1; cascade++) {
+      const halfSize = fineHalfSize / Math.pow(2.0, cascades - 1 - cascade);
+      const voxel = Math.pow(2.0, Math.ceil(Math.log2((halfSize * 2.0) / (resolution - 1))));
+      const size = voxel * resolution;
+
+      ['x', 'y', 'z'].forEach((axis) => {
+        cascadeBox.min[axis] = Math.floor((cameraPosition[axis] - halfSize) / voxel) * voxel;
+        cascadeBox.max[axis] = cascadeBox.min[axis] + size;
+      });
+
+      // NOTE A fine cascade with no emitter light in it, or not finer than the last cascade, is not used
+      if (size >= lastSize || !cascadeBox.intersectsBox(gridBox)) {
+        continue;
+      }
+
+      this.cascadeMin[count].copy(cascadeBox.min);
+      this.cascadeSize[count].set(size, size, size);
+      count++;
+    }
+
+    this.cascadeMin[count].copy(gridBox.min);
+    this.cascadeSize[count].copy(boxSize);
+    this.cascadeCount = count + 1;
+
+    const key = [resolution];
+
+    for (let i = 0; i < this.cascadeCount; i++) {
+      key.push(...this.cascadeMin[i].toArray(), ...this.cascadeSize[i].toArray());
+    }
+
+    return key.join(',');
   }
 
   // NOTE Slots grow to the next power of two. New targets are empty, so all volumes draw again.
@@ -694,7 +804,7 @@ export class FrameEmissionLight extends Three.Light {
   }
 
   // NOTE Runs the passes of changed volumes. Called by the light node before the lit meshes of each render.
-  updateProbes(renderer, scene) {
+  updateProbes(renderer, scene, viewCamera) {
     this.collectEmitters(scene);
     this.updateSlots();
 
@@ -713,21 +823,19 @@ export class FrameEmissionLight extends Three.Light {
       }
     }
 
-    const probeKey = `${this.emitterCount},${this.resolution},${this.range}`;
+    if (this.emitterCount === 0) {
+      this.probeKey = '';
+
+      return;
+    }
+
+    const probeKey = `${this.emitterCount},${this.updateProbeGrid(viewCamera)}`;
 
     if (changed === 0 && probeKey === this.probeKey) {
       return;
     }
 
     this.probeKey = probeKey;
-
-    if (this.emitterCount === 0) {
-      return;
-    }
-
-    this.updateProbeGrid();
-
-    const { width, height, resolution, columns } = this.probeLayout;
 
     const { directionMaterial, reduceMaterial, probeMaterial, reduceScene, probeScene, camera } = getPasses();
 
@@ -758,11 +866,7 @@ export class FrameEmissionLight extends Three.Light {
         renderer.render(reduceScene, camera);
       }
 
-      probeMaterial.frameResolution.value = resolution;
-      probeMaterial.frameColumns.value = columns;
-      probeMaterial.frameAtlasSize.value.set(width, height);
-      probeMaterial.frameProbeMin.value.copy(this.probeMin);
-      probeMaterial.frameProbeSize.value.copy(this.probeSize);
+      setProbeGridUniforms(probeMaterial.gridUniforms, this);
       probeMaterial.frameEmitterCount.value = this.emitterCount;
       probeMaterial.frameEmitterSize.value.set(1, this.slotCount);
       probeMaterial.frameEmitterIntensity.value = this.emitterTarget.textures[0];
