@@ -1,5 +1,6 @@
 # Unreleased
 
+- Three.js r187 compatibility (PMREM cube map environment in `three-openvdb/webgl`). Three.js r187 or later is now required
 - Fix: with `'frame'` (combined) lighting, point and spot lights had no distance falloff. Now they use `distance` and `decay`, the same as three.js lit materials. Both `three-openvdb` and `three-openvdb/webgl`
 - Fix: with `'frame'` (combined) lighting, the environment lit volumes only from the sky up and down directions, so an HDRI gave a flat, grey light. Now each volume samples the environment along its outward direction, the same as `'volume'` lighting. Both `three-openvdb` and `three-openvdb/webgl`
 - `three-openvdb/webgl`: `FrameVolume` for `WebGLRenderer`, with the GLSL froxel renderer of v0.7.0. The same API as `three-openvdb`. For backwards compatibility, it will be removed in a later version. Mipmaps are GPU mipmaps, no `srgbBlending` setting (WebGLRenderer blends on the sRGB canvas), no light limit
