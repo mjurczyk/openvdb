@@ -1,5 +1,6 @@
 # Unreleased
 
+- Fix: `loadVDB` did not reject on network errors or HTTP errors (for example 404). Now it rejects, and `VDBLoader` calls `onError`
 - Fix: with `'frame'` (combined) lighting, point and spot lights had no distance falloff. Now they use `distance` and `decay`, the same as three.js lit materials. Both `three-openvdb` and `three-openvdb/webgl`
 - Fix: with `'frame'` (combined) lighting, the environment lit volumes only from the sky up and down directions, so an HDRI gave a flat, grey light. Now each volume samples the environment along its outward direction, the same as `'volume'` lighting. Both `three-openvdb` and `three-openvdb/webgl`
 - `three-openvdb/webgl`: `FrameVolume` for `WebGLRenderer`, with the GLSL froxel renderer of v0.7.0. The same API as `three-openvdb`. For backwards compatibility, it will be removed in a later version. Mipmaps are GPU mipmaps, no `srgbBlending` setting (WebGLRenderer blends on the sRGB canvas), no light limit
