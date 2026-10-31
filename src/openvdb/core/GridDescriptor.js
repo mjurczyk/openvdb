@@ -235,16 +235,20 @@ export class GridDescriptor {
   }
 
   getWorldBbox(child) {
-    return this.transform.applyTransformMapToBbox((child || this).getLocalBbox());
+    const localBbox = (child || this).getLocalBbox();
+
+    return localBbox && this.transform.applyTransformMapToBbox(localBbox);
   }
 
+  // NOTE Index box from the file_bbox metadata. Without the metadata, the box comes from the tree. Null when neither is available.
   getLocalBbox() {
-    const { rootChildDim } = this.treeLayout;
+    const { file_bbox_min: min, file_bbox_max: max } = this.metadata;
 
-    return [
-      this.metadata.file_bbox_min.value.subScalar(rootChildDim - 1),
-      this.metadata.file_bbox_max.value.addScalar(rootChildDim - 1),
-    ];
+    if (min && max) {
+      return [min.value, max.value];
+    }
+
+    return (this.root && this.evalActiveVoxelBoundingBox()) || null;
   }
 
   // NOTE Index box of active voxels and tiles from the tree, same as Tree::evalActiveVoxelBoundingBox. Null when none is active.
