@@ -7,3 +7,6 @@ build
 test/compiled.index.js
 notes/
 session-notes/
+
+# Test results
+tests/results

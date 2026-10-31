@@ -1,0 +1,7 @@
+{
+  "demo": "vdb",
+  "drop": [
+    "./assets/smoke.vdb"
+  ],
+  "environment": "magic-forest-5"
+}

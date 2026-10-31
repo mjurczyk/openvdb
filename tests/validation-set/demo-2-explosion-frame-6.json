@@ -1,0 +1,20 @@
+{
+  "demo": "vdb",
+  "drop": [
+    "./assets/ground_explosion/ground_explosion_0020.wvdb",
+    "./assets/ground_explosion/ground_explosion_0021.wvdb",
+    "./assets/ground_explosion/ground_explosion_0022.wvdb",
+    "./assets/ground_explosion/ground_explosion_0023.wvdb",
+    "./assets/ground_explosion/ground_explosion_0024.wvdb",
+    "./assets/ground_explosion/ground_explosion_0025.wvdb",
+    "./assets/ground_explosion/ground_explosion_0026.wvdb",
+    "./assets/ground_explosion/ground_explosion_0027.wvdb",
+    "./assets/ground_explosion/ground_explosion_0028.wvdb",
+    "./assets/ground_explosion/ground_explosion_0029.wvdb",
+    "./assets/ground_explosion/ground_explosion_0030.wvdb",
+    "./assets/ground_explosion/ground_explosion_0031.wvdb"
+  ],
+  "upAxis": "z",
+  "playing": false,
+  "frame": 6
+}

@@ -1,0 +1,7 @@
+{
+  "demo": "vdb",
+  "drop": [
+    "./assets/smoke.vdb"
+  ],
+  "extinction": 1000
+}

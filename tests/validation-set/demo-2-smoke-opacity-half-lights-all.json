@@ -1,0 +1,8 @@
+{
+  "demo": "vdb",
+  "drop": [
+    "./assets/smoke.vdb"
+  ],
+  "opacity": 0.5,
+  "lightSetup": "all"
+}
