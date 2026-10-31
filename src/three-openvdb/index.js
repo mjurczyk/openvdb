@@ -43,7 +43,6 @@ export {
   FrameVolume,
   frameRenderer,
   frameLights,
-  // NOTE WebGPURenderer only
   FrameEmissionLight,
   FrameVolumeAnimation,
   FrameVolumeAnimationInstance,

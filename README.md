@@ -252,13 +252,13 @@ new OpenVDB.WVDBAnimationLoader()
 
 - `FrameEmissionLight( { color, intensity, resolution, range, cascades, distance, steps } ): Three.Light`
 
-`three-openvdb` (`WebGPURenderer`) only. Lights the scene meshes with the emissive grids of all visible `FrameVolume` objects in the scene, also instances and animation frames. Add one to the scene. three.js lit materials get the light as diffuse irradiance.
+Lights the scene meshes with the emissive grids of all visible `FrameVolume` objects in the scene, also instances and animation frames. Add one to the scene. three.js lit materials get the light as diffuse irradiance.
 
 1. Each volume that changes (new animation frame, other props, new transform) gets its emitted light. Rays go through the volume in 16 directions and add the emission, with the transmittance of the volume. Smoke in front of the flames blocks their light.
 2. A probe grid around all emitting volumes adds their light. Each volume is a point light at the center of its visible emission.
 3. Each lit pixel reads 6 texels (12 near the side of a cascade). This does not change with the number of volumes.
 
-The passes run before the first lit mesh of each render, the same as shadow maps, and only when a volume changes.
+The passes run before the first lit mesh of each render, and only when a volume changes. In `three-openvdb` (`WebGPURenderer`, WebGPU and WebGL2) the light is a light node, and the passes run in its `updateBefore`, the same as shadow maps. In `three-openvdb/webgl` (`WebGLRenderer`) the lit materials of the scene get a shader patch (`onBeforeCompile`, after their own `onBeforeCompile`), and a child mesh of the light that draws nothing runs the passes first in the render list.
 
 * `color`, `intensity` - (default: `0xffffff`, `1.0`) multiply the light.
 * `resolution` - (default: `16`, `2` to `32`) probes on each axis of each cascade. The probe texture has the size for `32`, so changes do not make a new texture.

@@ -1,6 +1,6 @@
 # Unreleased
 
-- `FrameEmissionLight` (`three-openvdb`, `WebGPURenderer` only): the emissive grids of all visible volumes light the scene meshes. Volumes get their light on the GPU only when they change, with their own transmittance. A probe grid adds the light of all volumes, so lit pixels read 6 texels for any number of volumes
+- `FrameEmissionLight`: the emissive grids of all visible volumes light the scene meshes. Volumes get their light on the GPU only when they change, with their own transmittance. A probe grid adds the light of all volumes, so lit pixels read 6 texels for any number of volumes. `three-openvdb`: a light node. `three-openvdb/webgl`: a shader patch of the lit materials
 - `FrameEmissionLight` `cascades` (default `1`) and `distance`: finer probe grids around the camera, for volumes that are far apart
 - Examples: Custom VDB has a Light Emission folder (Emission Light, Light Intensity, Probes, Cascades, Copies, Ground + Props). The Light Emission, Animation and Volume folders start collapsed
 - Three.js r187 compatibility (PMREM cube map environment in `three-openvdb/webgl`). Three.js r187 or later is now required

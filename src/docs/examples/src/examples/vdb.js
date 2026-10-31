@@ -434,18 +434,14 @@ export const exampleVDB = ({ scene }) => {
   const orbitSpotPivot = addPivotLight(orbitSpotLight, 50.0, 80.0, 0.0);
   addPivotLight(topSpotLight, 0.0, 80.0, 0.0);
 
-  // NOTE One light for all emissive volumes of the scene. Only three-openvdb (WebGPURenderer) has it.
-  const emissionLight = OpenVDB.FrameEmissionLight
-    ? new OpenVDB.FrameEmissionLight({
-        intensity: params.emissionIntensity,
-        resolution: params.emissionResolution,
-      })
-    : null;
+  // NOTE One light for all emissive volumes of the scene
+  const emissionLight = new OpenVDB.FrameEmissionLight({
+    intensity: params.emissionIntensity,
+    resolution: params.emissionResolution,
+  });
 
-  if (emissionLight) {
-    emissionLight.visible = params.emissionLight;
-    scene.add(emissionLight);
-  }
+  emissionLight.visible = params.emissionLight;
+  scene.add(emissionLight);
 
   // NOTE Lit meshes around the volume, in units of the box width. They stand on the bottom of the box.
   const sceneMeshes = new Three.Group();
@@ -709,50 +705,46 @@ export const exampleVDB = ({ scene }) => {
       folder: 'Light Emission',
       closed: true,
       children: [
-        ...(emissionLight
-          ? [
-              {
-                id: 'emissionLight',
-                name: 'Emission Light',
-                defaultValue: params.emissionLight,
-                onChange: (value) => {
-                  params.emissionLight = value;
-                  emissionLight.visible = value;
-                },
-              },
-              {
-                id: 'emissionIntensity',
-                name: 'Light Intensity',
-                defaultValue: params.emissionIntensity,
-                min: 0.0,
-                max: 50.0,
-                onChange: (value) => {
-                  params.emissionIntensity = value;
-                  emissionLight.intensity = value;
-                },
-              },
-              {
-                id: 'emissionResolution',
-                name: 'Probes',
-                defaultValue: params.emissionResolution,
-                options: { '8³': 8, '16³': 16, '32³': 32 },
-                onChange: (value) => {
-                  params.emissionResolution = value;
-                  emissionLight.resolution = value;
-                },
-              },
-              {
-                id: 'emissionCascades',
-                name: 'Cascades',
-                defaultValue: params.emissionCascades,
-                options: { 1: 1, 2: 2, 3: 3, 4: 4 },
-                onChange: (value) => {
-                  params.emissionCascades = value;
-                  emissionLight.cascades = value;
-                },
-              },
-            ]
-          : []),
+        {
+          id: 'emissionLight',
+          name: 'Emission Light',
+          defaultValue: params.emissionLight,
+          onChange: (value) => {
+            params.emissionLight = value;
+            emissionLight.visible = value;
+          },
+        },
+        {
+          id: 'emissionIntensity',
+          name: 'Light Intensity',
+          defaultValue: params.emissionIntensity,
+          min: 0.0,
+          max: 50.0,
+          onChange: (value) => {
+            params.emissionIntensity = value;
+            emissionLight.intensity = value;
+          },
+        },
+        {
+          id: 'emissionResolution',
+          name: 'Probes',
+          defaultValue: params.emissionResolution,
+          options: { '8³': 8, '16³': 16, '32³': 32 },
+          onChange: (value) => {
+            params.emissionResolution = value;
+            emissionLight.resolution = value;
+          },
+        },
+        {
+          id: 'emissionCascades',
+          name: 'Cascades',
+          defaultValue: params.emissionCascades,
+          options: { 1: 1, 2: 2, 3: 3, 4: 4 },
+          onChange: (value) => {
+            params.emissionCascades = value;
+            emissionLight.cascades = value;
+          },
+        },
         {
           id: 'copies',
           name: 'Copies',

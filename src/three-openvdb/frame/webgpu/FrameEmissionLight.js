@@ -37,6 +37,14 @@ import {
   smoothstep,
   inverseSqrt,
 } from 'three/tsl';
+import {
+  FrameEmissionLightBase,
+  frameEmissionDirections as directionCount,
+  frameEmissionRays as rayCount,
+  frameEmissionMaxCascades as maxCascades,
+  frameEmissionAtlasColumns as atlasColumns,
+  frameEmissionAtlasSize as atlasSize,
+} from '../core/FrameEmissionLight';
 import { updateVolumeMipmaps } from './frameMipmaps';
 import {
   frameFragCoord,
@@ -46,33 +54,10 @@ import {
   createVolumeNodes,
   setVolumeUniforms,
   createGridNodes,
-  frameMaxShadowCascades,
 } from './frameShaderChunks';
-
-// NOTE Directions of the emitted light of each volume, and rays on each side of the square that covers the volume
-const directionCount = 16;
-const rayCount = 8;
-
-// NOTE The probe atlas has the size for the largest grid and all cascades. Then settings do not make a new texture.
-// NOTE Lit materials keep old texture bindings until they change, so the probe texture must stay the same.
-// NOTE Z slices of all cascades are tiles of the atlas, the same layout as the shadow grid (createGridNodes).
-const maxResolution = 32;
-const maxCascades = frameMaxShadowCascades;
-const atlasColumns = Math.ceil(Math.sqrt(maxResolution * maxCascades));
-const atlasSize = maxResolution * atlasColumns;
 
 // NOTE Golden angle in radians. Fibonacci directions turn by this angle.
 const goldenAngle = Math.PI * (3.0 - Math.sqrt(5.0));
-
-const unitBox = new Three.Box3(
-  new Three.Vector3(-0.5, -0.5, -0.5),
-  new Three.Vector3(0.5, 0.5, 0.5),
-);
-const gridBox = new Three.Box3();
-const cascadeBox = new Three.Box3();
-const boxSize = new Three.Vector3();
-const cameraPosition = new Three.Vector3();
-const corner = new Three.Vector3();
 
 // NOTE Probe cascades in the uniform names of createGridNodes. Cascade 0 is the finest.
 const createProbeGridUniforms = (group) => {
@@ -135,8 +120,6 @@ const setPassMaterial = (material) => {
   material.depthWrite = false;
   material.blending = Three.NoBlending;
 };
-
-const textureKey = (map) => (map ? `${map.id}.${map.version}` : '-');
 
 // NOTE Light that one volume sends in one direction. One texel for each direction, one row for each volume.
 // NOTE Parallel rays cover the bounding sphere. Each ray adds the emission with the transmittance of the volume.
@@ -539,77 +522,11 @@ class FrameEmissionLightNode extends Three.AnalyticLightNode {
   }
 }
 
-// NOTE The same fields as a volume of FrameVolume, then setVolumeUniforms reads it. View matrices are not used.
-const createEmitter = () => ({
-  frameVolume: null,
-  volume: null,
-  key: '',
-  matrixWorld: new Three.Matrix4(),
-  worldToLocal: new Three.Matrix4(),
-  localToView: new Three.Matrix4(),
-  viewToLocal: new Three.Matrix4(),
-  worldBox: new Three.Box3(),
-  center: new Three.Vector3(),
-  radius: 0.0,
-  get densityMap3D() {
-    return this.volume.densityMap3D;
-  },
-  get emissiveMap3D() {
-    return this.volume.emissiveMap3D;
-  },
-  get baseColorMap3D() {
-    return this.volume.baseColorMap3D;
-  },
-  get maskMap3D() {
-    return this.volume.maskMap3D;
-  },
-  get mipMaps() {
-    return this.volume.mipMaps;
-  },
-});
-
-// NOTE Light from the emissive grids of all visible FrameVolume objects in the scene, also instances and animations.
-// NOTE Add one to the scene. Lit pixels read 6 texels, for any number of volumes.
-// NOTE 1. Each changed volume gets its emitted light and emission center. 2. A probe grid adds the light of all volumes.
-export class FrameEmissionLight extends Three.Light {
-  isFrameEmissionLight = true;
-
-  emitters = [];
-  emitterCount = 0;
-  slotKeys = [];
-  slotCount = 0;
-  probeKey = '';
-
-  constructor(props = {}) {
-    const {
-      color = 0xffffff,
-      intensity = 1.0,
-      // NOTE Probes on each axis of each cascade, 2 to 32
-      resolution = 16,
-      // NOTE Size of the last cascade, as a multiple of the box of all emitting volumes. Past it, light falls off with distance squared.
-      range = 3.0,
-      // NOTE 1 is one grid for all volumes. More cascades (up to 4) add finer grids around the camera.
-      cascades = 1,
-      // NOTE The finer cascades cover only this distance from the camera
-      distance = 512,
-      // NOTE Steps of each ray in a volume
-      steps = 24,
-    } = props;
-
-    super(color, intensity);
-
-    this.type = 'FrameEmissionLight';
-    this.resolution = resolution;
-    this.range = range;
-    this.cascades = cascades;
-    this.distance = distance;
-    this.steps = steps;
-
-    this.cascadeMin = Array.from({ length: maxCascades }, () => new Three.Vector3());
-    this.cascadeSize = Array.from({ length: maxCascades }, () => new Three.Vector3(1.0, 1.0, 1.0));
-    this.cascadeCount = 0;
-    this.probeResolution = 2;
-    this.probeCenter = new Three.Vector3();
+// NOTE Light from the emissive grids of all visible volumes. WebGPURenderer: a light node lights the lit materials.
+// NOTE Add one to the scene. Lit pixels read 6 texels (12 near the side of a cascade), for any number of volumes.
+export class FrameEmissionLight extends FrameEmissionLightBase {
+  constructor(props) {
+    super(props);
 
     // NOTE Float targets for the volumes: intensities in world units do not overflow
     this.directionTarget = createTarget(2, Three.FloatType, Three.NearestFilter);
@@ -628,150 +545,15 @@ export class FrameEmissionLight extends Three.Light {
     }
   }
 
-  getSteps() {
-    return Math.max(1, Math.round(this.steps));
+  // NOTE CPU mipmaps are built after the conversion, the same as in the frame renderer
+  updateMipmaps(frameVolume, volume) {
+    if (frameVolume.mipmaps && !(frameVolume.source ?? frameVolume).process) {
+      updateVolumeMipmaps(volume);
+    }
   }
 
-  collectEmitters(scene) {
-    let count = 0;
-
-    scene.traverseVisible((object) => {
-      if (!object.isFrameVolume) {
-        return;
-      }
-
-      // NOTE Mipmaps are built after the conversion, the same as in the frame renderer
-      const converting = !!(object.source ?? object).process;
-
-      object.volumes.forEach((volume) => {
-        if (!volume.ready || !volume.emissiveMap3D) {
-          return;
-        }
-
-        if (object.mipmaps && !converting) {
-          updateVolumeMipmaps(volume);
-        }
-
-        if (!this.emitters[count]) {
-          this.emitters[count] = createEmitter();
-        }
-
-        const emitter = this.emitters[count++];
-
-        emitter.frameVolume = object;
-        emitter.volume = volume;
-        emitter.matrixWorld.multiplyMatrices(object.matrixWorld, volume.matrix);
-        emitter.worldToLocal.copy(emitter.matrixWorld).invert();
-        emitter.worldBox.copy(unitBox).applyMatrix4(emitter.matrixWorld);
-        emitter.center.setFromMatrixPosition(emitter.matrixWorld);
-        emitter.radius = 0.0;
-
-        for (let i = 0; i < 8; i++) {
-          corner
-            .set(i & 1 ? 0.5 : -0.5, i & 2 ? 0.5 : -0.5, i & 4 ? 0.5 : -0.5)
-            .applyMatrix4(emitter.matrixWorld);
-
-          emitter.radius = Math.max(emitter.radius, corner.distanceTo(emitter.center));
-        }
-
-        emitter.key = [
-          textureKey(volume.densityMap3D),
-          textureKey(volume.emissiveMap3D),
-          textureKey(volume.maskMap3D),
-          Object.values(volume.mipMaps ?? {})
-            .map((mip) => mip.texture.id)
-            .join(':'),
-          object.extinction,
-          object.densityScale,
-          object.densityCutoff,
-          object.absorbance,
-          object.emissiveIntensity,
-          object.temperatureRange.x,
-          object.temperatureRange.y,
-          object.offset3D.x,
-          object.offset3D.y,
-          object.offset3D.z,
-          object.wrap3D,
-          object.mipmaps,
-          this.getSteps(),
-          ...emitter.matrixWorld.elements,
-        ].join(',');
-      });
-    });
-
-    this.emitterCount = count;
-  }
-
-  // NOTE The last cascade is the box of all emitters, with a margin of (range - 1) / 2 of its longest side on each side.
-  // NOTE Finer cascades are cubes around the camera, each one half the size of the next.
-  // NOTE Power-of-two voxels and snapped bounds keep them stable when the camera moves.
-  // NOTE Returns a key that changes with the cascades.
-  updateProbeGrid(camera) {
-    const resolution = Three.MathUtils.clamp(Math.round(this.resolution), 2, maxResolution);
-    const cascades = Three.MathUtils.clamp(Math.round(this.cascades), 1, maxCascades);
-
-    this.probeResolution = resolution;
-
-    gridBox.makeEmpty();
-
-    for (let i = 0; i < this.emitterCount; i++) {
-      gridBox.union(this.emitters[i].worldBox);
-    }
-
-    gridBox.getCenter(this.probeCenter);
-    gridBox.getSize(boxSize);
-    gridBox.expandByScalar((Math.max(boxSize.x, boxSize.y, boxSize.z) * Math.max(0.0, this.range - 1.0)) / 2.0);
-    gridBox.getSize(boxSize).max(corner.set(1e-6, 1e-6, 1e-6));
-
-    const lastSize = Math.max(boxSize.x, boxSize.y, boxSize.z);
-    const fineHalfSize = Math.min(this.distance, lastSize / 2.0);
-
-    cameraPosition.setFromMatrixPosition(camera.matrixWorld);
-
-    let count = 0;
-
-    for (let cascade = 0; cascade < cascades - 1; cascade++) {
-      const halfSize = fineHalfSize / Math.pow(2.0, cascades - 1 - cascade);
-      const voxel = Math.pow(2.0, Math.ceil(Math.log2((halfSize * 2.0) / (resolution - 1))));
-      const size = voxel * resolution;
-
-      ['x', 'y', 'z'].forEach((axis) => {
-        cascadeBox.min[axis] = Math.floor((cameraPosition[axis] - halfSize) / voxel) * voxel;
-        cascadeBox.max[axis] = cascadeBox.min[axis] + size;
-      });
-
-      // NOTE A fine cascade with no emitter light in it, or not finer than the last cascade, is not used
-      if (size >= lastSize || !cascadeBox.intersectsBox(gridBox)) {
-        continue;
-      }
-
-      this.cascadeMin[count].copy(cascadeBox.min);
-      this.cascadeSize[count].set(size, size, size);
-      count++;
-    }
-
-    this.cascadeMin[count].copy(gridBox.min);
-    this.cascadeSize[count].copy(boxSize);
-    this.cascadeCount = count + 1;
-
-    const key = [resolution];
-
-    for (let i = 0; i < this.cascadeCount; i++) {
-      key.push(...this.cascadeMin[i].toArray(), ...this.cascadeSize[i].toArray());
-    }
-
-    return key.join(',');
-  }
-
-  // NOTE Slots grow to the next power of two. New targets are empty, so all volumes draw again.
-  // NOTE Resize makes new targets. setSize() destroys the GPU textures that materials still bind.
-  updateSlots() {
-    if (this.emitterCount <= this.slotCount) {
-      return;
-    }
-
-    this.slotCount = Math.pow(2, Math.ceil(Math.log2(Math.max(1, this.emitterCount))));
-    this.slotKeys = [];
+  // NOTE New targets, because setSize() destroys the GPU textures that materials still bind
+  resizeSlots() {
     this.directionTarget.dispose();
     this.emitterTarget.dispose();
     this.directionTarget = createTarget(2, Three.FloatType, Three.NearestFilter, directionCount, this.slotCount);
@@ -805,37 +587,18 @@ export class FrameEmissionLight extends Three.Light {
 
   // NOTE Runs the passes of changed volumes. Called by the light node before the lit meshes of each render.
   updateProbes(renderer, scene, viewCamera) {
-    this.collectEmitters(scene);
-    this.updateSlots();
+    const changed = this.prepareProbes(scene, viewCamera);
 
-    let changed = 0;
-
-    for (let i = 0; i < this.emitterCount; i++) {
-      const emitter = this.emitters[i];
-
-      if (this.slotKeys[i] !== emitter.key) {
-        this.slotKeys[i] = emitter.key;
-
-        const mesh = this.getDirectionMesh(changed++);
-
-        mesh.userData.emitter = emitter;
-        mesh.userData.slot = i;
-      }
-    }
-
-    if (this.emitterCount === 0) {
-      this.probeKey = '';
-
+    if (!changed) {
       return;
     }
 
-    const probeKey = `${this.emitterCount},${this.updateProbeGrid(viewCamera)}`;
+    changed.forEach(({ emitter, slot }, index) => {
+      const mesh = this.getDirectionMesh(index);
 
-    if (changed === 0 && probeKey === this.probeKey) {
-      return;
-    }
-
-    this.probeKey = probeKey;
+      mesh.userData.emitter = emitter;
+      mesh.userData.slot = slot;
+    });
 
     const { directionMaterial, reduceMaterial, probeMaterial, reduceScene, probeScene, camera } = getPasses();
 
@@ -845,13 +608,13 @@ export class FrameEmissionLight extends Three.Light {
     renderer.autoClear = false;
 
     try {
-      if (changed > 0) {
+      if (changed.length > 0) {
         directionMaterial.setMipmaps(
           this.emitters.slice(0, this.emitterCount).some(({ frameVolume }) => frameVolume.mipmaps),
         );
 
         this.directionPool.forEach((mesh, index) => {
-          mesh.visible = index < changed;
+          mesh.visible = index < changed.length;
         });
 
         renderer.setRenderTarget(this.directionTarget);
@@ -880,13 +643,13 @@ export class FrameEmissionLight extends Three.Light {
   }
 
   dispose() {
+    super.dispose();
+
     this.directionTarget.dispose();
     this.emitterTarget.dispose();
     this.probeTarget.dispose();
     this.directionPool.forEach((mesh) => mesh.geometry.dispose());
     this.directionPool = [];
-    this.slotKeys = [];
-    this.probeKey = '';
   }
 }
 
