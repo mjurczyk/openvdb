@@ -66,6 +66,8 @@ export const exampleFrame = ({ scene }) => {
     opacity: 1.0,
     extinction: 100.0,
     emissiveIntensity: 1.0,
+    temperatureMin: 600.0,
+    temperatureMax: 7000.0,
     shadowSteps: 32,
     rotate: true,
     lighting: 'frame',
@@ -172,12 +174,14 @@ export const exampleFrame = ({ scene }) => {
     }
   }, 1000 / 60);
 
-  // NOTE Animation props apply to all frames. A FrameVolume keeps its own Color.
+  // NOTE Animation props apply to all frames. A FrameVolume keeps its own Color and Vector2.
   const applyVolumeParams = (volume) => {
     if (volume.isFrameVolumeAnimation) {
       volume.baseColor = params.baseColor;
+      volume.temperatureRange = [params.temperatureMin, params.temperatureMax];
     } else {
       volume.baseColor.set(params.baseColor);
+      volume.temperatureRange.set(params.temperatureMin, params.temperatureMax);
     }
 
     volume.absorbance = params.absorbance;
@@ -798,6 +802,22 @@ export const exampleFrame = ({ scene }) => {
           min: 0.0,
           max: 50.0,
           onChange: setParam('emissiveIntensity'),
+        },
+        {
+          id: 'temperatureMin',
+          name: 'Temperature Min (K)',
+          defaultValue: params.temperatureMin,
+          min: 0.0,
+          max: 3000.0,
+          onChange: setParam('temperatureMin'),
+        },
+        {
+          id: 'temperatureMax',
+          name: 'Temperature Max (K)',
+          defaultValue: params.temperatureMax,
+          min: 1000.0,
+          max: 12000.0,
+          onChange: setParam('temperatureMax'),
         },
         {
           id: 'shadowSteps',
