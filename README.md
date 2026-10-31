@@ -31,7 +31,7 @@ Keep in mind that, due to memory-access and multithreading limitations of JS, th
 ### With `three.js`:
 
 > [!IMPORTANT]
-> `three-openvdb` renders `FrameVolume` with `WebGPURenderer` (`three/webgpu`, three.js r186 or newer). It uses WebGPU, or WebGL2 with `forceWebGL: true`.
+> `three-openvdb` renders `FrameVolume` with `WebGPURenderer` (`three/webgpu`, three.js r187 or newer). It uses WebGPU, or WebGL2 with `forceWebGL: true`.
 > For `WebGLRenderer`, import from `three-openvdb/webgl` instead. It has the same API (GLSL shaders). It is for backwards compatibility and will be removed in a later version. Import from one of the two entry points only.
 
 ```js

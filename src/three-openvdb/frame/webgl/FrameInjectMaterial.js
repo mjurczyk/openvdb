@@ -29,7 +29,6 @@ const fragmentShader = `
   #include <common>
   #include <lights_pars_begin>
   #include <envmap_common_pars_fragment>
-  #include <cube_uv_reflection_fragment>
   #include <envmap_physical_pars_fragment>
 
   // NOTE Shadow march inside the source volume only. Other volumes do not cast shadows.

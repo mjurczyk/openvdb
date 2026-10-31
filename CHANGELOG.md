@@ -1,5 +1,6 @@
 # Unreleased
 
+- Three.js r187 compatibility (PMREM cube map environment in `three-openvdb/webgl`). Three.js r187 or later is now required
 - Fix: `GridDescriptor.getLocalBbox()` padded the `file_bbox_min` / `file_bbox_max` box by 4095 voxels and changed the metadata at each call. Now it gives the metadata box. Without the metadata, it uses the tree, or gives `null`. `getWorldBbox()` gives `null` then
 - Fix: `loadVDB` did not reject on network errors or HTTP errors (for example 404). Now it rejects, and `VDBLoader` calls `onError`
 - Fix: with `'frame'` (combined) lighting, point and spot lights had no distance falloff. Now they use `distance` and `decay`, the same as three.js lit materials. Both `three-openvdb` and `three-openvdb/webgl`
