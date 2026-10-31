@@ -2,6 +2,7 @@
 
 - `FrameEmissionLight`: the emissive grids of all visible volumes light the scene meshes. Volumes get their light on the GPU only when they change, with their own transmittance. A probe grid adds the light of all volumes, so lit pixels read 6 texels for any number of volumes. `three-openvdb`: a light node. `three-openvdb/webgl`: a shader patch of the lit materials
 - `FrameEmissionLight` `cascades` (default `1`) and `distance`: finer probe grids around the camera, for volumes that are far apart
+- Examples: Rendering Frame has an Explosion (Emissive) source (the Ground Explosion sequence) and a Light Emission folder. The explosion turns on Emission Light (intensity 25, 32³ probes) and Ground + Props, the night environment and an Emissive Intensity of 25 (new Volume field). Source is in the General folder. The Scene, Rendering and Light Emission folders start collapsed
 - Examples: Custom VDB has a Light Emission folder (Emission Light, Light Intensity, Probes, Cascades, Copies, Ground + Props). The Light Emission, Animation and Volume folders start collapsed
 - Three.js r187 compatibility (PMREM cube map environment in `three-openvdb/webgl`). Three.js r187 or later is now required
 - Fix: `GridDescriptor.getLocalBbox()` padded the `file_bbox_min` / `file_bbox_max` box by 4095 voxels and changed the metadata at each call. Now it gives the metadata box. Without the metadata, it uses the tree, or gives `null`. `getWorldBbox()` gives `null` then
