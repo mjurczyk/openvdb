@@ -1,4 +1,4 @@
-import { Zlib, Blosc } from '../dependencies';
+import { Zlib, Blosc } from '../dependencies.js';
 
 // NOTE https://github.com/AcademySoftwareFoundation/openvdb/blob/master/openvdb/openvdb/io/Compression.h
 export const compressionMetadata = {

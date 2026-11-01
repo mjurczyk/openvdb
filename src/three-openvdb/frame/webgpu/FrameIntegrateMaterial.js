@@ -26,7 +26,7 @@ import {
   pow,
   vec4,
 } from 'three/tsl';
-import { frameSample, frameSliceDepth, frameFullscreenVertex } from './frameShaderChunks';
+import { frameSample, frameSliceDepth, frameFullscreenVertex } from './frameShaderChunks.js';
 
 const maxSlices = 1024;
 

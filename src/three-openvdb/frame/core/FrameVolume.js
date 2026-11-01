@@ -1,7 +1,7 @@
 import * as Three from 'three';
 import { GridDescriptor, Vector3 } from 'openvdb';
-import { frameLights } from './frameLights';
-import { getFrameBackend } from './frameBackend';
+import { frameLights } from './frameLights.js';
+import { getFrameBackend } from './frameBackend.js';
 
 // NOTE Draw the frame after all other transparent objects
 const frameRenderOrder = 1000000;

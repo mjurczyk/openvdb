@@ -31,9 +31,9 @@ import {
   frameFullscreenVertex,
   createVolumeUniforms,
   createVolumeNodes,
-} from './frameShaderChunks';
-import { FrameEnvironmentMaterial } from './FrameEnvironmentMaterial';
-import { frameLights } from '../core/frameLights';
+} from './frameShaderChunks.js';
+import { FrameEnvironmentMaterial } from './FrameEnvironmentMaterial.js';
+import { frameLights } from '../core/frameLights.js';
 
 // NOTE Lights one volume in each froxel, with a shadow march in this volume. Other volumes do not cast shadows.
 // NOTE The renderer draws it one time for each volume, with the uniforms of that volume.

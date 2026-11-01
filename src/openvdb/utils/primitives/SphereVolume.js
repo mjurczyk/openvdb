@@ -1,8 +1,8 @@
-import { floatType } from '../../math/memory';
-import { GridDescriptor } from '../../core/GridDescriptor';
-import { Vector3 } from '../../math/vector';
-import { GridTransform } from '../../core/GridTransform';
-import { getUuid } from '../uuid';
+import { floatType } from '../../math/memory.js';
+import { GridDescriptor } from '../../core/GridDescriptor.js';
+import { Vector3 } from '../../math/vector.js';
+import { GridTransform } from '../../core/GridTransform.js';
+import { getUuid } from '../uuid.js';
 
 export class SphereVolume extends GridDescriptor {
   static halfFloatGridPrefix = GridDescriptor.halfFloatGridPrefix;

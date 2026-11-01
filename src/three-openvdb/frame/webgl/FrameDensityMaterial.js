@@ -6,7 +6,7 @@ import {
   noisePars,
   tileQuadVertexShader,
   createVolumeUniforms,
-} from './frameShaderChunks';
+} from './frameShaderChunks.js';
 
 const fragmentShader = `
   precision highp float;

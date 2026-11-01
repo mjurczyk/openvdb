@@ -20,7 +20,7 @@ import {
   length,
   normalize,
 } from 'three/tsl';
-import { frameFragCoord, frameNoise, frameFullscreenVertex, createGridNodes } from './frameShaderChunks';
+import { frameFragCoord, frameNoise, frameFullscreenVertex, createGridNodes } from './frameShaderChunks.js';
 
 // NOTE Light slots: sky up, sky down, then 6 lights. Two render targets with 4 channels each.
 export const frameShadowLightSlots = 6;

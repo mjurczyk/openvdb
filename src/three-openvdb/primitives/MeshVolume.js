@@ -1,5 +1,5 @@
 import * as Three from 'three';
-import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js';
 import { floatType, GridDescriptor, Vector3, GridTransform, getUuid } from 'openvdb';
 
 export class MeshVolume extends GridDescriptor {

@@ -1,5 +1,5 @@
 import * as Three from 'three';
-import { gridPars, noisePars } from './frameShaderChunks';
+import { gridPars, noisePars } from './frameShaderChunks.js';
 
 // NOTE Light slots: sky up, sky down, then 6 lights. Two render targets with 4 channels each.
 export const frameShadowLightSlots = 6;

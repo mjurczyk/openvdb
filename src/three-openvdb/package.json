@@ -2,6 +2,7 @@
   "name": "three-openvdb",
   "version": "0.11.0",
   "description": "three.js rendering of OpenVDB volumes: loaders, fog and frame volumes, materials.",
+  "type": "module",
   "main": "./index.js",
   "module": "./index.js",
   "exports": {

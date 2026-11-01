@@ -6,7 +6,7 @@ import {
   createVolumeUniforms,
   createVolumeNodes,
   createGridNodes,
-} from './frameShaderChunks';
+} from './frameShaderChunks.js';
 
 // NOTE Writes the extinction of one volume into one cascade of the world-space shadow grid.
 // NOTE All volumes use this material. Pool meshes set the volume uniforms before each draw.

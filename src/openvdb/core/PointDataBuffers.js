@@ -1,7 +1,7 @@
-import { uint32Size, uint64Size } from '../math/memory';
-import { BufferIterator } from './BufferIterator';
-import { Compression } from './Compression';
-import { GridSharedContext } from './GridSharedContext';
+import { uint32Size, uint64Size } from '../math/memory.js';
+import { BufferIterator } from './BufferIterator.js';
+import { Compression } from './Compression.js';
+import { GridSharedContext } from './GridSharedContext.js';
 
 const uint16Size = 2;
 

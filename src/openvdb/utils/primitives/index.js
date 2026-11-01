@@ -1,4 +1,4 @@
-export { CloudVolume } from './CloudVolume';
-export { CubeVolume } from './CubeVolume';
-export { SphereVolume } from './SphereVolume';
-export { ParametricVolume } from './ParametricVolume';
+export { CloudVolume } from './CloudVolume.js';
+export { CubeVolume } from './CubeVolume.js';
+export { SphereVolume } from './SphereVolume.js';
+export { ParametricVolume } from './ParametricVolume.js';

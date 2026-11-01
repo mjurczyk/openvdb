@@ -1,5 +1,5 @@
 import * as Three from 'three';
-import { volumePars, gridPars, tileQuadVertexShader, createVolumeUniforms } from './frameShaderChunks';
+import { volumePars, gridPars, tileQuadVertexShader, createVolumeUniforms } from './frameShaderChunks.js';
 
 const fragmentShader = `
   precision highp float;

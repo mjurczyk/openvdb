@@ -1,9 +1,9 @@
-import { assert, unsupported } from '../debug';
-import { charSize, uint32Size, uint64Size } from '../math/memory';
-import { BufferIterator } from './BufferIterator';
-import { Compression, compressionFlags, parseCompressionFlags } from './Compression';
-import { GridDescriptor } from './GridDescriptor';
-import { GridSharedContext } from './GridSharedContext';
+import { assert, unsupported } from '../debug.js';
+import { charSize, uint32Size, uint64Size } from '../math/memory.js';
+import { BufferIterator } from './BufferIterator.js';
+import { Compression, compressionFlags, parseCompressionFlags } from './Compression.js';
+import { GridDescriptor } from './GridDescriptor.js';
+import { GridSharedContext } from './GridSharedContext.js';
 
 export class OpenVDBReader {
   libraryVersion;

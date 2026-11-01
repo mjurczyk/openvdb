@@ -1,4 +1,4 @@
-import { Vector3 } from '../math/vector';
+import { Vector3 } from '../math/vector.js';
 
 // NOTE Root tile has one value for the full extent of a top-level internal node
 export class RootTile {

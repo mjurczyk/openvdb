@@ -22,7 +22,7 @@ import {
   frameSliceDepth,
   frameGetViewPosition,
   frameFullscreenVertex,
-} from './frameShaderChunks';
+} from './frameShaderChunks.js';
 
 // NOTE Blends the froxels of this frame with the reprojected froxels of the previous frames
 export class FrameTemporalMaterial extends Three.NodeMaterial {

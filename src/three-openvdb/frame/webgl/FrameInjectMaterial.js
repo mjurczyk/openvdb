@@ -1,6 +1,6 @@
 import * as Three from 'three';
-import { froxelPars, volumePars, noisePars, createVolumeUniforms } from './frameShaderChunks';
-import { frameLights } from '../core/frameLights';
+import { froxelPars, volumePars, noisePars, createVolumeUniforms } from './frameShaderChunks.js';
+import { frameLights } from '../core/frameLights.js';
 
 const vertexShader = `
   void main() {

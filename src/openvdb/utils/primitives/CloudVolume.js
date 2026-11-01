@@ -1,9 +1,9 @@
-import { floatType } from '../../math/memory';
-import { GridDescriptor } from '../../core/GridDescriptor';
-import { Vector3 } from '../../math/vector';
-import { GridTransform } from '../../core/GridTransform';
-import { perlin3Noise, worley3Noise } from '../../math/noise';
-import { getUuid } from '../uuid';
+import { floatType } from '../../math/memory.js';
+import { GridDescriptor } from '../../core/GridDescriptor.js';
+import { Vector3 } from '../../math/vector.js';
+import { GridTransform } from '../../core/GridTransform.js';
+import { perlin3Noise, worley3Noise } from '../../math/noise.js';
+import { getUuid } from '../uuid.js';
 
 const scaledNoise = (position, scale, noiseSource) => {
   const scaledX = (position.x * scale) % scale;

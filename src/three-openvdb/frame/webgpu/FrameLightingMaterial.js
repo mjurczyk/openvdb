@@ -21,7 +21,7 @@ import {
   getShIrradianceAt,
   getDistanceAttenuation,
 } from 'three/tsl';
-import { frameFragCoord, frameLoad, frameGetFroxel, frameFullscreenVertex } from './frameShaderChunks';
+import { frameFragCoord, frameLoad, frameGetFroxel, frameFullscreenVertex } from './frameShaderChunks.js';
 // NOTE Lights each froxel one time from the combined data of all volumes.
 // NOTE The environment is added in the density pass, along the outward direction of each volume.
 export class FrameLightingMaterial extends Three.NodeMaterial {

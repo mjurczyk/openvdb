@@ -32,7 +32,7 @@ const getExports = (entries) =>
   Object.fromEntries(
     entries.map((entry) => [
       entry === 'index' ? '.' : `./${entry}`,
-      { import: `./${entry}.js`, require: `./${entry}.cjs.js` },
+      { import: `./${entry}.js`, require: `./${entry}.cjs` },
     ]),
   );
 
@@ -50,7 +50,7 @@ export const createLibraryConfigs = ({ name, external = [], entries = ['index'] 
         ...(index === 0
           ? [
               copyPackageFiles(name, {
-                main: './index.cjs.js',
+                main: './index.cjs',
                 module: './index.js',
                 exports: getExports(entries),
               }),
@@ -60,7 +60,7 @@ export const createLibraryConfigs = ({ name, external = [], entries = ['index'] 
     },
     {
       input: `./${entry}.js`,
-      output: { file: `${getOutputDir(name)}/${entry}.cjs.js`, format: 'cjs' },
+      output: { file: `${getOutputDir(name)}/${entry}.cjs`, format: 'cjs' },
       external,
       plugins: [nodeResolve(), uglify()],
     },

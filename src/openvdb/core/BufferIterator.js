@@ -1,4 +1,4 @@
-import { unsupported } from '../debug';
+import { unsupported } from '../debug.js';
 import {
   boolSize,
   boolType,
@@ -21,8 +21,8 @@ import {
   vec3hType,
   vec3iType,
   vec3sType,
-} from '../math/memory';
-import { Vector3 } from '../math/vector';
+} from '../math/memory.js';
+import { Vector3 } from '../math/vector.js';
 
 // NOTE VDB files are little-endian
 const littleEndian = true;

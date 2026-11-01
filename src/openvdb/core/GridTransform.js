@@ -1,9 +1,9 @@
-import { Vector3 } from '../math/vector';
-import { Matrix3, Matrix4 } from '../math/matrix';
-import { doubleSize, doubleType, int32Type, uint32Size } from '../math/memory';
-import { Version } from './Version';
-import { unsupported } from '../debug';
-import { GridSharedContext } from './GridSharedContext';
+import { Vector3 } from '../math/vector.js';
+import { Matrix3, Matrix4 } from '../math/matrix.js';
+import { doubleSize, doubleType, int32Type, uint32Size } from '../math/memory.js';
+import { Version } from './Version.js';
+import { unsupported } from '../debug.js';
+import { GridSharedContext } from './GridSharedContext.js';
 
 const transformMapType = {
   uniformScaleTranslateMap: 'UniformScaleTranslateMap',

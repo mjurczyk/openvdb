@@ -1,5 +1,5 @@
-import { uint32Size } from '../math/memory';
-import { GridSharedContext } from './GridSharedContext';
+import { uint32Size } from '../math/memory.js';
+import { GridSharedContext } from './GridSharedContext.js';
 
 const popcount = (word) => {
   word -= (word >>> 1) & 0x55555555;

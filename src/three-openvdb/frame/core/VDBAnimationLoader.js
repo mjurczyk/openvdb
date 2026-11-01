@@ -1,8 +1,8 @@
 // NOTE Three.js-style loader for VDB sequences. Each VDB is one FrameVolume frame.
 import * as Three from 'three';
 import { loadVDB, GridDescriptor } from 'openvdb';
-import { FrameVolume } from './FrameVolume';
-import { FrameVolumeAnimation } from './FrameVolumeAnimation';
+import { FrameVolume } from './FrameVolume.js';
+import { FrameVolumeAnimation } from './FrameVolumeAnimation.js';
 
 // NOTE These options are grid names. Each frame has different grid objects.
 const gridOptions = ['emissiveGrid', 'baseColorGrid', 'maskGrid'];
