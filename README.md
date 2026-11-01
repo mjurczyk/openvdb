@@ -10,7 +10,7 @@
 > [!TIP]
 > Convert `.vdb` files to `.wvdb` before you use them on the web: `npx webvdb explosion.vdb` (or `npm install -g webvdb`, then `wvdb explosion.vdb`). A `.wvdb` file is much smaller, and it shows a coarse LOD first. The examples below use `.wvdb`. `.vdb` files also load directly, see [Loading .vdb files](#loading-vdb-files).
 
-This project indirectly ports OpenVDB file format and tools to JavaScript, TypeScript, and Node.
+This project indirectly ports OpenVDB file format and tools to JavaScript and Node.
 
 Packages (each in its own folder of `src/`):
 
