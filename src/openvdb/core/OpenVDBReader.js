@@ -16,7 +16,7 @@ export class OpenVDBReader {
   }
 
   // TODO Pre-fill VDB structure without reading actual values
-  async prepare() {
+  async prepare(source) {
     await Compression.prepareModules();
 
     GridSharedContext.getContext(this).bufferIterator = new BufferIterator(source);
