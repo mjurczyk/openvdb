@@ -44,8 +44,8 @@ import {
   frameEmissionMaxCascades as maxCascades,
   frameEmissionAtlasColumns as atlasColumns,
   frameEmissionAtlasSize as atlasSize,
-} from '../core/FrameEmissionLight';
-import { updateVolumeMipmaps } from './frameMipmaps';
+} from '../core/FrameEmissionLight.js';
+import { updateVolumeMipmaps } from './frameMipmaps.js';
 import {
   frameFragCoord,
   frameLoad,
@@ -54,7 +54,7 @@ import {
   createVolumeNodes,
   setVolumeUniforms,
   createGridNodes,
-} from './frameShaderChunks';
+} from './frameShaderChunks.js';
 
 // NOTE Golden angle in radians. Fibonacci directions turn by this angle.
 const goldenAngle = Math.PI * (3.0 - Math.sqrt(5.0));

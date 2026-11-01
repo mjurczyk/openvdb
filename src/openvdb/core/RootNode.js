@@ -1,8 +1,8 @@
-import { uint32Size } from '../math/memory';
-import { Vector3 } from '../math/vector';
-import { ChildNode } from './ChildNode';
-import { GridSharedContext } from './GridSharedContext';
-import { RootTile } from './RootTile';
+import { uint32Size } from '../math/memory.js';
+import { Vector3 } from '../math/vector.js';
+import { ChildNode } from './ChildNode.js';
+import { GridSharedContext } from './GridSharedContext.js';
+import { RootTile } from './RootTile.js';
 
 // NOTE Root keys have (32 - log2dim) bits for each int32 axis. X and Y share one key, Z has a nested map.
 const defaultRootChildLog2Dim = 12;

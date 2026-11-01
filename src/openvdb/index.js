@@ -1,10 +1,10 @@
-import './debug';
-import './dependencies';
-import { OpenVDBReader } from './core/OpenVDBReader';
+import './debug.js';
+import './dependencies.js';
+import { OpenVDBReader } from './core/OpenVDBReader.js';
 
 export { OpenVDBReader };
-export { GridDescriptor } from './core/GridDescriptor';
-export { GridTransform } from './core/GridTransform';
+export { GridDescriptor } from './core/GridDescriptor.js';
+export { GridTransform } from './core/GridTransform.js';
 export {
   floatType,
   doubleType,
@@ -15,13 +15,13 @@ export {
   vec3dType,
   vec3hType,
   vec3iType,
-} from './math/memory';
-export { Vector3 } from './math/vector';
-export { Matrix3, Matrix4 } from './math/matrix';
-export { perlin3Noise, simplex3Noise, worley3Noise } from './math/noise';
-export { CloudVolume, CubeVolume, SphereVolume, ParametricVolume } from './utils/primitives';
-export { getUuid } from './utils/uuid';
-export * from './wvdb/format';
+} from './math/memory.js';
+export { Vector3 } from './math/vector.js';
+export { Matrix3, Matrix4 } from './math/matrix.js';
+export { perlin3Noise, simplex3Noise, worley3Noise } from './math/noise.js';
+export { CloudVolume, CubeVolume, SphereVolume, ParametricVolume } from './utils/primitives/index.js';
+export { getUuid } from './utils/uuid.js';
+export * from './wvdb/format.js';
 
 export const loadVDB = async (url) => {
   const response = await fetch(url);

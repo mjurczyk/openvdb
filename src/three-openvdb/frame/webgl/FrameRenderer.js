@@ -1,12 +1,12 @@
 import * as Three from 'three';
-import { FrameInjectMaterial } from './FrameInjectMaterial';
-import { FrameIntegrateMaterial } from './FrameIntegrateMaterial';
-import { FrameDensityMaterial } from './FrameDensityMaterial';
-import { FrameShadowDensityMaterial } from './FrameShadowDensityMaterial';
-import { FrameTransmittanceMaterial, frameShadowLightSlots } from './FrameTransmittanceMaterial';
-import { FrameLightingMaterial } from './FrameLightingMaterial';
-import { FrameTemporalMaterial } from './FrameTemporalMaterial';
-import { setVolumeUniforms, frameMaxShadowCascades } from './frameShaderChunks';
+import { FrameInjectMaterial } from './FrameInjectMaterial.js';
+import { FrameIntegrateMaterial } from './FrameIntegrateMaterial.js';
+import { FrameDensityMaterial } from './FrameDensityMaterial.js';
+import { FrameShadowDensityMaterial } from './FrameShadowDensityMaterial.js';
+import { FrameTransmittanceMaterial, frameShadowLightSlots } from './FrameTransmittanceMaterial.js';
+import { FrameLightingMaterial } from './FrameLightingMaterial.js';
+import { FrameTemporalMaterial } from './FrameTemporalMaterial.js';
+import { setVolumeUniforms, frameMaxShadowCascades } from './frameShaderChunks.js';
 
 const textureKeys = ['densityMap3D', 'emissiveMap3D', 'baseColorMap3D', 'maskMap3D'];
 

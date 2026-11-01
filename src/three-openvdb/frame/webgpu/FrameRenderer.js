@@ -1,13 +1,13 @@
 import * as Three from 'three/webgpu';
 import { vec4, outputStruct } from 'three/tsl';
-import { FrameInjectMaterial } from './FrameInjectMaterial';
-import { FrameIntegrateMaterial } from './FrameIntegrateMaterial';
-import { FrameDensityMaterial, createDensityShadowUniforms } from './FrameDensityMaterial';
-import { FrameShadowDensityMaterial } from './FrameShadowDensityMaterial';
-import { FrameTransmittanceMaterial, frameShadowLightSlots } from './FrameTransmittanceMaterial';
-import { FrameLightingMaterial } from './FrameLightingMaterial';
-import { FrameTemporalMaterial } from './FrameTemporalMaterial';
-import { updateVolumeMipmaps, disposeVolumeMipmaps } from './frameMipmaps';
+import { FrameInjectMaterial } from './FrameInjectMaterial.js';
+import { FrameIntegrateMaterial } from './FrameIntegrateMaterial.js';
+import { FrameDensityMaterial, createDensityShadowUniforms } from './FrameDensityMaterial.js';
+import { FrameShadowDensityMaterial } from './FrameShadowDensityMaterial.js';
+import { FrameTransmittanceMaterial, frameShadowLightSlots } from './FrameTransmittanceMaterial.js';
+import { FrameLightingMaterial } from './FrameLightingMaterial.js';
+import { FrameTemporalMaterial } from './FrameTemporalMaterial.js';
+import { updateVolumeMipmaps, disposeVolumeMipmaps } from './frameMipmaps.js';
 import {
   setVolumeUniforms,
   frameMaxShadowCascades,
@@ -18,7 +18,7 @@ import {
   createTileUniforms,
   createLightUniforms,
   frameFullscreenVertex,
-} from './frameShaderChunks';
+} from './frameShaderChunks.js';
 
 const unitBox = new Three.Box3(
   new Three.Vector3(-0.5, -0.5, -0.5),

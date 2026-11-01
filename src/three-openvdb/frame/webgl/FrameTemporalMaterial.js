@@ -1,5 +1,5 @@
 import * as Three from 'three';
-import { froxelPars } from './frameShaderChunks';
+import { froxelPars } from './frameShaderChunks.js';
 
 const vertexShader = `
   void main() {

@@ -1,20 +1,20 @@
-import { assert, debugLog, unsupported } from '../debug';
-import { Version } from './Version';
+import { assert, debugLog, unsupported } from '../debug.js';
+import { Version } from './Version.js';
 import {
   floatType,
   int64Type,
   pointDataIndex32,
   uint32Size,
   valueTypeSizeMap,
-} from '../math/memory';
-import { GridTransform } from './GridTransform';
-import { RootNode } from './RootNode';
-import { GridSharedContext } from './GridSharedContext';
-import { Accessor } from './Accessor';
-import { parseCompressionFlags } from './Compression';
-import { Vector3 } from '../math/vector';
-import { TreeLayout } from './TreeLayout';
-import { PointDataBuffers } from './PointDataBuffers';
+} from '../math/memory.js';
+import { GridTransform } from './GridTransform.js';
+import { RootNode } from './RootNode.js';
+import { GridSharedContext } from './GridSharedContext.js';
+import { Accessor } from './Accessor.js';
+import { parseCompressionFlags } from './Compression.js';
+import { Vector3 } from '../math/vector.js';
+import { TreeLayout } from './TreeLayout.js';
+import { PointDataBuffers } from './PointDataBuffers.js';
 
 export class GridDescriptor {
   static halfFloatGridPrefix = '_HalfFloat';

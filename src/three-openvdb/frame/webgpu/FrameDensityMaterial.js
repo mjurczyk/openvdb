@@ -27,8 +27,8 @@ import {
   createVolumeUniforms,
   createVolumeNodes,
   createGridNodes,
-} from './frameShaderChunks';
-import { FrameEnvironmentMaterial } from './FrameEnvironmentMaterial';
+} from './frameShaderChunks.js';
+import { FrameEnvironmentMaterial } from './FrameEnvironmentMaterial.js';
 
 // NOTE Shadow grid data for the density pass. Each volume samples its own visible position.
 export const createDensityShadowUniforms = () => ({

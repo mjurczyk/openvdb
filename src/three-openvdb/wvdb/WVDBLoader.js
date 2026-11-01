@@ -1,6 +1,6 @@
 // NOTE Three.js-style .wvdb loader. Grid data works as raw data for FrameVolume.
 import * as Three from 'three';
-import { WVDBReader } from './WVDBReader';
+import { WVDBReader } from './WVDBReader.js';
 
 const textureKeys = ['densityMap3D', 'emissiveMap3D', 'baseColorMap3D', 'maskMap3D'];
 

@@ -1,4 +1,4 @@
-import { unsupported } from '../debug';
+import { unsupported } from '../debug.js';
 import {
   boolType,
   createValueBuffer,
@@ -8,13 +8,13 @@ import {
   uint32Size,
   uint64Size,
   valueTypeSizeMap,
-} from '../math/memory';
-import { Vector3 } from '../math/vector';
-import { BufferIterator } from './BufferIterator';
-import { Compression, compressionMetadata } from './Compression';
-import { GridSharedContext } from './GridSharedContext';
-import { Mask } from './Mask';
-import { Version } from './Version';
+} from '../math/memory.js';
+import { Vector3 } from '../math/vector.js';
+import { BufferIterator } from './BufferIterator.js';
+import { Compression, compressionMetadata } from './Compression.js';
+import { GridSharedContext } from './GridSharedContext.js';
+import { Mask } from './Mask.js';
+import { Version } from './Version.js';
 
 const cloneValue = (value) => (value instanceof Vector3 ? value.clone() : value);
 

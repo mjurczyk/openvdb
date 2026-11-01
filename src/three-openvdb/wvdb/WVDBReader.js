@@ -1,5 +1,5 @@
 import { decodeWVDBMask, decodeWVDBPage, getWVDBChunks, readWVDBHeader, wvdbLayouts } from 'openvdb';
-import { wvdbKernel } from './wvdbKernel';
+import { wvdbKernel } from './wvdbKernel.js';
 
 const { fillTexels } = wvdbKernel(decodeWVDBPage, decodeWVDBMask);
 

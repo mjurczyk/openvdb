@@ -3,10 +3,10 @@
 // Each pass requests only the first bytes of each file, up to the end of that LOD.
 // The animation can play after the first pass.
 import * as Three from 'three';
-import { FrameVolume } from '../frame/core/FrameVolume';
-import { FrameVolumeAnimation } from '../frame/core/FrameVolumeAnimation';
-import { WVDBReader } from './WVDBReader';
-import { WVDBVolumeData } from './WVDBLoader';
+import { FrameVolume } from '../frame/core/FrameVolume.js';
+import { FrameVolumeAnimation } from '../frame/core/FrameVolumeAnimation.js';
+import { WVDBReader } from './WVDBReader.js';
+import { WVDBVolumeData } from './WVDBLoader.js';
 
 // NOTE These options are grid names, same as VDBAnimationLoader
 const gridOptions = ['emissiveGrid', 'baseColorGrid', 'maskGrid'];
