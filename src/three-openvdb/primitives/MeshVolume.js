@@ -1,6 +1,13 @@
 import * as Three from 'three';
-import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js';
 import { floatType, GridDescriptor, Vector3, GridTransform, getUuid } from 'openvdb';
+import { MeshVolumeBVH } from './MeshVolumeBVH.js';
+
+// NOTE Fixed, not axis-aligned directions. Grid-aligned meshes seldom put an edge or vertex on these rays.
+const rayDirections = [
+  new Three.Vector3(1.0, 0.3127, 0.1931).normalize(),
+  new Three.Vector3(-0.2713, 1.0, 0.4119).normalize(),
+  new Three.Vector3(0.1789, -0.3557, 1.0).normalize(),
+];
 
 export class MeshVolume extends GridDescriptor {
   static halfFloatGridPrefix = GridDescriptor.halfFloatGridPrefix;
@@ -21,44 +28,37 @@ export class MeshVolume extends GridDescriptor {
     this.readGrid();
     
     const meshClone = mesh.clone();
-    const geometries = [];
-    const transform = new Three.Vector3();
-    const transformQuaternion = new Three.Quaternion();
+    const vertex = new Three.Vector3();
+    const positions = [];
 
     meshClone.position.setScalar(0.0, 0.0, 0.0);
     meshClone.scale.setScalar(1.0);
     meshClone.quaternion.identity();
+    meshClone.updateMatrixWorld(true);
 
-    meshClone.updateMatrix();
-    meshClone.updateMatrixWorld();
-    meshClone.updateWorldMatrix();
-
+    // NOTE One position-only triangle list for all meshes. Indexed, interleaved and quantized geometries can mix.
     meshClone.traverse((child) => {
-      if (child.geometry) {
-        const geometry = child.geometry.clone();
+      if (!child.isMesh || !child.geometry) {
+        return;
+      }
 
-        child.getWorldQuaternion(transformQuaternion);
-        geometry.applyQuaternion(transformQuaternion);
+      const position = child.geometry.getAttribute('position');
+      const index = child.geometry.getIndex();
+      const count = index ? index.count : position.count;
 
-        child.getWorldScale(transform);
-        geometry.scale(transform.x, transform.y, transform.z);
+      for (let i = 0; i < count; i++) {
+        vertex
+          .fromBufferAttribute(position, index ? index.getX(i) : i)
+          .applyMatrix4(child.matrixWorld);
 
-        child.getWorldPosition(transform);
-        geometry.translate(transform.x, transform.y, transform.z);
-
-        geometry.attributes = {
-          position: geometry.attributes.position,
-          normal: geometry.attributes.normal,
-        };
-
-        geometries.push(geometry);
+        positions.push(vertex.x, vertex.y, vertex.z);
       }
     });
 
-    // NOTE Merge all geometries into a single mesh to avoid raycasting tons of separate objects
-    const meshGeometry = BufferGeometryUtils.mergeVertices(
-      BufferGeometryUtils.mergeGeometries(geometries, false)
-    );
+    const meshGeometry = new Three.BufferGeometry();
+    meshGeometry.setAttribute('position', new Three.Float32BufferAttribute(positions, 3));
+
+    this.bvh = new MeshVolumeBVH(meshGeometry.getAttribute('position').array);
 
     this.mesh = new Three.Mesh(
       meshGeometry,
@@ -119,9 +119,10 @@ export class MeshVolume extends GridDescriptor {
   center = null;
   size = null;
 
-  target = new Three.Vector3(0.0, 0.0, 0.0);
-  raycaster = new Three.Raycaster();
-  rayDirection = new Three.Vector3(1.0, 0.0, 0.0);
+  bvh = null;
+  hitEpsilon = 0.0;
+  origin = new Three.Vector3();
+  distances = [];
 
   cacheMeshGeometry() {
     this.bbox = new Three.Box3();
@@ -142,18 +143,41 @@ export class MeshVolume extends GridDescriptor {
     // NOTE Add padding to avoid edge glitches
     this.size.addScalar(0.1);
 
-    this.raycaster.near = 0.0;
-    this.raycaster.far = 1000.0; // NOTE We can assume this since the output volume is always 1x1x1
+    this.hitEpsilon = maxModelSpan * 1e-6;
   }
 
-  getValue(position) {
-    this.target.copy(position).multiply(this.size).add(this.center);
-    this.rayDirection.copy(position).normalize();
-    this.raycaster.set(this.target, this.rayDirection);
+  // NOTE Hits at the same distance are one crossing. A ray through a shared edge hits two triangles.
+  isInsideAlong(direction) {
+    const distances = this.bvh
+      .raycast(this.origin, direction, this.distances)
+      .sort((a, b) => a - b);
 
-    const hits = this.raycaster.intersectObjects([ this.mesh ], true);
-    
-    return (hits.length === 0 || hits.length % 2 === 0) ? 0.0 : 1.0;
+    let crossings = 0;
+    let lastDistance = -Infinity;
+
+    distances.forEach((distance) => {
+      if (distance - lastDistance > this.hitEpsilon) {
+        crossings++;
+      }
+
+      lastDistance = distance;
+    });
+
+    return crossings % 2 === 1;
+  }
+
+  // NOTE Three rays vote, so one bad parity (hole, grazing hit) does not change the result
+  getValue(position) {
+    this.origin.copy(position).multiply(this.size).add(this.center);
+
+    const first = this.isInsideAlong(rayDirections[0]);
+    const second = this.isInsideAlong(rayDirections[1]);
+
+    if (first === second) {
+      return first ? 1.0 : 0.0;
+    }
+
+    return this.isInsideAlong(rayDirections[2]) ? 1.0 : 0.0;
   }
 
   getLeafAt(position) {

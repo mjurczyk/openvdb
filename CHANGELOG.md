@@ -1,5 +1,10 @@
 # Unreleased
 
+- Fix: `MeshVolume` scaled the meshes after their rotation, so rotated meshes with non-uniform scale had a wrong shape. Now each mesh uses its world matrix
+- Fix: `MeshVolume` had a zero ray direction at the origin, and one parity ray failed on shared edges and on meshes with holes. Now three fixed rays vote, and hits at the same distance are one crossing
+- Fix: `MeshVolume` failed when the meshes mixed indexed and non-indexed geometries, or had different attributes. Now it reads only the positions. Points and lines are ignored
+- `MeshVolume` raycasts use a small internal BVH. A torus knot with 16k triangles at 48³ takes 0.2 s, before approximately 60 s
+- Examples: Mesh Volume demo. GLB models next to their volume. Edge Noise and Edge Samples fields (demo code only) make soft edges
 - `FrameEmissionLight`: the emissive grids of all visible volumes light the scene meshes. Volumes get their light on the GPU only when they change, with their own transmittance. A probe grid adds the light of all volumes, so lit pixels read 6 texels for any number of volumes. `three-openvdb`: a light node. `three-openvdb/webgl`: a shader patch of the lit materials
 - `FrameEmissionLight` `cascades` (default `1`) and `distance`: finer probe grids around the camera, for volumes that are far apart
 - Examples: Rendering Frame has an Explosion (Emissive) source (the Ground Explosion sequence) and a Light Emission folder. The explosion turns on Emission Light (intensity 25, 32³ probes) and Ground + Props, the night environment and an Emissive Intensity of 25 (new Volume field). Source is in the General folder. The Scene, Rendering and Light Emission folders start collapsed
