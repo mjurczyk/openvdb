@@ -2,6 +2,7 @@ import GUI from "lil-gui";
 import { exampleVDB } from "../examples/vdb";
 import { exampleFrame } from "../examples/frame";
 import { exampleWVDB } from "../examples/wvdb";
+import { exampleMesh } from "../examples/mesh";
 import { scene } from "../main";
 import { isPhone } from "./device";
 
@@ -27,6 +28,7 @@ const guiBaseFields = () => [
           'Rendering Frame': 'frame',
           'Custom VDB': 'vdb',
           'Streaming WVDB': 'wvdb',
+          'Mesh Volume': 'mesh',
         },
         defaultValue: activeDemo,
         onChange: (value) => {
@@ -56,6 +58,8 @@ const guiBaseFields = () => [
               return exampleFrame({ scene });
             case 'wvdb':
               return exampleWVDB({ scene });
+            case 'mesh':
+              return exampleMesh({ scene });
           }
         }
       }
