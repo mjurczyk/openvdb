@@ -1,5 +1,5 @@
 import * as Three from 'three';
-import { froxelPars } from './frameShaderChunks.js';
+import { froxelPars, phasePars, frameMieTexture } from './frameShaderChunks.js';
 
 const vertexShader = `
   void main() {
@@ -11,6 +11,7 @@ const fragmentShader = `
   precision highp float;
 
   ${froxelPars}
+  ${phasePars}
 
   uniform sampler2D frameDensityAlbedoMap;
   uniform sampler2D frameDensityEmissionMap;
@@ -24,11 +25,9 @@ const fragmentShader = `
   #include <common>
   #include <lights_pars_begin>
 
-  // NOTE Slot value is transmittance times the phase of the volumes.
-  // Lights after the shadow slots are added in the density pass.
   float frameShadowSlot(int slot, vec4 shadow0, vec4 shadow1) {
     if (slot >= frameShadowLightCount) {
-      return 0.0;
+      return 1.0;
     }
 
     if (slot == 0) return shadow0.z;
@@ -64,9 +63,9 @@ const fragmentShader = `
     // NOTE Spot light angles and light falloff use the extinction-weighted visible position of all volumes
     float visibleT = clamp(densityEmission.a / extinction, 0.0, 1.0);
     vec3 viewPosition = mix(viewNear, viewFar, visibleT);
+    vec3 rayDirection = normalize(viewFar - viewNear);
 
-    // NOTE Extinction-weighted mean of transmittance times phase.
-    // Each volume used its own visible position.
+    // NOTE Extinction-weighted mean transmittance. Each volume sampled its own visible position.
     vec4 shadow0 = texelFetch(frameDensityShadowMap0, texel, 0) / extinction;
     vec4 shadow1 = texelFetch(frameDensityShadowMap1, texel, 0) / extinction;
 
@@ -89,16 +88,21 @@ const fragmentShader = `
 
     #if NUM_DIR_LIGHTS > 0
       for (int i = 0; i < NUM_DIR_LIGHTS; i++) {
-        irradiance += directionalLights[i].color * frameShadowSlot(i, shadow0, shadow1);
+        DirectionalLight directionalLight = directionalLights[i];
+        float phase = framePhaseWeight(rayDirection, directionalLight.direction);
+
+        irradiance += directionalLight.color * phase * frameShadowSlot(i, shadow0, shadow1);
       }
     #endif
 
     #if NUM_POINT_LIGHTS > 0
       for (int i = 0; i < NUM_POINT_LIGHTS; i++) {
         PointLight pointLight = pointLights[i];
-        float distanceAttenuation = getDistanceAttenuation(length(pointLight.position - viewPosition), pointLight.distance, pointLight.decay);
+        vec3 lightVector = pointLight.position - viewPosition;
+        float distanceAttenuation = getDistanceAttenuation(length(lightVector), pointLight.distance, pointLight.decay);
+        float phase = framePhaseWeight(rayDirection, normalize(lightVector));
 
-        irradiance += pointLight.color * distanceAttenuation * frameShadowSlot(frameShadowPointOffset + i, shadow0, shadow1);
+        irradiance += pointLight.color * phase * distanceAttenuation * frameShadowSlot(frameShadowPointOffset + i, shadow0, shadow1);
       }
     #endif
 
@@ -109,8 +113,9 @@ const fragmentShader = `
         float angleCos = dot(normalize(lightVector), spotLight.direction);
         float spotAttenuation = getSpotAttenuation(spotLight.coneCos, spotLight.penumbraCos, angleCos);
         float distanceAttenuation = getDistanceAttenuation(length(lightVector), spotLight.distance, spotLight.decay);
+        float phase = framePhaseWeight(rayDirection, normalize(lightVector));
 
-        irradiance += spotLight.color * spotAttenuation * distanceAttenuation * frameShadowSlot(frameShadowSpotOffset + i, shadow0, shadow1);
+        irradiance += spotLight.color * phase * spotAttenuation * distanceAttenuation * frameShadowSlot(frameShadowSpotOffset + i, shadow0, shadow1);
       }
     #endif
 
@@ -143,6 +148,9 @@ export class FrameLightingMaterial extends Three.MeshStandardMaterial {
       frameShadowLightCount: { value: 0 },
       frameShadowPointOffset: { value: 0 },
       frameShadowSpotOffset: { value: 0 },
+      // NOTE One phase for all volumes, from frameRenderer.settings
+      framePhase: { value: new Three.Vector4() },
+      frameMieMap: { value: frameMieTexture },
     };
 
     this.depthTest = false;

@@ -6,7 +6,13 @@ import { SimpleDropzone } from 'simple-dropzone';
 import zip from 'zip-js-esm';
 import { setLoading } from '../utils/loading';
 import { createEmissionDemo } from '../utils/emission';
-import { phaseParams, createPhaseFields, applyPhaseParams } from '../utils/phase';
+import {
+  phaseParams,
+  createPhaseFields,
+  createFramePhaseFields,
+  applyPhaseParams,
+} from '../utils/phase';
+import { createToneMappingField } from '../utils/toneMapping';
 
 let animation, volumePivot, targetScene;
 // NOTE Instances of the animation, for the Copies field. Disposed before the animation.
@@ -669,7 +675,12 @@ export const exampleVDB = ({ scene }) => {
             ambientLight.intensity = value;
           },
         },
+        ...createFramePhaseFields(),
       ],
+    },
+    {
+      folder: 'Rendering',
+      children: [createToneMappingField()],
     },
     {
       folder: 'Light Emission',

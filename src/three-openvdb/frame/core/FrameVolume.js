@@ -133,8 +133,8 @@ export class FrameVolume extends Three.Group {
       baseColor = 0xffffff,
       scatterColor = 0x000000,
       extinction = 100.0,
-      // NOTE Phase function of direct lights: 'isotropic', 'henyey-greenstein' or 'dual-lobe'
-      phase = 'dual-lobe',
+      // NOTE Phase of direct lights: 'isotropic', 'henyey-greenstein', 'dual-lobe' or 'lorenz-mie'
+      phase = 'henyey-greenstein',
       phaseG = 0.8,
       phaseBackG = -0.3,
       phaseBackWeight = 0.2,

@@ -4,7 +4,13 @@ import { gui, setGuiFields } from '../utils/gui';
 import { loadAndCacheVDB, loadEnvironment } from '../utils/resources';
 import { setLoading } from '../utils/loading';
 import { createEmissionDemo } from '../utils/emission';
-import { phaseParams, createPhaseFields, applyPhaseParams } from '../utils/phase';
+import {
+  phaseParams,
+  createPhaseFields,
+  createFramePhaseFields,
+  applyPhaseParams,
+} from '../utils/phase';
+import { createToneMappingField } from '../utils/toneMapping';
 import { isPhone } from '../utils/device';
 
 // NOTE Stress test: one bunny is converted one time, in a cube box.
@@ -677,6 +683,8 @@ export const exampleFrame = ({ scene }) => {
             OpenVDB.frameRenderer.settings.lighting = value;
           },
         },
+        ...createFramePhaseFields(),
+        createToneMappingField(),
         // NOTE WebGPURenderer only. WebGLRenderer always blends on the sRGB canvas.
         ...('srgbBlending' in OpenVDB.frameRenderer.settings
           ? [

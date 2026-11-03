@@ -7,6 +7,7 @@ import { FrameTransmittanceMaterial, frameShadowLightSlots } from './FrameTransm
 import { FrameLightingMaterial } from './FrameLightingMaterial.js';
 import { FrameTemporalMaterial } from './FrameTemporalMaterial.js';
 import { setVolumeUniforms, frameMaxShadowCascades } from './frameShaderChunks.js';
+import { getFramePhase } from '../core/framePhase.js';
 
 const textureKeys = ['densityMap3D', 'emissiveMap3D', 'baseColorMap3D', 'maskMap3D'];
 
@@ -91,6 +92,11 @@ export class FrameRenderer {
     shadowResolution: 64,
     shadowCascades: 3,
     shadowDistance: 512,
+    // NOTE Phase of all volumes with 'frame' lighting. 'volume' lighting uses the phase of each FrameVolume.
+    phase: 'henyey-greenstein',
+    phaseG: 0.8,
+    phaseBackG: -0.3,
+    phaseBackWeight: 0.2,
   };
 
   froxelUniforms = {
@@ -138,9 +144,6 @@ export class FrameRenderer {
     frameUseShadows: { value: false },
     frameCameraMatrixWorld: { value: new Three.Matrix4() },
     frameSkyDirection: { value: new Three.Vector3(0.0, 1.0, 0.0) },
-    frameShadowLightCount: { value: 0 },
-    frameShadowPointOffset: { value: 0 },
-    frameShadowSpotOffset: { value: 0 },
   };
 
   injectMaterial = new FrameInjectMaterial(this.froxelUniforms);
@@ -703,9 +706,6 @@ export class FrameRenderer {
     densityShadowUniforms.frameTransmittanceMap1.value = this.transmittanceTarget.textures[1];
     densityShadowUniforms.frameCameraMatrixWorld.value.copy(camera.matrixWorld);
     densityShadowUniforms.frameSkyDirection.value.copy(lights.skyDirection);
-    densityShadowUniforms.frameShadowLightCount.value = lights.shadowLights.length;
-    densityShadowUniforms.frameShadowPointOffset.value = lights.pointOffset;
-    densityShadowUniforms.frameShadowSpotOffset.value = lights.spotOffset;
 
     // NOTE The density pass adds the environment. Its scene has the environment of the scene.
     this.densityScene.environment = scene.environment;
@@ -758,6 +758,7 @@ export class FrameRenderer {
     lightingUniforms.frameShadowLightCount.value = lights.shadowLights.length;
     lightingUniforms.frameShadowPointOffset.value = lights.pointOffset;
     lightingUniforms.frameShadowSpotOffset.value = lights.spotOffset;
+    getFramePhase(this.settings, lightingUniforms.framePhase.value);
 
     renderer.setRenderTarget(this.atlasTarget);
     renderer.clear(true, false, false);
@@ -949,42 +950,41 @@ export class FrameRenderer {
       }
 
       const index = used[light.type] || 0;
+      const proxy = this.getLightProxy(light.type, index);
 
       used[light.type] = index + 1;
 
-      this.getLightProxies(light.type, index).forEach((proxy) => {
-        proxy.visible = true;
-        proxy.layers.mask = camera.layers.mask;
-        proxy.color.copy(light.color);
-        proxy.intensity = light.intensity;
-        proxy.matrixWorld.copy(light.matrixWorld);
+      proxy.visible = true;
+      proxy.layers.mask = camera.layers.mask;
+      proxy.color.copy(light.color);
+      proxy.intensity = light.intensity;
+      proxy.matrixWorld.copy(light.matrixWorld);
 
-        if (light.target) {
-          proxy.target.matrixWorld.copy(light.target.matrixWorld);
+      if (light.target) {
+        proxy.target.matrixWorld.copy(light.target.matrixWorld);
+      }
+
+      if (light.isPointLight || light.isSpotLight) {
+        proxy.distance = light.distance;
+        proxy.decay = light.decay;
+      }
+
+      if (light.isSpotLight) {
+        proxy.angle = light.angle;
+        proxy.penumbra = light.penumbra;
+      }
+
+      if (light.isHemisphereLight) {
+        proxy.groundColor.copy(light.groundColor);
+
+        if (!hasSky) {
+          skyDirection.setFromMatrixPosition(light.matrixWorld);
+          hasSky = skyDirection.lengthSq() > 0.0;
         }
+      }
 
-        if (light.isPointLight || light.isSpotLight) {
-          proxy.distance = light.distance;
-          proxy.decay = light.decay;
-        }
-
-        if (light.isSpotLight) {
-          proxy.angle = light.angle;
-          proxy.penumbra = light.penumbra;
-        }
-
-        if (light.isHemisphereLight) {
-          proxy.groundColor.copy(light.groundColor);
-        }
-
-        if (light.isLightProbe) {
-          proxy.sh.copy(light.sh);
-        }
-      });
-
-      if (light.isHemisphereLight && !hasSky) {
-        skyDirection.setFromMatrixPosition(light.matrixWorld);
-        hasSky = skyDirection.lengthSq() > 0.0;
+      if (light.isLightProbe) {
+        proxy.sh.copy(light.sh);
       }
 
       const position = new Three.Vector3().setFromMatrixPosition(light.matrixWorld);
@@ -1003,11 +1003,9 @@ export class FrameRenderer {
     });
 
     Object.entries(this.lightProxies).forEach(([type, proxies]) => {
-      proxies.forEach((pair, index) => {
+      proxies.forEach((proxy, index) => {
         if (index >= (used[type] || 0)) {
-          pair.forEach((proxy) => {
-            proxy.visible = false;
-          });
+          proxy.visible = false;
         }
       });
     });
@@ -1024,28 +1022,23 @@ export class FrameRenderer {
     };
   }
 
-  // NOTE One light copy for the light scene, one for the density scene.
-  // The density pass lights the lights after the shadow slots.
-  getLightProxies(type, index) {
+  getLightProxy(type, index) {
     const proxies = this.lightProxies[type] || (this.lightProxies[type] = []);
 
     if (!proxies[index]) {
-      proxies[index] = [this.injectScene, this.densityScene].map((proxyScene) => {
-        const proxy = lightProxyFactories[type]();
+      const proxy = lightProxyFactories[type]();
 
-        proxy.matrixAutoUpdate = false;
-        proxy.matrixWorldAutoUpdate = false;
-        proxy.castShadow = false;
+      proxy.matrixAutoUpdate = false;
+      proxy.matrixWorldAutoUpdate = false;
+      proxy.castShadow = false;
 
-        if (proxy.target) {
-          proxy.target.matrixAutoUpdate = false;
-          proxy.target.matrixWorldAutoUpdate = false;
-        }
+      if (proxy.target) {
+        proxy.target.matrixAutoUpdate = false;
+        proxy.target.matrixWorldAutoUpdate = false;
+      }
 
-        proxyScene.add(proxy);
-
-        return proxy;
-      });
+      proxies[index] = proxy;
+      this.injectScene.add(proxy);
     }
 
     return proxies[index];

@@ -1,49 +1,69 @@
+import * as OpenVDB from 'three-openvdb';
+
 // NOTE FrameVolume phase props for the demos. The defaults are the FrameVolume defaults.
 export const phaseParams = {
-  phase: 'dual-lobe',
+  phase: 'henyey-greenstein',
   phaseG: 0.8,
   phaseBackG: -0.3,
   phaseBackWeight: 0.2,
 };
 
-// NOTE Volume folder fields. setParam applies the value to the volumes of the demo.
-export const createPhaseFields = (params, setParam) => [
+// NOTE Phase fields. idPrefix and namePrefix keep the field ids unique.
+const createFields = (values, setValue, idPrefix = '', namePrefix = '') => [
   {
-    id: 'phase',
-    name: 'Phase Function',
-    defaultValue: params.phase,
+    id: `${idPrefix}phase`,
+    name: `${namePrefix}Phase Function`,
+    defaultValue: values.phase,
     options: {
       Isotropic: 'isotropic',
-      'Henyey-Greenstein': 'henyey-greenstein',
-      'Dual-lobe': 'dual-lobe',
+      HG: 'henyey-greenstein',
+      '2HG': 'dual-lobe',
+      MIE: 'lorenz-mie',
     },
-    onChange: setParam('phase'),
+    onChange: setValue('phase'),
   },
   {
-    id: 'phaseG',
-    name: 'Phase G',
-    defaultValue: params.phaseG,
+    id: `${idPrefix}phaseG`,
+    name: `${namePrefix}Phase G`,
+    defaultValue: values.phaseG,
     min: -0.99,
     max: 0.99,
-    onChange: setParam('phaseG'),
+    onChange: setValue('phaseG'),
   },
   {
-    id: 'phaseBackG',
-    name: 'Phase Back G',
-    defaultValue: params.phaseBackG,
+    id: `${idPrefix}phaseBackG`,
+    name: `${namePrefix}Phase Back G`,
+    defaultValue: values.phaseBackG,
     min: -0.99,
     max: 0.99,
-    onChange: setParam('phaseBackG'),
+    onChange: setValue('phaseBackG'),
   },
   {
-    id: 'phaseBackWeight',
-    name: 'Phase Back Weight',
-    defaultValue: params.phaseBackWeight,
+    id: `${idPrefix}phaseBackWeight`,
+    name: `${namePrefix}Phase Back Weight`,
+    defaultValue: values.phaseBackWeight,
     min: 0.0,
     max: 1.0,
-    onChange: setParam('phaseBackWeight'),
+    onChange: setValue('phaseBackWeight'),
   },
 ];
+
+// NOTE Volume folder fields: the phase of each FrameVolume, used by 'volume' (Per-volume) lighting.
+// No Phase Function field: the demo volumes keep the default phase function (HG).
+// setParam applies the value to the volumes of the demo.
+export const createPhaseFields = (params, setParam) =>
+  createFields(params, setParam).filter((field) => field.id !== 'phase');
+
+// NOTE frameRenderer.settings fields: one phase for all volumes, used by 'frame' (Combined) lighting
+export const createFramePhaseFields = () =>
+  createFields(
+    OpenVDB.frameRenderer.settings,
+    (key) => (value) => {
+      OpenVDB.frameRenderer.settings[key] = value;
+    },
+    'frame-',
+    'Combined ',
+  );
 
 export const applyPhaseParams = (volume, params) => {
   volume.phase = params.phase;

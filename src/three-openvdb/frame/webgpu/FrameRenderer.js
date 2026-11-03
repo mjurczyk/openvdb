@@ -19,6 +19,7 @@ import {
   createLightUniforms,
   frameFullscreenVertex,
 } from './frameShaderChunks.js';
+import { getFramePhase } from '../core/framePhase.js';
 
 const unitBox = new Three.Box3(
   new Three.Vector3(-0.5, -0.5, -0.5),
@@ -111,6 +112,11 @@ export class FrameRenderer {
     shadowResolution: 64,
     shadowCascades: 3,
     shadowDistance: 512,
+    // NOTE Phase of all volumes with 'frame' lighting. 'volume' lighting uses the phase of each FrameVolume.
+    phase: 'henyey-greenstein',
+    phaseG: 0.8,
+    phaseBackG: -0.3,
+    phaseBackWeight: 0.2,
     // NOTE Blend the volumes over the scene in sRGB, the same as WebGLRenderer. false blends in linear space.
     srgbBlending: true,
   };
@@ -640,7 +646,6 @@ export class FrameRenderer {
     densityShadowUniforms.frameTransmittanceMap0.value = this.transmittanceTarget.textures[0];
     densityShadowUniforms.frameTransmittanceMap1.value = this.transmittanceTarget.textures[1];
     densityShadowUniforms.frameCameraMatrixWorld.value.copy(camera.matrixWorld);
-    densityShadowUniforms.frameShadowLightCount.value = lights.shadowLightCount;
 
     this.copyEnvironment(this.densityScene, scene);
     this.densityMaterial.setEnvironment(scene.environment);
@@ -686,6 +691,7 @@ export class FrameRenderer {
     lightingMaterial.frameDensityShadowMap1.value = this.densityTarget.textures[3];
     lightingMaterial.frameShadowLightCount.value = lights.shadowLightCount;
     lightingMaterial.frameCameraMatrixWorld.value.copy(camera.matrixWorld);
+    getFramePhase(this.settings, lightingMaterial.framePhase.value);
 
     renderer.setRenderTarget(this.atlasTarget);
     renderer.clear(true, false, false);

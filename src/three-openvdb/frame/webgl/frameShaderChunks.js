@@ -1,5 +1,6 @@
 import * as Three from 'three';
 import { getFramePhase } from '../core/framePhase.js';
+import { frameMieTable, frameMieTableSize } from '../core/frameMieTable.js';
 
 // NOTE Froxel grid layout and view reconstruction. Shared by all froxel passes.
 export const froxelPars = `
@@ -42,10 +43,24 @@ export const noisePars = `
   }
 `;
 
-// NOTE Phase function of direct lights. framePhase is (forward g, back g, back weight).
+// NOTE Lorenz-Mie phase table, see core/frameMieTable.js. Float values, read with texelFetch and a linear blend.
+export const frameMieTexture = new Three.DataTexture(
+  frameMieTable,
+  frameMieTableSize,
+  1,
+  Three.RedFormat,
+  Three.FloatType,
+);
+
+frameMieTexture.minFilter = Three.NearestFilter;
+frameMieTexture.magFilter = Three.NearestFilter;
+frameMieTexture.needsUpdate = true;
+
+// NOTE Phase function of direct lights. framePhase is (forward g, back g, back weight, Lorenz-Mie weight).
 // See core/framePhase.js.
 export const phasePars = `
-  uniform vec3 framePhase;
+  uniform vec4 framePhase;
+  uniform sampler2D frameMieMap;
 
   // NOTE Henyey-Greenstein phase divided by the isotropic phase 1 / (4 PI). g = 0 gives 1.
   float frameHenyeyGreenstein(float cosTheta, float g) {
@@ -54,15 +69,31 @@ export const phasePars = `
     return (1.0 - g2) / pow(max(1.0 + g2 - 2.0 * g * cosTheta, 1e-4), 1.5);
   }
 
+  // NOTE Table texel u is at the scattering angle PI * u^2
+  float frameMiePhase(float cosTheta) {
+    float u = sqrt(acos(clamp(cosTheta, -1.0, 1.0)) * 0.3183098862);
+    float texel = u * float(${frameMieTableSize - 1});
+    int index = min(int(texel), ${frameMieTableSize - 2});
+    float a = texelFetch(frameMieMap, ivec2(index, 0), 0).r;
+    float b = texelFetch(frameMieMap, ivec2(index + 1, 0), 0).r;
+
+    return mix(a, b, texel - float(index));
+  }
+
   // NOTE rayDirection: from the camera to the sample. lightDirection: from the sample to the light.
   float framePhaseWeight(vec3 rayDirection, vec3 lightDirection) {
     float cosTheta = dot(rayDirection, lightDirection);
-
-    return mix(
+    float weight = mix(
       frameHenyeyGreenstein(cosTheta, framePhase.x),
       frameHenyeyGreenstein(cosTheta, framePhase.y),
       framePhase.z
     );
+
+    if (framePhase.w > 0.0) {
+      weight = mix(weight, frameMiePhase(cosTheta), framePhase.w);
+    }
+
+    return weight;
   }
 `;
 
@@ -357,7 +388,8 @@ export const createVolumeUniforms = () => ({
   frameTemperatureRange: { value: new Three.Vector2(0.0, 6500.0) },
   frameOffset3D: { value: new Three.Vector3() },
   frameWrap3D: { value: Three.ClampToEdgeWrapping },
-  framePhase: { value: new Three.Vector3() },
+  framePhase: { value: new Three.Vector4() },
+  frameMieMap: { value: frameMieTexture },
 });
 
 export const setVolumeUniforms = (uniforms, frameVolume, volume) => {
