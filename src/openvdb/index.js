@@ -19,7 +19,13 @@ export {
 export { Vector3 } from './math/vector.js';
 export { Matrix3, Matrix4 } from './math/matrix.js';
 export { perlin3Noise, simplex3Noise, worley3Noise } from './math/noise.js';
-export { CloudVolume, CubeVolume, SphereVolume, ParametricVolume } from './utils/primitives/index.js';
+export {
+  PrimitiveVolume,
+  CloudVolume,
+  CubeVolume,
+  SphereVolume,
+  ParametricVolume,
+} from './utils/primitives/index.js';
 export { getUuid } from './utils/uuid.js';
 export * from './wvdb/format.js';
 
