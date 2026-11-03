@@ -28,13 +28,25 @@ export const parseCompressionFlags = (flags) => ({
 class CompressionClass {
   blosc = null;
   zlib = null;
+  modulesReady = null;
 
-  async prepareModules() {
-    // NOTE Run BLOSC on empty array to preemtively compile async modules
-    this.blosc = new Blosc();
-    await this.blosc.prepare();
+  // NOTE Make modules one time. Later and concurrent reads use the same promise. On failure, clear the promise so the next read tries again.
+  prepareModules() {
+    if (!this.modulesReady) {
+      this.modulesReady = (async () => {
+        const blosc = new Blosc();
+        await blosc.prepare();
 
-    this.zlib = new Zlib();
+        this.blosc = blosc;
+        this.zlib = new Zlib();
+      })().catch((error) => {
+        this.modulesReady = null;
+
+        throw error;
+      });
+    }
+
+    return this.modulesReady;
   }
 }
 
