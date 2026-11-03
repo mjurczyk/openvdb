@@ -25,7 +25,7 @@ const explosion = {
   emissiveGrid: 'flames',
   // NOTE Approximately the 99th percentile of the flames grid
   emissiveScale: 6.0,
-  baseColor: '#888888',
+  baseColor: '#ffffff',
   extinction: 450.0,
   emissiveIntensity: 25.0,
   // NOTE Emission light settings for the explosion
@@ -505,7 +505,6 @@ export const exampleFrame = ({ scene }) => {
               getController('emissionResolution')?.setValue(explosion.probes);
               getController('sceneMeshes')?.setValue(true);
               getController('environment')?.setValue('night');
-              getController('lightIntensity')?.setValue(0.0);
               getController('fogColor')?.setValue(explosion.baseColor);
               getController('extinction')?.setValue(explosion.extinction);
               getController('emissiveIntensity')?.setValue(explosion.emissiveIntensity);
