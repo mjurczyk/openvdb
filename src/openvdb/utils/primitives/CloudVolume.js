@@ -1,9 +1,6 @@
-import { floatType } from '../../math/memory.js';
-import { GridDescriptor } from '../../core/GridDescriptor.js';
 import { Vector3 } from '../../math/vector.js';
-import { GridTransform } from '../../core/GridTransform.js';
 import { perlin3Noise, worley3Noise } from '../../math/noise.js';
-import { getUuid } from '../uuid.js';
+import { PrimitiveVolume } from './PrimitiveVolume.js';
 
 const scaledNoise = (position, scale, noiseSource) => {
   const scaledX = (position.x * scale) % scale;
@@ -17,16 +14,7 @@ const scaledNoise = (position, scale, noiseSource) => {
   return noiseSource(dx, dy, dz);
 };
 
-export class CloudVolume extends GridDescriptor {
-  static halfFloatGridPrefix = GridDescriptor.halfFloatGridPrefix;
-
-  saveAsHalfFloat = false;
-  leavesCount = 0;
-
-  uniqueName;
-  gridName;
-  gridType;
-
+export class CloudVolume extends PrimitiveVolume {
   height = 1.0;
   density = 0.01;
 
@@ -34,60 +22,10 @@ export class CloudVolume extends GridDescriptor {
     height,
     density
   } = {}) {
-    super();
+    super('CloudVolume');
 
     this.height = height || 1.0;
     this.density = density || 0.01;
-
-    // NOTE Primitives don't need to use OpenVDBReader - just "read grid" right away
-    this.readGrid();
-  }
-
-  readGrid() {
-    this.readGridHeader();
-    this.readGridTransform();
-  }
-
-  readGridHeader() {
-    this.uniqueName = `CloudVolume#${getUuid()}`;
-    this.gridName = this.uniqueName.split('#')[0];
-    this.gridType = 'fog volume';
-  }
-
-  readCompression() {
-    /* NOTE Unnecessary */
-  }
-
-  readMetadata() {
-    /* NOTE Unnecessary */
-  }
-
-  getGridValueType() {
-    return floatType;
-  }
-
-  getGridClass() {
-    return 'fog volume';
-  }
-
-  readGridTransform() {
-    this.transform = new GridTransform();
-  }
-
-  readTopology() {
-    /* NOTE Unnecessary */
-  }
-
-  getWorldBbox() {
-    return this.getLocalBbox();
-  }
-
-  getLocalBbox() {
-    return [new Vector3(-0.5, -0.5, -0.5), new Vector3(0.5, 0.5, 0.5)];
-  }
-
-  getPreciseWorldBbox() {
-    return this.getWorldBbox();
   }
 
   // NOTE Scratch vector for samples
@@ -113,9 +51,5 @@ export class CloudVolume extends GridDescriptor {
     }
 
     return 0.0;
-  }
-
-  getLeafAt(position) {
-    return null;
   }
 }

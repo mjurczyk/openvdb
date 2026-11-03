@@ -1,3 +1,4 @@
+export { PrimitiveVolume } from './PrimitiveVolume.js';
 export { CloudVolume } from './CloudVolume.js';
 export { CubeVolume } from './CubeVolume.js';
 export { SphereVolume } from './SphereVolume.js';

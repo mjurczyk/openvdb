@@ -1,5 +1,5 @@
 import * as Three from 'three';
-import { floatType, GridDescriptor, Vector3, GridTransform, getUuid } from 'openvdb';
+import { PrimitiveVolume } from 'openvdb';
 import { MeshVolumeBVH } from './MeshVolumeBVH.js';
 
 // NOTE Fixed, not axis-aligned directions. Grid-aligned meshes seldom put an edge or vertex on these rays.
@@ -9,24 +9,12 @@ const rayDirections = [
   new Three.Vector3(0.1789, -0.3557, 1.0).normalize(),
 ];
 
-export class MeshVolume extends GridDescriptor {
-  static halfFloatGridPrefix = GridDescriptor.halfFloatGridPrefix;
-
-  saveAsHalfFloat = false;
-  leavesCount = 0;
-
-  uniqueName;
-  gridName;
-  gridType;
-
+export class MeshVolume extends PrimitiveVolume {
   mesh = new Three.Object3D();
 
   constructor(mesh) {
-    super();
+    super('MeshVolume');
 
-    // NOTE Primitives don't need to use OpenVDBReader - just "read grid" right away
-    this.readGrid();
-    
     const meshClone = mesh.clone();
     const vertex = new Three.Vector3();
     const positions = [];
@@ -68,53 +56,6 @@ export class MeshVolume extends GridDescriptor {
     this.cacheMeshGeometry();
   }
 
-  readGrid() {
-    this.readGridHeader();
-    this.readGridTransform();
-  }
-
-  readGridHeader() {
-    this.uniqueName = `MeshVolume#${getUuid()}`;
-    this.gridName = this.uniqueName.split('#')[0];
-    this.gridType = 'fog volume';
-  }
-
-  readCompression() {
-    /* NOTE Unnecessary */
-  }
-
-  readMetadata() {
-    /* NOTE Unnecessary */
-  }
-
-  getGridValueType() {
-    return floatType;
-  }
-
-  getGridClass() {
-    return 'fog volume';
-  }
-
-  readGridTransform() {
-    this.transform = new GridTransform();
-  }
-
-  readTopology() {
-    /* NOTE Unnecessary */
-  }
-
-  getWorldBbox() {
-    return this.getLocalBbox();
-  }
-
-  getLocalBbox() {
-    return [new Vector3(-0.5, -0.5, -0.5), new Vector3(0.5, 0.5, 0.5)];
-  }
-
-  getPreciseWorldBbox() {
-    return this.getWorldBbox();
-  }
-  
   bbox = null;
   center = null;
   size = null;
@@ -178,9 +119,5 @@ export class MeshVolume extends GridDescriptor {
     }
 
     return this.isInsideAlong(rayDirections[2]) ? 1.0 : 0.0;
-  }
-
-  getLeafAt(position) {
-    return null;
   }
 }
