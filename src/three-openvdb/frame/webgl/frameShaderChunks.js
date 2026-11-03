@@ -1,4 +1,5 @@
 import * as Three from 'three';
+import { getFramePhase } from '../core/framePhase.js';
 
 // NOTE Froxel grid layout and view reconstruction. Shared by all froxel passes.
 export const froxelPars = `
@@ -38,6 +39,30 @@ export const noisePars = `
     float noise = fract(52.9829189 * fract(dot(pixel, vec2(0.06711056, 0.00583715))));
 
     return fract(noise + frameJitter);
+  }
+`;
+
+// NOTE Phase function of direct lights. framePhase is (forward g, back g, back weight).
+// See core/framePhase.js.
+export const phasePars = `
+  uniform vec3 framePhase;
+
+  // NOTE Henyey-Greenstein phase divided by the isotropic phase 1 / (4 PI). g = 0 gives 1.
+  float frameHenyeyGreenstein(float cosTheta, float g) {
+    float g2 = g * g;
+
+    return (1.0 - g2) / pow(max(1.0 + g2 - 2.0 * g * cosTheta, 1e-4), 1.5);
+  }
+
+  // NOTE rayDirection: from the camera to the sample. lightDirection: from the sample to the light.
+  float framePhaseWeight(vec3 rayDirection, vec3 lightDirection) {
+    float cosTheta = dot(rayDirection, lightDirection);
+
+    return mix(
+      frameHenyeyGreenstein(cosTheta, framePhase.x),
+      frameHenyeyGreenstein(cosTheta, framePhase.y),
+      framePhase.z
+    );
   }
 `;
 
@@ -332,6 +357,7 @@ export const createVolumeUniforms = () => ({
   frameTemperatureRange: { value: new Three.Vector2(0.0, 6500.0) },
   frameOffset3D: { value: new Three.Vector3() },
   frameWrap3D: { value: Three.ClampToEdgeWrapping },
+  framePhase: { value: new Three.Vector3() },
 });
 
 export const setVolumeUniforms = (uniforms, frameVolume, volume) => {
@@ -357,4 +383,5 @@ export const setVolumeUniforms = (uniforms, frameVolume, volume) => {
   uniforms.frameTemperatureRange.value.copy(frameVolume.temperatureRange);
   uniforms.frameOffset3D.value.copy(frameVolume.offset3D);
   uniforms.frameWrap3D.value = frameVolume.wrap3D;
+  getFramePhase(frameVolume, uniforms.framePhase.value);
 };

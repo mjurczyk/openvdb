@@ -4,6 +4,7 @@ import {
   volumePars,
   gridPars,
   noisePars,
+  phasePars,
   tileQuadVertexShader,
   createVolumeUniforms,
 } from './frameShaderChunks.js';
@@ -20,17 +21,52 @@ const fragmentShader = `
   ${volumePars}
   ${gridPars}
   ${noisePars}
+  ${phasePars}
 
   uniform sampler2D frameTransmittanceMap0;
   uniform sampler2D frameTransmittanceMap1;
   uniform bool frameUseShadows;
   uniform mat4 frameCameraMatrixWorld;
   uniform vec3 frameSkyDirection;
+  uniform int frameShadowLightCount;
+  uniform int frameShadowPointOffset;
+  uniform int frameShadowSpotOffset;
 
   #include <common>
   #include <lights_pars_begin>
   #include <envmap_common_pars_fragment>
   #include <envmap_physical_pars_fragment>
+
+  // NOTE Phase of this volume for one light. For a shadow slot light, the phase scales the slot.
+  // Other lights have no shadow. They are added to the emission.
+  void frameAddLightPhase(
+    int slot,
+    vec3 lightColor,
+    vec3 lightDirection,
+    vec3 rayDirection,
+    vec3 albedo,
+    inout vec4 phase0,
+    inout vec4 phase1,
+    inout vec3 emission
+  ) {
+    float phase = framePhaseWeight(rayDirection, lightDirection);
+
+    if (slot >= frameShadowLightCount) {
+      emission += albedo * lightColor * phase * RECIPROCAL_PI;
+    } else if (slot == 0) {
+      phase0.z = phase;
+    } else if (slot == 1) {
+      phase0.w = phase;
+    } else if (slot == 2) {
+      phase1.x = phase;
+    } else if (slot == 3) {
+      phase1.y = phase;
+    } else if (slot == 4) {
+      phase1.z = phase;
+    } else {
+      phase1.w = phase;
+    }
+  }
 
   void main() {
     vec2 tile = floor(gl_FragCoord.xy / froxelGrid.xy);
@@ -97,9 +133,9 @@ const fragmentShader = `
     // NOTE Shadows at the visible position of this volume, not of other volumes in the froxel
     vec4 shadow0 = vec4(1.0);
     vec4 shadow1 = vec4(1.0);
+    vec3 viewPosition = mix(viewNear, viewFar, visibleT);
 
     if (frameUseShadows) {
-      vec3 viewPosition = mix(viewNear, viewFar, visibleT);
       vec3 worldPosition = (frameCameraMatrixWorld * vec4(viewPosition, 1.0)).xyz;
 
       frameSampleShadows(
@@ -110,6 +146,68 @@ const fragmentShader = `
         shadow1
       );
     }
+
+    // NOTE Light copies of the density scene. Shadow slots: directional, point, spot lights.
+    vec3 rayDirection = normalize(viewFar - viewNear);
+    vec4 phase0 = vec4(1.0);
+    vec4 phase1 = vec4(1.0);
+
+    #if NUM_DIR_LIGHTS > 0
+      for (int i = 0; i < NUM_DIR_LIGHTS; i++) {
+        DirectionalLight directionalLight = directionalLights[i];
+
+        frameAddLightPhase(
+          i,
+          directionalLight.color,
+          directionalLight.direction,
+          rayDirection,
+          albedo,
+          phase0,
+          phase1,
+          emission
+        );
+      }
+    #endif
+
+    #if NUM_POINT_LIGHTS > 0
+      for (int i = 0; i < NUM_POINT_LIGHTS; i++) {
+        PointLight pointLight = pointLights[i];
+        vec3 lightVector = pointLight.position - viewPosition;
+        float distanceAttenuation = getDistanceAttenuation(length(lightVector), pointLight.distance, pointLight.decay);
+
+        frameAddLightPhase(
+          frameShadowPointOffset + i,
+          pointLight.color * distanceAttenuation,
+          normalize(lightVector),
+          rayDirection,
+          albedo,
+          phase0,
+          phase1,
+          emission
+        );
+      }
+    #endif
+
+    #if NUM_SPOT_LIGHTS > 0
+      for (int i = 0; i < NUM_SPOT_LIGHTS; i++) {
+        SpotLight spotLight = spotLights[i];
+        vec3 lightVector = spotLight.position - viewPosition;
+        float angleCos = dot(normalize(lightVector), spotLight.direction);
+        float spotAttenuation = getSpotAttenuation(spotLight.coneCos, spotLight.penumbraCos, angleCos);
+        float distanceAttenuation = getDistanceAttenuation(length(lightVector), spotLight.distance, spotLight.decay);
+
+        frameAddLightPhase(
+          frameShadowSpotOffset + i,
+          spotLight.color * spotAttenuation * distanceAttenuation,
+          normalize(lightVector),
+          rayDirection,
+          albedo,
+          phase0,
+          phase1,
+          emission
+        );
+      }
+    #endif
 
     // NOTE Environment along the outward direction from the volume center, the same as per-volume lighting.
     // NOTE Its shadow is between the sky down and sky up transmittance of the shadow grid.
@@ -127,13 +225,15 @@ const fragmentShader = `
     // NOTE Values are weighted by extinction. Additive blending then gives extinction-weighted means.
     frameDensityAlbedo = vec4(albedo * extinction, extinction);
     frameDensityEmission = vec4(emission * extinction, visibleT * extinction);
-    frameDensityShadow0 = shadow0 * extinction;
-    frameDensityShadow1 = shadow1 * extinction;
+    frameDensityShadow0 = shadow0 * phase0 * extinction;
+    frameDensityShadow1 = shadow1 * phase1 * extinction;
   }
 `;
 
 // NOTE Writes the extinction and material of one volume into the froxel grid. Lights are added in the lighting pass.
 // NOTE The environment is added here, along the outward direction of each volume.
+// NOTE The phase of this volume scales its shadow slots.
+// NOTE Lights after the shadow slots are added here.
 // NOTE MeshStandardMaterial gives the PMREM environment. The shader is fully replaced. GLSL3 keeps the 4 outputs.
 export class FrameDensityMaterial extends Three.MeshStandardMaterial {
   name = 'FrameDensityMaterial';

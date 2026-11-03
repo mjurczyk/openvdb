@@ -4,6 +4,7 @@ import { gui, setGuiFields } from '../utils/gui';
 import { loadAndCacheVDB, loadEnvironment } from '../utils/resources';
 import { setLoading } from '../utils/loading';
 import { createEmissionDemo } from '../utils/emission';
+import { phaseParams, createPhaseFields, applyPhaseParams } from '../utils/phase';
 import { isPhone } from '../utils/device';
 
 // NOTE Stress test: one bunny is converted one time, in a cube box.
@@ -65,6 +66,7 @@ export const exampleFrame = ({ scene }) => {
     densityScale: 1.0,
     opacity: 1.0,
     extinction: 100.0,
+    ...phaseParams,
     emissiveIntensity: 1.0,
     temperatureMin: 600.0,
     temperatureMax: 7000.0,
@@ -188,6 +190,7 @@ export const exampleFrame = ({ scene }) => {
     volume.densityScale = params.densityScale;
     volume.opacity = params.opacity;
     volume.extinction = params.extinction;
+    applyPhaseParams(volume, params);
     volume.emissiveIntensity = params.emissiveIntensity;
     volume.shadowSteps = params.shadowSteps;
     volume.mipmaps = params.mipmaps;
@@ -795,6 +798,7 @@ export const exampleFrame = ({ scene }) => {
           max: 1000.0,
           onChange: setParam('extinction'),
         },
+        ...createPhaseFields(params, setParam),
         {
           id: 'emissiveIntensity',
           name: 'Emissive Intensity',

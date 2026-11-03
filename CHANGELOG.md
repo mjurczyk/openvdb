@@ -1,5 +1,8 @@
 # Unreleased
 
+- `FrameVolume` props `phase` (default `'dual-lobe'`), `phaseG`, `phaseBackG` and `phaseBackWeight`: Henyey-Greenstein and dual-lobe phase functions of directional, point and spot lights, for each volume. Back-lit volumes get a silver lining. Both `three-openvdb` and `three-openvdb/webgl`, `'frame'` and `'volume'` lighting
+- With `'frame'` lighting, lights after the 6 shadow slots light each volume in the density pass, at its own visible position
+- Examples: Rendering Frame and Custom VDB have Phase Function, Phase G, Phase Back G and Phase Back Weight fields (Volume folder)
 - Fix: `MeshVolume` scaled the meshes after their rotation, so rotated meshes with non-uniform scale had a wrong shape. Now each mesh uses its world matrix
 - Fix: `MeshVolume` had a zero ray direction at the origin, and one parity ray failed on shared edges and on meshes with holes. Now three fixed rays vote, and hits at the same distance are one crossing
 - Fix: `MeshVolume` failed when the meshes mixed indexed and non-indexed geometries, or had different attributes. Now it reads only the positions. Points and lines are ignored

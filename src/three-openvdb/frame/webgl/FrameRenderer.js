@@ -138,6 +138,9 @@ export class FrameRenderer {
     frameUseShadows: { value: false },
     frameCameraMatrixWorld: { value: new Three.Matrix4() },
     frameSkyDirection: { value: new Three.Vector3(0.0, 1.0, 0.0) },
+    frameShadowLightCount: { value: 0 },
+    frameShadowPointOffset: { value: 0 },
+    frameShadowSpotOffset: { value: 0 },
   };
 
   injectMaterial = new FrameInjectMaterial(this.froxelUniforms);
@@ -700,6 +703,9 @@ export class FrameRenderer {
     densityShadowUniforms.frameTransmittanceMap1.value = this.transmittanceTarget.textures[1];
     densityShadowUniforms.frameCameraMatrixWorld.value.copy(camera.matrixWorld);
     densityShadowUniforms.frameSkyDirection.value.copy(lights.skyDirection);
+    densityShadowUniforms.frameShadowLightCount.value = lights.shadowLights.length;
+    densityShadowUniforms.frameShadowPointOffset.value = lights.pointOffset;
+    densityShadowUniforms.frameShadowSpotOffset.value = lights.spotOffset;
 
     // NOTE The density pass adds the environment. Its scene has the environment of the scene.
     this.densityScene.environment = scene.environment;
@@ -943,41 +949,42 @@ export class FrameRenderer {
       }
 
       const index = used[light.type] || 0;
-      const proxy = this.getLightProxy(light.type, index);
 
       used[light.type] = index + 1;
 
-      proxy.visible = true;
-      proxy.layers.mask = camera.layers.mask;
-      proxy.color.copy(light.color);
-      proxy.intensity = light.intensity;
-      proxy.matrixWorld.copy(light.matrixWorld);
+      this.getLightProxies(light.type, index).forEach((proxy) => {
+        proxy.visible = true;
+        proxy.layers.mask = camera.layers.mask;
+        proxy.color.copy(light.color);
+        proxy.intensity = light.intensity;
+        proxy.matrixWorld.copy(light.matrixWorld);
 
-      if (light.target) {
-        proxy.target.matrixWorld.copy(light.target.matrixWorld);
-      }
-
-      if (light.isPointLight || light.isSpotLight) {
-        proxy.distance = light.distance;
-        proxy.decay = light.decay;
-      }
-
-      if (light.isSpotLight) {
-        proxy.angle = light.angle;
-        proxy.penumbra = light.penumbra;
-      }
-
-      if (light.isHemisphereLight) {
-        proxy.groundColor.copy(light.groundColor);
-
-        if (!hasSky) {
-          skyDirection.setFromMatrixPosition(light.matrixWorld);
-          hasSky = skyDirection.lengthSq() > 0.0;
+        if (light.target) {
+          proxy.target.matrixWorld.copy(light.target.matrixWorld);
         }
-      }
 
-      if (light.isLightProbe) {
-        proxy.sh.copy(light.sh);
+        if (light.isPointLight || light.isSpotLight) {
+          proxy.distance = light.distance;
+          proxy.decay = light.decay;
+        }
+
+        if (light.isSpotLight) {
+          proxy.angle = light.angle;
+          proxy.penumbra = light.penumbra;
+        }
+
+        if (light.isHemisphereLight) {
+          proxy.groundColor.copy(light.groundColor);
+        }
+
+        if (light.isLightProbe) {
+          proxy.sh.copy(light.sh);
+        }
+      });
+
+      if (light.isHemisphereLight && !hasSky) {
+        skyDirection.setFromMatrixPosition(light.matrixWorld);
+        hasSky = skyDirection.lengthSq() > 0.0;
       }
 
       const position = new Three.Vector3().setFromMatrixPosition(light.matrixWorld);
@@ -996,9 +1003,11 @@ export class FrameRenderer {
     });
 
     Object.entries(this.lightProxies).forEach(([type, proxies]) => {
-      proxies.forEach((proxy, index) => {
+      proxies.forEach((pair, index) => {
         if (index >= (used[type] || 0)) {
-          proxy.visible = false;
+          pair.forEach((proxy) => {
+            proxy.visible = false;
+          });
         }
       });
     });
@@ -1015,23 +1024,28 @@ export class FrameRenderer {
     };
   }
 
-  getLightProxy(type, index) {
+  // NOTE One light copy for the light scene, one for the density scene.
+  // The density pass lights the lights after the shadow slots.
+  getLightProxies(type, index) {
     const proxies = this.lightProxies[type] || (this.lightProxies[type] = []);
 
     if (!proxies[index]) {
-      const proxy = lightProxyFactories[type]();
+      proxies[index] = [this.injectScene, this.densityScene].map((proxyScene) => {
+        const proxy = lightProxyFactories[type]();
 
-      proxy.matrixAutoUpdate = false;
-      proxy.matrixWorldAutoUpdate = false;
-      proxy.castShadow = false;
+        proxy.matrixAutoUpdate = false;
+        proxy.matrixWorldAutoUpdate = false;
+        proxy.castShadow = false;
 
-      if (proxy.target) {
-        proxy.target.matrixAutoUpdate = false;
-        proxy.target.matrixWorldAutoUpdate = false;
-      }
+        if (proxy.target) {
+          proxy.target.matrixAutoUpdate = false;
+          proxy.target.matrixWorldAutoUpdate = false;
+        }
 
-      proxies[index] = proxy;
-      this.injectScene.add(proxy);
+        proxyScene.add(proxy);
+
+        return proxy;
+      });
     }
 
     return proxies[index];

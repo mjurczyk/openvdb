@@ -27,6 +27,8 @@ import {
   createVolumeUniforms,
   createVolumeNodes,
   createGridNodes,
+  frameGetDirectLight,
+  framePhaseWeight,
 } from './frameShaderChunks.js';
 import { FrameEnvironmentMaterial } from './FrameEnvironmentMaterial.js';
 
@@ -36,10 +38,13 @@ export const createDensityShadowUniforms = () => ({
   frameTransmittanceMap1: texture(new Three.Texture()),
   frameUseShadows: uniform(0, 'int'),
   frameCameraMatrixWorld: uniform(new Three.Matrix4()),
+  frameShadowLightCount: uniform(0, 'int'),
 });
 
 // NOTE Writes the extinction and material of one volume into the froxel grid. Lights are added in the lighting pass.
 // NOTE The environment is added here, along the outward direction of each volume.
+// NOTE The phase of this volume scales its shadow slots.
+// NOTE Lights after the shadow slots are added here.
 // NOTE All volumes use this material. Pool meshes set the volume uniforms before each draw.
 export class FrameDensityMaterial extends FrameEnvironmentMaterial {
   constructor({
@@ -103,8 +108,14 @@ export class FrameDensityMaterial extends FrameEnvironmentMaterial {
     } = this.frameUniforms;
     const volume = createVolumeNodes(this.volumeUniforms, this.mipmaps);
     const grid = createGridNodes(gridUniforms);
-    const { frameViewToLocal, frameLocalToView, frameOpacity, frameScatterColor, frameWorldScale } =
-      this.volumeUniforms;
+    const {
+      frameViewToLocal,
+      frameLocalToView,
+      frameOpacity,
+      frameScatterColor,
+      frameWorldScale,
+      framePhase,
+    } = this.volumeUniforms;
     const { frameCameraMatrixWorld } = densityShadowUniforms;
     const { froxelSubSteps, frameJitter } = froxelUniforms;
 
@@ -175,12 +186,11 @@ export class FrameDensityMaterial extends FrameEnvironmentMaterial {
       // NOTE Shadows at the visible position of this volume, not of other volumes in the froxel
       const shadow0 = vec4(1.0).toVar();
       const shadow1 = vec4(1.0).toVar();
+      const worldPosition = frameCameraMatrixWorld
+        .mul(vec4(mix(viewNear, viewFar, visibleT), 1.0))
+        .xyz.toVar();
 
       If(densityShadowUniforms.frameUseShadows.equal(1), () => {
-        const viewPosition = mix(viewNear, viewFar, visibleT);
-        const worldPosition = densityShadowUniforms.frameCameraMatrixWorld
-          .mul(vec4(viewPosition, 1.0))
-          .xyz.toVar();
         const shadows = grid.sampleShadows(
           densityShadowUniforms.frameTransmittanceMap0,
           densityShadowUniforms.frameTransmittanceMap1,
@@ -189,6 +199,30 @@ export class FrameDensityMaterial extends FrameEnvironmentMaterial {
 
         shadow0.assign(shadows.shadow0);
         shadow1.assign(shadows.shadow1);
+      });
+
+      // NOTE Phase of this volume for each light. For a shadow slot light, it scales the slot.
+      // Other lights have no shadow. They are added to the emission.
+      const rayDirection = normalize(
+        mat3(frameCameraMatrixWorld).mul(viewFar.sub(viewNear)),
+      ).toVar();
+      const phase0 = vec4(1.0).toVar();
+      const phase1 = vec4(1.0).toVar();
+
+      Loop(lightUniforms.frameLightCount, ({ i }) => {
+        const light = frameGetDirectLight(lightUniforms, i, worldPosition);
+        const phase = framePhaseWeight(framePhase, rayDirection, light.direction).toVar();
+
+        If(i.lessThan(densityShadowUniforms.frameShadowLightCount), () => {
+          phase0.assign(select(i.equal(0), vec4(phase0.xy, phase, phase0.w), phase0));
+          phase0.assign(select(i.equal(1), vec4(phase0.xyz, phase), phase0));
+          phase1.assign(select(i.equal(2), vec4(phase, phase1.yzw), phase1));
+          phase1.assign(select(i.equal(3), vec4(phase1.x, phase, phase1.zw), phase1));
+          phase1.assign(select(i.equal(4), vec4(phase1.xy, phase, phase1.w), phase1));
+          phase1.assign(select(i.equal(5), vec4(phase1.xyz, phase), phase1));
+        }).Else(() => {
+          emission.addAssign(albedo.mul(light.color).mul(phase).mul(1.0 / Math.PI));
+        });
       });
 
       // NOTE Environment along the outward direction from the volume center, the same as per-volume lighting.
@@ -217,8 +251,8 @@ export class FrameDensityMaterial extends FrameEnvironmentMaterial {
       // NOTE Values are weighted by extinction. Additive blending then gives extinction-weighted means.
       densityAlbedo.assign(vec4(albedo.mul(extinction), extinction));
       densityEmission.assign(vec4(emission.mul(extinction), visibleT.mul(extinction)));
-      densityShadow0.assign(shadow0.mul(extinction));
-      densityShadow1.assign(shadow1.mul(extinction));
+      densityShadow0.assign(shadow0.mul(phase0).mul(extinction));
+      densityShadow1.assign(shadow1.mul(phase1).mul(extinction));
 
       return vec4(0.0);
     })();

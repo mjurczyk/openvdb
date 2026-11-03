@@ -202,6 +202,13 @@ Converts the given `OpenVDBReader` to a volumetric `Three.Object3D`. `onConverte
 * `resolution: number` - (default: `100`) resolution of the 3D texture of each grid.
 * `progressive: boolean` - set to `true` to render the volume while it is converted.
 * `extinction: number` - (default: `100.0`) extinction of density `1.0` for each unit of the volume box (the largest side).
+* `phase: string` - (default: `'dual-lobe'`) phase function of directional, point and spot lights. It changes the light with the angle between the view ray and the light. Ambient, hemisphere, light probe and environment light stay isotropic. Both `'frame'` and `'volume'` lighting:
+  * `'isotropic'` - the same light in all directions.
+  * `'henyey-greenstein'` - one Henyey-Greenstein lobe with `phaseG`. Positive values scatter forward: a volume in front of the light gets bright edges (silver lining).
+  * `'dual-lobe'` - a forward lobe (`phaseG`) and a back lobe (`phaseBackG`), mixed by `phaseBackWeight`.
+* `phaseG: number` - (default: `0.8`, `-0.99` to `0.99`) forward lobe of `'henyey-greenstein'` and `'dual-lobe'`. `0.0` is isotropic. The light is relative to isotropic: with the view ray toward the light, `0.8` gives approximately 45× the light, with the light behind the camera approximately 0.06×.
+* `phaseBackG: number` - (default: `-0.3`, `-0.99` to `0.99`) back lobe of `'dual-lobe'`.
+* `phaseBackWeight: number` - (default: `0.2`, `0.0` to `1.0`) weight of the back lobe of `'dual-lobe'`.
 * `absorbance: number` - (default: `1.0`) scales the self-shadowing. `0.0` gives no shadows.
 * `densityScale: number` - (default: `1.0`) scales density of the entire grid.
 * `densityCutoff: number` - (default: `0.0`) density at or below this value is empty. Defines sharpness of the shape.
@@ -290,7 +297,7 @@ Froxel grid settings are global, in `frameRenderer.settings`:
 
 With `mipmaps`, large froxels far away sample a lower mip level, so small details fade to transparent.
 
-With `'frame'` lighting, the first directional, point and spot lights (6 in total) cast shadows. Hemisphere lights and light probes use the shadow grid in the up and down directions. The environment (`scene.environment`) lights each volume along its outward direction, the same as `'volume'` lighting. Its shadow is between the up and down shadows of the grid. Ambient light has no shadow. `lights` and `shadowSteps` are not used, `scatterColor` is added as emission, and `absorbance` scales the shadow of each volume.
+With `'frame'` lighting, the first directional, point and spot lights (6 in total) cast shadows. The other lights light each volume at its own visible position, with its own `phase`, without shadows. Hemisphere lights and light probes use the shadow grid in the up and down directions. The environment (`scene.environment`) lights each volume along its outward direction, the same as `'volume'` lighting. Its shadow is between the up and down shadows of the grid. Ambient light has no shadow. `lights` and `shadowSteps` are not used, `scatterColor` is added as emission, and `absorbance` scales the shadow of each volume.
 
 Limits: with `'volume'` lighting, volumes do not shadow other volumes, and point and spot lights have no distance falloff. The first 16 directional, point and spot lights light the volumes. With `'volume'` lighting, the first 4 hemisphere lights are used. Logarithmic depth buffers are not supported.
 

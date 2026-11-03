@@ -29,7 +29,10 @@ import {
   abs,
   mod,
   smoothstep,
+  normalize,
+  getDistanceAttenuation,
 } from 'three/tsl';
+import { getFramePhase } from '../core/framePhase.js';
 
 // NOTE Shaders use the bottom-left pixel origin of GLSL (gl_FragCoord).
 // NOTE three.js nodes use the top-left origin of WebGPU. These helpers convert between them.
@@ -115,6 +118,57 @@ export const frameNoise = (jitter, pixel) => {
   const noise = fract(float(52.9829189).mul(fract(dot(pixel, vec2(0.06711056, 0.00583715)))));
 
   return select(jitter.lessThan(0.0), float(0.5), fract(noise.add(jitter)));
+};
+
+// NOTE Henyey-Greenstein phase divided by the isotropic phase 1 / (4 PI). g = 0 gives 1.
+const frameHenyeyGreenstein = (cosTheta, g) => {
+  const g2 = g.mul(g);
+
+  return float(1.0)
+    .sub(g2)
+    .div(pow(max(float(1.0).add(g2).sub(g.mul(2.0).mul(cosTheta)), 1e-4), 1.5));
+};
+
+// NOTE rayDirection: from the camera to the sample. lightDirection: from the sample to the light.
+export const framePhaseWeight = (framePhase, rayDirection, lightDirection) => {
+  const cosTheta = dot(rayDirection, lightDirection).toVar();
+
+  return mix(
+    frameHenyeyGreenstein(cosTheta, framePhase.x),
+    frameHenyeyGreenstein(cosTheta, framePhase.y),
+    framePhase.z,
+  );
+};
+
+// NOTE Light i of createLightUniforms at a world position. Call in a Fn body.
+// Returns the color with spot and distance falloff, and the direction to the light.
+export const frameGetDirectLight = (lightUniforms, i, worldPosition) => {
+  const position = lightUniforms.frameLightPositions.element(i).toVar();
+  const color = lightUniforms.frameLightColors.element(i).toVar();
+  const spot = lightUniforms.frameLightSpots.element(i).toVar();
+  const falloff = lightUniforms.frameLightFalloffs.element(i).toVar();
+  const lightVector = position.xyz.sub(worldPosition).toVar();
+
+  const spotAttenuation = select(
+    position.w.greaterThan(2.5),
+    smoothstep(spot.w, color.w, dot(normalize(lightVector), spot.xyz)),
+    float(1.0),
+  );
+
+  const distanceAttenuation = select(
+    position.w.greaterThan(1.5),
+    getDistanceAttenuation({
+      lightDistance: lightVector.length(),
+      cutoffDistance: falloff.x,
+      decayExponent: falloff.y,
+    }),
+    float(1.0),
+  );
+
+  return {
+    color: color.rgb.mul(spotAttenuation).mul(distanceAttenuation),
+    direction: select(position.w.lessThan(1.5), position.xyz, normalize(lightVector)),
+  };
 };
 
 export const frameMaxLights = 16;
@@ -235,6 +289,8 @@ export const createVolumeUniforms = () => ({
   frameTemperatureRange: uniform(new Three.Vector2(0.0, 6500.0)),
   frameOffset3D: uniform(new Three.Vector3()),
   frameWrap3D: uniform(Three.ClampToEdgeWrapping, 'int'),
+  // NOTE Phase function of direct lights: (forward g, back g, back weight), see core/framePhase.js
+  framePhase: uniform(new Three.Vector3()),
 });
 
 const mipMaps = [
@@ -296,6 +352,7 @@ export const setVolumeUniforms = (uniforms, frameVolume, volume) => {
   uniforms.frameTemperatureRange.value.copy(frameVolume.temperatureRange);
   uniforms.frameOffset3D.value.copy(frameVolume.offset3D);
   uniforms.frameWrap3D.value = frameVolume.wrap3D;
+  getFramePhase(frameVolume, uniforms.framePhase.value);
 
   setMipUniforms(uniforms, frameVolume, volume);
 };

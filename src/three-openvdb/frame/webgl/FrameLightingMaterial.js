@@ -24,9 +24,11 @@ const fragmentShader = `
   #include <common>
   #include <lights_pars_begin>
 
+  // NOTE Slot value is transmittance times the phase of the volumes.
+  // Lights after the shadow slots are added in the density pass.
   float frameShadowSlot(int slot, vec4 shadow0, vec4 shadow1) {
     if (slot >= frameShadowLightCount) {
-      return 1.0;
+      return 0.0;
     }
 
     if (slot == 0) return shadow0.z;
@@ -63,7 +65,8 @@ const fragmentShader = `
     float visibleT = clamp(densityEmission.a / extinction, 0.0, 1.0);
     vec3 viewPosition = mix(viewNear, viewFar, visibleT);
 
-    // NOTE Extinction-weighted mean transmittance. Each volume sampled its own visible position.
+    // NOTE Extinction-weighted mean of transmittance times phase.
+    // Each volume used its own visible position.
     vec4 shadow0 = texelFetch(frameDensityShadowMap0, texel, 0) / extinction;
     vec4 shadow1 = texelFetch(frameDensityShadowMap1, texel, 0) / extinction;
 

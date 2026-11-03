@@ -640,6 +640,7 @@ export class FrameRenderer {
     densityShadowUniforms.frameTransmittanceMap0.value = this.transmittanceTarget.textures[0];
     densityShadowUniforms.frameTransmittanceMap1.value = this.transmittanceTarget.textures[1];
     densityShadowUniforms.frameCameraMatrixWorld.value.copy(camera.matrixWorld);
+    densityShadowUniforms.frameShadowLightCount.value = lights.shadowLightCount;
 
     this.copyEnvironment(this.densityScene, scene);
     this.densityMaterial.setEnvironment(scene.environment);
