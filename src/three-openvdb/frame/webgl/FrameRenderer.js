@@ -7,6 +7,7 @@ import { FrameTransmittanceMaterial, frameShadowLightSlots } from './FrameTransm
 import { FrameLightingMaterial } from './FrameLightingMaterial.js';
 import { FrameTemporalMaterial } from './FrameTemporalMaterial.js';
 import { setVolumeUniforms, frameMaxShadowCascades } from './frameShaderChunks.js';
+import { getFramePhase } from '../core/framePhase.js';
 
 const textureKeys = ['densityMap3D', 'emissiveMap3D', 'baseColorMap3D', 'maskMap3D'];
 
@@ -91,6 +92,11 @@ export class FrameRenderer {
     shadowResolution: 64,
     shadowCascades: 3,
     shadowDistance: 512,
+    // NOTE Phase of all volumes with 'frame' lighting. 'volume' lighting uses the phase of each FrameVolume.
+    phase: 'henyey-greenstein',
+    phaseG: 0.8,
+    phaseBackG: -0.3,
+    phaseBackWeight: 0.2,
   };
 
   froxelUniforms = {
@@ -752,6 +758,7 @@ export class FrameRenderer {
     lightingUniforms.frameShadowLightCount.value = lights.shadowLights.length;
     lightingUniforms.frameShadowPointOffset.value = lights.pointOffset;
     lightingUniforms.frameShadowSpotOffset.value = lights.spotOffset;
+    getFramePhase(this.settings, lightingUniforms.framePhase.value);
 
     renderer.setRenderTarget(this.atlasTarget);
     renderer.clear(true, false, false);

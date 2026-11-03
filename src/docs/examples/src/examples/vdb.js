@@ -6,6 +6,13 @@ import { SimpleDropzone } from 'simple-dropzone';
 import zip from 'zip-js-esm';
 import { setLoading } from '../utils/loading';
 import { createEmissionDemo } from '../utils/emission';
+import {
+  phaseParams,
+  createPhaseFields,
+  createFramePhaseFields,
+  applyPhaseParams,
+} from '../utils/phase';
+import { createToneMappingField } from '../utils/toneMapping';
 
 let animation, volumePivot, targetScene;
 // NOTE Instances of the animation, for the Copies field. Disposed before the animation.
@@ -30,6 +37,7 @@ const params = {
   densityScale: 1.0,
   opacity: 1.0,
   extinction: 300.0,
+  ...phaseParams,
   shadowSteps: 32,
   emissiveIntensity: 1.0,
   temperatureMin: 0.0,
@@ -57,6 +65,7 @@ const applyVolumeParams = () => {
   animation.densityScale = params.densityScale;
   animation.opacity = params.opacity;
   animation.extinction = params.extinction;
+  applyPhaseParams(animation, params);
   animation.shadowSteps = params.shadowSteps;
   animation.emissiveIntensity = params.emissiveIntensity;
   animation.temperatureRange = [params.temperatureMin, params.temperatureMax];
@@ -67,6 +76,7 @@ const applyVolumeParams = () => {
     copy.densityScale = params.densityScale;
     copy.opacity = params.opacity;
     copy.extinction = params.extinction;
+    applyPhaseParams(copy, params);
     copy.shadowSteps = params.shadowSteps;
     copy.emissiveIntensity = params.emissiveIntensity;
     copy.temperatureRange = [params.temperatureMin, params.temperatureMax];
@@ -665,7 +675,12 @@ export const exampleVDB = ({ scene }) => {
             ambientLight.intensity = value;
           },
         },
+        ...createFramePhaseFields(),
       ],
+    },
+    {
+      folder: 'Rendering',
+      children: [createToneMappingField()],
     },
     {
       folder: 'Light Emission',
@@ -815,6 +830,7 @@ export const exampleVDB = ({ scene }) => {
           max: 1000.0,
           onChange: setParam('extinction'),
         },
+        ...createPhaseFields(params, setParam),
         {
           id: 'emissiveIntensity',
           name: 'Emissive Intensity',

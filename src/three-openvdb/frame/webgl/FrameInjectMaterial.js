@@ -1,5 +1,11 @@
 import * as Three from 'three';
-import { froxelPars, volumePars, noisePars, createVolumeUniforms } from './frameShaderChunks.js';
+import {
+  froxelPars,
+  volumePars,
+  noisePars,
+  phasePars,
+  createVolumeUniforms,
+} from './frameShaderChunks.js';
 import { frameLights } from '../core/frameLights.js';
 
 const vertexShader = `
@@ -25,6 +31,7 @@ const fragmentShader = `
   ${froxelPars}
   ${volumePars}
   ${noisePars}
+  ${phasePars}
 
   #include <common>
   #include <lights_pars_begin>
@@ -126,6 +133,7 @@ const fragmentShader = `
 
     vec3 localPosition = mix(localNear, localFar, visibleTSum / visibleWeight);
     vec3 viewPosition = (frameLocalToView * vec4(localPosition, 1.0)).xyz;
+    vec3 rayDirection = normalize(viewFar - viewNear);
 
     mat3 viewToLocalDirection = mat3(frameViewToLocal);
 
@@ -168,7 +176,9 @@ const fragmentShader = `
         for (int i = 0; i < NUM_DIR_LIGHTS; i++) {
           DirectionalLight directionalLight = directionalLights[i];
 
-          irradiance += directionalLight.color * frameTransmittance(
+          float phase = framePhaseWeight(rayDirection, directionalLight.direction);
+
+          irradiance += directionalLight.color * phase * frameTransmittance(
             localPosition,
             viewToLocalDirection * directionalLight.direction,
             1e6,
@@ -185,8 +195,9 @@ const fragmentShader = `
         for (int i = 0; i < NUM_POINT_LIGHTS; i++) {
           PointLight pointLight = pointLights[i];
           vec3 toLight = (frameViewToLocal * vec4(pointLight.position, 1.0)).xyz - localPosition;
+          float phase = framePhaseWeight(rayDirection, normalize(pointLight.position - viewPosition));
 
-          irradiance += pointLight.color * frameTransmittance(localPosition, toLight, length(toLight), lod);
+          irradiance += pointLight.color * phase * frameTransmittance(localPosition, toLight, length(toLight), lod);
         }
       }
     #endif
@@ -200,8 +211,9 @@ const fragmentShader = `
 
           if (spotAttenuation > 0.0) {
             vec3 toLight = (frameViewToLocal * vec4(spotLight.position, 1.0)).xyz - localPosition;
+            float phase = framePhaseWeight(rayDirection, normalize(spotLight.position - viewPosition));
 
-            irradiance += spotLight.color * spotAttenuation * frameTransmittance(localPosition, toLight, length(toLight), lod);
+            irradiance += spotLight.color * phase * spotAttenuation * frameTransmittance(localPosition, toLight, length(toLight), lod);
           }
         }
       }

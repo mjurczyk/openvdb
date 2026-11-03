@@ -17,11 +17,18 @@ import {
   dot,
   length,
   normalize,
+  mat3,
   smoothstep,
   getShIrradianceAt,
   getDistanceAttenuation,
 } from 'three/tsl';
-import { frameFragCoord, frameLoad, frameGetFroxel, frameFullscreenVertex } from './frameShaderChunks.js';
+import {
+  frameFragCoord,
+  frameLoad,
+  frameGetFroxel,
+  frameFullscreenVertex,
+  framePhaseWeight,
+} from './frameShaderChunks.js';
 // NOTE Lights each froxel one time from the combined data of all volumes.
 // NOTE The environment is added in the density pass, along the outward direction of each volume.
 export class FrameLightingMaterial extends Three.NodeMaterial {
@@ -37,6 +44,8 @@ export class FrameLightingMaterial extends Three.NodeMaterial {
     this.frameDensityShadowMap1 = texture(new Three.Texture());
     this.frameShadowLightCount = uniform(0, 'int');
     this.frameCameraMatrixWorld = uniform(new Three.Matrix4());
+    // NOTE One phase for all volumes, from frameRenderer.settings
+    this.framePhase = uniform(new Three.Vector4());
 
     this.vertexNode = frameFullscreenVertex;
     this.fragmentNode = this.createFragmentNode();
@@ -84,6 +93,9 @@ export class FrameLightingMaterial extends Three.NodeMaterial {
       const worldPosition = this.frameCameraMatrixWorld
         .mul(vec4(mix(viewNear, viewFar, visibleT), 1.0))
         .xyz.toVar();
+      const rayDirection = normalize(
+        mat3(this.frameCameraMatrixWorld).mul(viewFar.sub(viewNear)),
+      ).toVar();
 
       // NOTE Extinction-weighted mean transmittance. Each volume sampled its own visible position.
       const shadow0 = frameLoad(this.frameDensityShadowMap0, texel, atlasSize).div(extinction).toVar();
@@ -132,7 +144,16 @@ export class FrameLightingMaterial extends Three.NodeMaterial {
           float(1.0),
         );
 
-        irradiance.addAssign(color.rgb.mul(spotAttenuation).mul(distanceAttenuation).mul(shadow));
+        // NOTE Directional position xyz is the direction to the light
+        const phase = framePhaseWeight(
+          this.framePhase,
+          rayDirection,
+          select(position.w.lessThan(1.5), position.xyz, normalize(lightVector)),
+        );
+
+        irradiance.addAssign(
+          color.rgb.mul(phase).mul(spotAttenuation).mul(distanceAttenuation).mul(shadow),
+        );
       });
 
       const albedo = densityAlbedo.rgb.div(extinction);

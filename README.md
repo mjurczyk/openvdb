@@ -202,6 +202,14 @@ Converts the given `OpenVDBReader` to a volumetric `Three.Object3D`. `onConverte
 * `resolution: number` - (default: `100`) resolution of the 3D texture of each grid.
 * `progressive: boolean` - set to `true` to render the volume while it is converted.
 * `extinction: number` - (default: `100.0`) extinction of density `1.0` for each unit of the volume box (the largest side).
+* `phase: string` - (default: `'henyey-greenstein'`) phase function of directional, point and spot lights. It changes the light with the angle between the view ray and the light. Ambient, hemisphere, light probe and environment light stay isotropic. Used by `'volume'` lighting. `'frame'` lighting lights all volumes with one phase, from `frameRenderer.settings.phase`:
+  * `'isotropic'` - the same light in all directions.
+  * `'henyey-greenstein'` - one Henyey-Greenstein lobe with `phaseG`. Positive values scatter forward: a volume in front of the light gets bright edges (silver lining).
+  * `'dual-lobe'` - a forward lobe (`phaseG`) and a back lobe (`phaseBackG`), mixed by `phaseBackWeight`.
+  * `'lorenz-mie'` - tabulated Lorenz-Mie phase function of cumulus cloud droplets (550 nm, mean radius approximately 5 µm). A very strong, narrow forward peak (approximately 2700× isotropic), a wide forward lobe, the fogbow at approximately 143° and the glory at 180°. The table is made by `scripts/mie-phase-table.mjs`. `phaseG`, `phaseBackG` and `phaseBackWeight` are not used.
+* `phaseG: number` - (default: `0.8`, `-0.99` to `0.99`) forward lobe of `'henyey-greenstein'` and `'dual-lobe'`. `0.0` is isotropic. The light is relative to isotropic: with the view ray toward the light, `0.8` gives approximately 45× the light, with the light behind the camera approximately 0.06×.
+* `phaseBackG: number` - (default: `-0.3`, `-0.99` to `0.99`) back lobe of `'dual-lobe'`.
+* `phaseBackWeight: number` - (default: `0.2`, `0.0` to `1.0`) weight of the back lobe of `'dual-lobe'`.
 * `absorbance: number` - (default: `1.0`) scales the self-shadowing. `0.0` gives no shadows.
 * `densityScale: number` - (default: `1.0`) scales density of the entire grid.
 * `densityCutoff: number` - (default: `0.0`) density at or below this value is empty. Defines sharpness of the shape.
@@ -286,6 +294,7 @@ Froxel grid settings are global, in `frameRenderer.settings`:
 * `shadowResolution` - (default: `64`) voxels on each axis of each shadow grid cascade (`'frame'` lighting only).
 * `shadowCascades` - (default: `3`, max `4`) shadow grid cascades. The last cascade fits all volumes. Each finer cascade is half the size, around the camera. Shadows are dense near the camera and sparse far away (`'frame'` lighting only).
 * `shadowDistance` - (default: `512`) the finer shadow grid cascades cover only this distance from the camera. The last cascade covers all volumes, with coarser voxels (`'frame'` lighting only).
+* `phase`, `phaseG`, `phaseBackG`, `phaseBackWeight` - (default: `'henyey-greenstein'`, `0.8`, `-0.3`, `0.2`) one phase function for all volumes with `'frame'` lighting. The values are the same as the `FrameVolume` phase props. `'volume'` lighting uses the phase props of each `FrameVolume`.
 * `srgbBlending` - (default: `true`) blends the volumes over the scene in sRGB, the same as `WebGLRenderer` did. `false` blends in linear space, the default of `WebGPURenderer`. Linear blending makes thin fog brighter.
 
 With `mipmaps`, large froxels far away sample a lower mip level, so small details fade to transparent.

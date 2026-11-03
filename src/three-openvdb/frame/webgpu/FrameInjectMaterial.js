@@ -29,6 +29,7 @@ import {
   getFroxelLod,
   frameNoise,
   frameFullscreenVertex,
+  framePhaseWeight,
   createVolumeUniforms,
   createVolumeNodes,
 } from './frameShaderChunks.js';
@@ -161,6 +162,9 @@ export class FrameInjectMaterial extends FrameEnvironmentMaterial {
       const viewPosition = frameLocalToView.mul(vec4(localPosition, 1.0)).xyz;
       const worldPosition = this.frameCameraMatrixWorld.mul(vec4(viewPosition, 1.0)).xyz.toVar();
       const worldToLocalDirection = mat3(frameWorldToLocal);
+      const rayDirection = normalize(
+        mat3(this.frameCameraMatrixWorld).mul(viewFar.sub(viewNear)),
+      ).toVar();
       const shadowNoise = frameNoise(frameJitter, fragCoord.add(vec2(17.0, 31.0))).toVar();
 
       // NOTE Shadow march inside this volume only. Call in the Fn body.
@@ -271,9 +275,17 @@ export class FrameInjectMaterial extends FrameEnvironmentMaterial {
             toLight,
           );
           const maxDistance = select(isDirectional, float(1e6), length(toLight));
+          const phase = framePhaseWeight(
+            volumeUniforms.framePhase,
+            rayDirection,
+            select(isDirectional, position.xyz, normalize(position.xyz.sub(worldPosition))),
+          );
 
           irradiance.addAssign(
-            color.rgb.mul(spotAttenuation).mul(volumeTransmittance(localDirection, maxDistance)),
+            color.rgb
+              .mul(phase)
+              .mul(spotAttenuation)
+              .mul(volumeTransmittance(localDirection, maxDistance)),
           );
         });
       });

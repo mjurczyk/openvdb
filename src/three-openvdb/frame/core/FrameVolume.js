@@ -90,6 +90,10 @@ const getProps = (frameVolume) => ({
   baseColor: frameVolume.baseColor,
   scatterColor: frameVolume.scatterColor,
   extinction: frameVolume.extinction,
+  phase: frameVolume.phase,
+  phaseG: frameVolume.phaseG,
+  phaseBackG: frameVolume.phaseBackG,
+  phaseBackWeight: frameVolume.phaseBackWeight,
   densityScale: frameVolume.densityScale,
   densityCutoff: frameVolume.densityCutoff,
   absorbance: frameVolume.absorbance,
@@ -129,6 +133,11 @@ export class FrameVolume extends Three.Group {
       baseColor = 0xffffff,
       scatterColor = 0x000000,
       extinction = 100.0,
+      // NOTE Phase of direct lights: 'isotropic', 'henyey-greenstein', 'dual-lobe' or 'lorenz-mie'
+      phase = 'henyey-greenstein',
+      phaseG = 0.8,
+      phaseBackG = -0.3,
+      phaseBackWeight = 0.2,
       densityScale = 1.0,
       densityCutoff = 0.0,
       absorbance = 1.0,
@@ -151,6 +160,10 @@ export class FrameVolume extends Three.Group {
     this.baseColor = new Three.Color(baseColor);
     this.scatterColor = new Three.Color(scatterColor);
     this.extinction = extinction;
+    this.phase = phase;
+    this.phaseG = phaseG;
+    this.phaseBackG = phaseBackG;
+    this.phaseBackWeight = phaseBackWeight;
     this.densityScale = densityScale;
     this.densityCutoff = densityCutoff;
     this.absorbance = absorbance;

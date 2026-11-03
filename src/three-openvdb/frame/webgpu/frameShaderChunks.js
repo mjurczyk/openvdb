@@ -29,7 +29,12 @@ import {
   abs,
   mod,
   smoothstep,
+  sqrt,
+  acos,
+  texture,
 } from 'three/tsl';
+import { getFramePhase } from '../core/framePhase.js';
+import { frameMieTable, frameMieTableSize } from '../core/frameMieTable.js';
 
 // NOTE Shaders use the bottom-left pixel origin of GLSL (gl_FragCoord).
 // NOTE three.js nodes use the top-left origin of WebGPU. These helpers convert between them.
@@ -115,6 +120,58 @@ export const frameNoise = (jitter, pixel) => {
   const noise = fract(float(52.9829189).mul(fract(dot(pixel, vec2(0.06711056, 0.00583715)))));
 
   return select(jitter.lessThan(0.0), float(0.5), fract(noise.add(jitter)));
+};
+
+// NOTE Henyey-Greenstein phase divided by the isotropic phase 1 / (4 PI). g = 0 gives 1.
+const frameHenyeyGreenstein = (cosTheta, g) => {
+  const g2 = g.mul(g);
+
+  return float(1.0)
+    .sub(g2)
+    .div(pow(max(float(1.0).add(g2).sub(g.mul(2.0).mul(cosTheta)), 1e-4), 1.5));
+};
+
+// NOTE Lorenz-Mie phase table, see core/frameMieTable.js. Float values, read with load and a linear blend.
+const frameMieTexture = new Three.DataTexture(
+  frameMieTable,
+  frameMieTableSize,
+  1,
+  Three.RedFormat,
+  Three.FloatType,
+);
+
+frameMieTexture.minFilter = Three.NearestFilter;
+frameMieTexture.magFilter = Three.NearestFilter;
+frameMieTexture.needsUpdate = true;
+
+const frameMieMap = texture(frameMieTexture);
+
+// NOTE Table texel u is at the scattering angle PI * u^2
+const frameMiePhase = (cosTheta) => {
+  const u = sqrt(acos(clamp(cosTheta, -1.0, 1.0)).mul(1.0 / Math.PI));
+  const texel = u.mul(frameMieTableSize - 1).toVar();
+  const index = min(int(texel), int(frameMieTableSize - 2)).toVar();
+  const a = frameMieMap.load(ivec2(index, 0)).r;
+  const b = frameMieMap.load(ivec2(index.add(1), 0)).r;
+
+  return mix(a, b, texel.sub(float(index)));
+};
+
+// NOTE framePhase is (forward g, back g, back weight, Lorenz-Mie weight). Call in a Fn body.
+// NOTE rayDirection: from the camera to the sample. lightDirection: from the sample to the light.
+export const framePhaseWeight = (framePhase, rayDirection, lightDirection) => {
+  const cosTheta = dot(rayDirection, lightDirection).toVar();
+  const weight = mix(
+    frameHenyeyGreenstein(cosTheta, framePhase.x),
+    frameHenyeyGreenstein(cosTheta, framePhase.y),
+    framePhase.z,
+  ).toVar();
+
+  If(framePhase.w.greaterThan(0.0), () => {
+    weight.assign(mix(weight, frameMiePhase(cosTheta), framePhase.w));
+  });
+
+  return weight;
 };
 
 export const frameMaxLights = 16;
@@ -235,6 +292,8 @@ export const createVolumeUniforms = () => ({
   frameTemperatureRange: uniform(new Three.Vector2(0.0, 6500.0)),
   frameOffset3D: uniform(new Three.Vector3()),
   frameWrap3D: uniform(Three.ClampToEdgeWrapping, 'int'),
+  // NOTE Phase of this volume for 'volume' lighting: (forward g, back g, back weight, Lorenz-Mie weight)
+  framePhase: uniform(new Three.Vector4()),
 });
 
 const mipMaps = [
@@ -296,6 +355,7 @@ export const setVolumeUniforms = (uniforms, frameVolume, volume) => {
   uniforms.frameTemperatureRange.value.copy(frameVolume.temperatureRange);
   uniforms.frameOffset3D.value.copy(frameVolume.offset3D);
   uniforms.frameWrap3D.value = frameVolume.wrap3D;
+  getFramePhase(frameVolume, uniforms.framePhase.value);
 
   setMipUniforms(uniforms, frameVolume, volume);
 };
