@@ -3,9 +3,9 @@ import { perlin3Noise, worley3Noise } from '../../math/noise.js';
 import { PrimitiveVolume } from './PrimitiveVolume.js';
 
 const scaledNoise = (position, scale, noiseSource) => {
-  const scaledX = (position.x * scale) % scale;
-  const scaledY = (position.y * scale) % scale;
-  const scaledZ = (position.z * scale) % scale;
+  const scaledX = (position.x * scale) % 1;
+  const scaledY = (position.y * scale) % 1;
+  const scaledZ = (position.z * scale) % 1;
 
   const dx = Math.abs(scaledX - 0.5);
   const dy = Math.abs(scaledY - 0.5);
