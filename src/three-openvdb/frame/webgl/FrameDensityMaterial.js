@@ -4,12 +4,21 @@ import {
   volumePars,
   gridPars,
   noisePars,
+  environmentPars,
+  environmentGridPars,
   tileQuadVertexShader,
   createVolumeUniforms,
 } from './frameShaderChunks.js';
 
+// NOTE Environment in the density pass: outward direction, none (only the slot light, in the lighting pass),
+// or the environment grid
+export const frameDensityEnvironment = { outward: 0, none: 1, grid: 2 };
+
 const fragmentShader = `
   precision highp float;
+
+  #define FRAME_DENSITY_ENVIRONMENT_OUTWARD ${frameDensityEnvironment.outward}
+  #define FRAME_DENSITY_ENVIRONMENT_GRID ${frameDensityEnvironment.grid}
 
   layout(location = 0) out highp vec4 frameDensityAlbedo;
   layout(location = 1) out highp vec4 frameDensityEmission;
@@ -20,9 +29,13 @@ const fragmentShader = `
   ${volumePars}
   ${gridPars}
   ${noisePars}
+  ${environmentPars}
+  ${environmentGridPars}
 
   uniform sampler2D frameTransmittanceMap0;
   uniform sampler2D frameTransmittanceMap1;
+  uniform sampler2D frameEnvironmentGridMap;
+  uniform int frameEnvironmentMode;
   uniform bool frameUseShadows;
   uniform mat4 frameCameraMatrixWorld;
   uniform vec3 frameSkyDirection;
@@ -114,15 +127,29 @@ const fragmentShader = `
     // NOTE Environment along the outward direction from the volume center, the same as per-volume lighting.
     // NOTE Its shadow is between the sky down and sky up transmittance of the shadow grid.
     #if defined( USE_ENVMAP )
-      vec3 skyDirection = normalize(frameSkyDirection);
-      vec3 outwardDirection = length(visiblePosition) > 1e-4
-        ? normalize(mat3(frameCameraMatrixWorld) * (mat3(frameLocalToView) * visiblePosition))
-        : skyDirection;
-      float environmentShadow = mix(shadow0.y, shadow0.x, dot(outwardDirection, skyDirection) * 0.5 + 0.5);
+      if (frameEnvironmentMode == FRAME_DENSITY_ENVIRONMENT_OUTWARD) {
+        vec3 skyDirection = normalize(frameSkyDirection);
+        vec3 outwardDirection = length(visiblePosition) > 1e-4
+          ? normalize(mat3(frameCameraMatrixWorld) * (mat3(frameLocalToView) * visiblePosition))
+          : skyDirection;
+        float environmentShadow = mix(shadow0.y, shadow0.x, dot(outwardDirection, skyDirection) * 0.5 + 0.5);
 
-      // NOTE getIBLIrradiance takes a view-space normal
-      emission += albedo * getIBLIrradiance(normalize(mat3(viewMatrix) * outwardDirection)) * environmentShadow * RECIPROCAL_PI;
+        // NOTE getIBLIrradiance takes a view-space normal
+        emission += albedo * getIBLIrradiance(normalize(mat3(viewMatrix) * outwardDirection)) * environmentShadow * RECIPROCAL_PI;
+      }
     #endif
+
+    // NOTE Environment light of the environment grid at the visible position
+    if (frameEnvironmentMode == FRAME_DENSITY_ENVIRONMENT_GRID) {
+      vec3 worldPosition = (frameCameraMatrixWorld * vec4(mix(viewNear, viewFar, visibleT), 1.0)).xyz;
+      vec3 environment = frameSampleEnvironmentGrid(
+        frameEnvironmentGridMap,
+        worldPosition,
+        vec4(frameEnvironmentUnshadowed, 1.0)
+      ).rgb;
+
+      emission += albedo * environment * RECIPROCAL_PI;
+    }
 
     // NOTE Values are weighted by extinction. Additive blending then gives extinction-weighted means.
     frameDensityAlbedo = vec4(albedo * extinction, extinction);

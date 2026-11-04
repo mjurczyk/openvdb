@@ -2,6 +2,7 @@ import * as Three from 'three';
 import { gridPars, noisePars } from './frameShaderChunks.js';
 
 // NOTE Light slots: sky up, sky down, then 6 lights. Two render targets with 4 channels each.
+// NOTE Scene lights take the first slots. The dominant directional environment light takes the next free slot.
 export const frameShadowLightSlots = 6;
 
 const vertexShader = `

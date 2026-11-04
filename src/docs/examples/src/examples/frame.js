@@ -682,6 +682,27 @@ export const exampleFrame = ({ scene }) => {
             OpenVDB.frameRenderer.settings.lighting = value;
           },
         },
+        // NOTE Environment light with self-shadowing. Use with an environment that has a sun, for example Night Realistic.
+        {
+          id: 'environmentLighting',
+          name: 'Environment Light',
+          defaultValue: OpenVDB.frameRenderer.settings.environmentLighting,
+          options: {
+            Outward: 'outward',
+            'Directional Samples': 'directional',
+          },
+          onChange: (value) => {
+            OpenVDB.frameRenderer.settings.environmentLighting = value;
+          },
+        },
+        {
+          id: 'environmentSamples',
+          name: 'Environment Samples',
+          defaultValue: OpenVDB.frameRenderer.settings.environmentSamples,
+          min: 1,
+          max: 8,
+          onChange: setFrameSetting('environmentSamples'),
+        },
         ...createFramePhaseFields(),
         createToneMappingField(),
         // NOTE WebGPURenderer only. WebGLRenderer always blends on the sRGB canvas.

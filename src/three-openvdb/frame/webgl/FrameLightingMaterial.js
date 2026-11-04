@@ -1,5 +1,5 @@
 import * as Three from 'three';
-import { froxelPars, phasePars, frameMieTexture } from './frameShaderChunks.js';
+import { froxelPars, phasePars, environmentPars, frameMieTexture } from './frameShaderChunks.js';
 
 const vertexShader = `
   void main() {
@@ -12,6 +12,7 @@ const fragmentShader = `
 
   ${froxelPars}
   ${phasePars}
+  ${environmentPars}
 
   uniform sampler2D frameDensityAlbedoMap;
   uniform sampler2D frameDensityEmissionMap;
@@ -21,6 +22,8 @@ const fragmentShader = `
   uniform int frameShadowLightCount;
   uniform int frameShadowPointOffset;
   uniform int frameShadowSpotOffset;
+  uniform int frameEnvironmentLightCount;
+  uniform int frameEnvironmentShadowSlot;
 
   #include <common>
   #include <lights_pars_begin>
@@ -119,6 +122,15 @@ const fragmentShader = `
       }
     #endif
 
+    // NOTE Environment lights with a shadow slot (0 or 1: the dominant directional light). Isotropic, no phase.
+    for (int i = 0; i < FRAME_MAX_ENVIRONMENT_LIGHTS; i++) {
+      if (i >= frameEnvironmentLightCount) {
+        break;
+      }
+
+      irradiance += frameEnvironmentColors[i] * frameShadowSlot(frameEnvironmentShadowSlot + i, shadow0, shadow1);
+    }
+
     vec3 albedo = densityAlbedo.rgb / extinction;
     vec3 emission = densityEmission.rgb / extinction;
     vec3 radiance = albedo * irradiance * RECIPROCAL_PI + emission;
@@ -148,6 +160,8 @@ export class FrameLightingMaterial extends Three.MeshStandardMaterial {
       frameShadowLightCount: { value: 0 },
       frameShadowPointOffset: { value: 0 },
       frameShadowSpotOffset: { value: 0 },
+      frameEnvironmentLightCount: { value: 0 },
+      frameEnvironmentShadowSlot: { value: 0 },
       // NOTE One phase for all volumes, from frameRenderer.settings
       framePhase: { value: new Three.Vector4() },
       frameMieMap: { value: frameMieTexture },

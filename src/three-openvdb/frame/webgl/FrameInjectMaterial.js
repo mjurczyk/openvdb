@@ -4,6 +4,7 @@ import {
   volumePars,
   noisePars,
   phasePars,
+  environmentPars,
   createVolumeUniforms,
 } from './frameShaderChunks.js';
 import { frameLights } from '../core/frameLights.js';
@@ -32,6 +33,7 @@ const fragmentShader = `
   ${volumePars}
   ${noisePars}
   ${phasePars}
+  ${environmentPars}
 
   #include <common>
   #include <lights_pars_begin>
@@ -151,8 +153,29 @@ const fragmentShader = `
       #endif
     }
 
+    // NOTE Environment lights replace the outward direction: one shadow march for each light, no phase
+    if ((frameLights & FRAME_LIGHT_ENV) != 0 && frameEnvironmentCount > 0) {
+      mat3 worldToLocalDirection = viewToLocalDirection * mat3(viewMatrix);
+      vec3 environment = vec3(0.0);
+
+      for (int i = 0; i < FRAME_MAX_ENVIRONMENT_LIGHTS; i++) {
+        if (i >= frameEnvironmentCount) {
+          break;
+        }
+
+        environment += frameEnvironmentColors[i] * frameTransmittance(
+          localPosition,
+          worldToLocalDirection * frameEnvironmentDirections[i],
+          1e6,
+          lod
+        );
+      }
+
+      irradiance += max(environment, vec3(0.0));
+    }
+
     #if defined( USE_ENVMAP )
-      if ((frameLights & FRAME_LIGHT_ENV) != 0) {
+      if ((frameLights & FRAME_LIGHT_ENV) != 0 && frameEnvironmentCount == 0) {
         float envTransmittance = frameTransmittance(localPosition, viewToLocalDirection * outwardNormal, 1e6, lod);
 
         irradiance += getIBLIrradiance(outwardNormal) * envTransmittance;

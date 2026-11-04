@@ -9,6 +9,7 @@ import {
   vec3,
   vec4,
   uniform,
+  uniformArray,
   texture,
   property,
   outputStruct,
@@ -23,6 +24,7 @@ import {
 import { frameFragCoord, frameNoise, frameFullscreenVertex, createGridNodes } from './frameShaderChunks.js';
 
 // NOTE Light slots: sky up, sky down, then 6 lights. Two render targets with 4 channels each.
+// NOTE Scene lights take the first slots. The dominant directional environment light takes the next free slot.
 export const frameShadowLightSlots = 6;
 
 const maxShadowSteps = 1024;
@@ -35,11 +37,15 @@ export class FrameTransmittanceMaterial extends Three.NodeMaterial {
     this.name = 'FrameTransmittanceMaterial';
     this.frameShadowDensityMap = texture(new Three.Texture());
     this.frameShadowLightCount = uniform(0, 'int');
+    this.frameShadowLights = uniformArray(
+      Array.from({ length: frameShadowLightSlots }, () => new Three.Vector4()),
+      'vec4',
+    );
 
     const grid = createGridNodes(gridUniforms);
     const { frameGridMin, frameGridSize, frameGridVoxel, frameGridCount, frameGridAtlasSize } =
       gridUniforms;
-    const { frameSkyDirection, frameLightPositions } = lightUniforms;
+    const { frameSkyDirection } = lightUniforms;
 
     const transmittance0 = property('vec4');
     const transmittance1 = property('vec4');
@@ -93,7 +99,7 @@ export class FrameTransmittanceMaterial extends Three.NodeMaterial {
       const result = float(1.0).toVar();
 
       If(int(slot).lessThan(this.frameShadowLightCount), () => {
-        const light = frameLightPositions.element(slot).toVar();
+        const light = this.frameShadowLights.element(slot).toVar();
         const isDirection = light.w.lessThan(1.5);
         const toLight = light.xyz.sub(worldPosition).toVar();
 
