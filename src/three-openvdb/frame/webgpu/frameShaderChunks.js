@@ -18,6 +18,7 @@ import {
   pow,
   exp,
   exp2,
+  log,
   log2,
   fract,
   dot,
@@ -174,6 +175,36 @@ export const framePhaseWeight = (framePhase, rayDirection, lightDirection) => {
 
   return weight;
 };
+
+// NOTE Absorption of the shadow extinction: the part of the light that the albedo (linear luminance) does not scatter
+export const frameShadowAbsorption = (extinction, albedo) =>
+  extinction.mul(float(1.0).sub(clamp(dot(albedo, vec3(0.2126, 0.7152, 0.0722)), 0.0, 1.0)));
+
+// NOTE Shadow march values for each unit of length: (extinction, effective extinction, reduced scattering).
+// multipleScattering is 1 - g (core/framePhase.js). Diffusion approximation: effective = sqrt(3 * absorption * (absorption + reduced)).
+export const frameShadowStep = (extinction, absorption, multipleScattering) => {
+  const absorbed = min(absorption, extinction).toVar();
+  const reducedScattering = extinction.sub(absorbed).mul(multipleScattering).toVar();
+
+  return vec3(extinction, sqrt(absorbed.mul(3.0).mul(absorbed.add(reducedScattering))), reducedScattering);
+};
+
+// NOTE -log of the total shadow transmittance (direct and scattered light) of the summed march values.
+// exp(-effective) / (1 + 0.75 * reduced), never less than the direct light exp(-extinction). 0.0 multipleScattering: direct only.
+export const frameShadowDepth = (depths, multipleScattering) =>
+  select(
+    multipleScattering.greaterThan(0.0),
+    min(depths.x, depths.y.add(log(depths.z.mul(0.75).add(1.0)))),
+    depths.x,
+  );
+
+// NOTE (direct, total) shadow transmittance. Direct light gets the phase function, scattered light (total - direct) is isotropic.
+export const frameShadowTransmittance = (depths, multipleScattering) =>
+  vec2(exp(depths.x.negate()), exp(frameShadowDepth(depths, multipleScattering).negate()));
+
+// NOTE Light of a shadowed light, divided by the light color: phase * direct + scattered
+export const frameShadowedLight = (phase, transmittance) =>
+  phase.mul(transmittance.x).add(transmittance.y.sub(transmittance.x));
 
 export const frameMaxLights = 16;
 export const frameMaxHemisphereLights = 4;
@@ -678,16 +709,15 @@ export const createGridNodes = (grid) => {
 
   // NOTE Transmittance of the shadow slots at a world position. 1.0 outside the grid.
   // Call in a Fn body. Returns two vec4 variables.
-  const sampleShadows = (map0, map1, worldPosition) => {
-    const shadow0 = vec4(1.0).toVar();
-    const shadow1 = vec4(1.0).toVar();
+  // NOTE One vec4 for each map
+  const sampleShadows = (maps, worldPosition) => {
+    const shadows = maps.map(() => vec4(1.0).toVar());
     const cascade = findCascade(worldPosition, int(0)).toVar();
 
     If(cascade.greaterThanEqual(0), () => {
       const uvw = gridUvw(cascade, worldPosition).toVar();
 
-      shadow0.assign(sampleGrid(map0, cascade, uvw));
-      shadow1.assign(sampleGrid(map1, cascade, uvw));
+      maps.forEach((map, index) => shadows[index].assign(sampleGrid(map, cascade, uvw)));
 
       // NOTE Blend to the next cascade near the sides of this cascade. Then cascade borders are not visible.
       const sideDistance = min(uvw, vec3(1.0).sub(uvw));
@@ -699,13 +729,14 @@ export const createGridNodes = (grid) => {
         If(nextCascade.greaterThanEqual(0), () => {
           const nextUvw = gridUvw(nextCascade, worldPosition).toVar();
 
-          shadow0.assign(mix(shadow0, sampleGrid(map0, nextCascade, nextUvw), blend));
-          shadow1.assign(mix(shadow1, sampleGrid(map1, nextCascade, nextUvw), blend));
+          maps.forEach((map, index) =>
+            shadows[index].assign(mix(shadows[index], sampleGrid(map, nextCascade, nextUvw), blend)),
+          );
         });
       });
     });
 
-    return { shadow0, shadow1 };
+    return shadows;
   };
 
   // NOTE Cascade and grid position of an atlas pixel

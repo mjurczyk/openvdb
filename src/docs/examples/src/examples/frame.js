@@ -25,8 +25,8 @@ const explosion = {
   emissiveGrid: 'flames',
   // NOTE Approximately the 99th percentile of the flames grid
   emissiveScale: 6.0,
-  baseColor: '#ffffff',
-  extinction: 450.0,
+  baseColor: '#555555',
+  extinction: 350.0,
   emissiveIntensity: 25.0,
   // NOTE Emission light settings for the explosion
   lightIntensity: 25.0,
@@ -71,7 +71,7 @@ export const exampleFrame = ({ scene }) => {
     absorbance: 1.0,
     densityScale: 1.0,
     opacity: 1.0,
-    extinction: 100.0,
+    extinction: 350.0,
     ...phaseParams,
     emissiveIntensity: 1.0,
     temperatureMin: 600.0,
@@ -498,12 +498,11 @@ export const exampleFrame = ({ scene }) => {
           onChange: (value) => {
             params.source = value;
 
-            // NOTE The explosion lights the ground
+            // NOTE The explosion turns on its emission light. The floor stays as it is.
             if (value === 'explosion') {
               getController('emissionLight')?.setValue(true);
               getController('emissionIntensity')?.setValue(explosion.lightIntensity);
               getController('emissionResolution')?.setValue(explosion.probes);
-              getController('sceneMeshes')?.setValue(true);
               getController('fogColor')?.setValue(explosion.baseColor);
               getController('extinction')?.setValue(explosion.extinction);
               getController('emissiveIntensity')?.setValue(explosion.emissiveIntensity);
@@ -603,6 +602,7 @@ export const exampleFrame = ({ scene }) => {
             debugObstacle.visible = value;
           },
         },
+        { ...emission.meshesField, name: 'Show Floor' },
       ],
     },
     {
@@ -688,6 +688,15 @@ export const exampleFrame = ({ scene }) => {
           max: 8,
           onChange: setFrameSetting('environmentSamples'),
         },
+        // NOTE Off is single scattering: dense volumes get dark inside
+        {
+          id: 'multipleScattering',
+          name: 'Multiple Scattering',
+          defaultValue: OpenVDB.frameRenderer.settings.multipleScattering,
+          onChange: (value) => {
+            OpenVDB.frameRenderer.settings.multipleScattering = value;
+          },
+        },
         ...createFramePhaseFields(),
         createToneMappingField(),
         // NOTE WebGPURenderer only. WebGLRenderer always blends on the sRGB canvas.
@@ -768,7 +777,7 @@ export const exampleFrame = ({ scene }) => {
     {
       folder: 'Light Emission',
       closed: true,
-      children: [...emission.lightFields, emission.meshesField],
+      children: emission.lightFields,
     },
     {
       folder: 'Volume',

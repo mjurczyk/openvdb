@@ -43,6 +43,11 @@ const fragmentShader = `
     return 1.0;
   }
 
+  // NOTE A scene light with a shadow slot: the density pass stored phase * direct + scattered light
+  float frameLightFactor(int slot, float phase, vec4 shadow0, vec4 shadow1) {
+    return slot < frameShadowLightCount ? frameShadowSlot(slot, shadow0, shadow1) : phase;
+  }
+
   void main() {
     ivec2 texel = ivec2(gl_FragCoord.xy);
     vec4 densityAlbedo = texelFetch(frameDensityAlbedoMap, texel, 0);
@@ -94,7 +99,7 @@ const fragmentShader = `
         DirectionalLight directionalLight = directionalLights[i];
         float phase = framePhaseWeight(rayDirection, directionalLight.direction);
 
-        irradiance += directionalLight.color * phase * frameShadowSlot(i, shadow0, shadow1);
+        irradiance += directionalLight.color * frameLightFactor(i, phase, shadow0, shadow1);
       }
     #endif
 
@@ -105,7 +110,7 @@ const fragmentShader = `
         float distanceAttenuation = getDistanceAttenuation(length(lightVector), pointLight.distance, pointLight.decay);
         float phase = framePhaseWeight(rayDirection, normalize(lightVector));
 
-        irradiance += pointLight.color * phase * distanceAttenuation * frameShadowSlot(frameShadowPointOffset + i, shadow0, shadow1);
+        irradiance += pointLight.color * distanceAttenuation * frameLightFactor(frameShadowPointOffset + i, phase, shadow0, shadow1);
       }
     #endif
 
@@ -118,7 +123,7 @@ const fragmentShader = `
         float distanceAttenuation = getDistanceAttenuation(length(lightVector), spotLight.distance, spotLight.decay);
         float phase = framePhaseWeight(rayDirection, normalize(lightVector));
 
-        irradiance += spotLight.color * phase * spotAttenuation * distanceAttenuation * frameShadowSlot(frameShadowSpotOffset + i, shadow0, shadow1);
+        irradiance += spotLight.color * spotAttenuation * distanceAttenuation * frameLightFactor(frameShadowSpotOffset + i, phase, shadow0, shadow1);
       }
     #endif
 

@@ -1,5 +1,5 @@
 import * as Three from 'three';
-import { gridPars, environmentPars, environmentGridPars } from './frameShaderChunks.js';
+import { gridPars, environmentPars, environmentGridPars, shadowPars } from './frameShaderChunks.js';
 import { frameMaxEnvironmentLights } from '../core/frameEnvironment.js';
 
 const vertexShader = `
@@ -16,14 +16,16 @@ const fragmentShader = `
   ${gridPars}
   ${environmentPars}
   ${environmentGridPars}
+  ${shadowPars}
 
   uniform sampler2D frameShadowDensityMap;
   uniform int frameLightCount;
   uniform vec3 frameLightDirections[FRAME_MAX_ENVIRONMENT_LIGHTS];
   uniform vec3 frameLightColors[FRAME_MAX_ENVIRONMENT_LIGHTS];
 
-  float frameExtinctionAt(vec3 gridUvw) {
-    return frameSampleGrid(frameShadowDensityMap, frameEnvironmentGridCascade, gridUvw).r;
+  // NOTE (extinction, absorption)
+  vec2 frameExtinctionAt(vec3 gridUvw) {
+    return frameSampleGrid(frameShadowDensityMap, frameEnvironmentGridCascade, gridUvw).rg;
   }
 
   void main() {
@@ -49,7 +51,7 @@ const fragmentShader = `
     for (int i = 0; i < 8; i++) {
       vec3 corner = vec3(float(i & 1), float((i >> 1) & 1), float((i >> 2) & 1)) - 0.5;
 
-      nearExtinction += frameExtinctionAt((worldPosition + corner * voxel - gridMin) / gridSize);
+      nearExtinction += frameExtinctionAt((worldPosition + corner * voxel - gridMin) / gridSize).x;
     }
 
     if (nearExtinction <= 0.0) {
@@ -68,20 +70,23 @@ const fragmentShader = `
       float stepLength = 1.0 / max(voxelsPerUnit.x, max(voxelsPerUnit.y, voxelsPerUnit.z));
       vec3 marchStep = direction * stepLength;
       vec3 probe = worldPosition + marchStep * 0.5;
-      float opticalDepth = 0.0;
+      vec3 depths = vec3(0.0);
 
       for (int j = 0; j < FRAME_MAX_STEPS; j++) {
         vec3 uvw = (probe - gridMin) / gridSize;
 
-        if (any(lessThan(uvw, vec3(0.0))) || any(greaterThan(uvw, vec3(1.0))) || opticalDepth > 6.0) {
+        if (any(lessThan(uvw, vec3(0.0))) || any(greaterThan(uvw, vec3(1.0))) || frameShadowDepth(depths) > 6.0) {
           break;
         }
 
-        opticalDepth += frameExtinctionAt(uvw) * stepLength;
+        vec2 extinction = frameExtinctionAt(uvw);
+
+        depths += frameShadowStep(extinction.x, extinction.y) * stepLength;
         probe += marchStep;
       }
 
-      irradiance += frameLightColors[i] * exp(-opticalDepth);
+      // NOTE Environment lights are isotropic: total transmittance, no phase
+      irradiance += frameLightColors[i] * exp(-frameShadowDepth(depths));
     }
 
     gl_FragColor = vec4(max(irradiance, vec3(0.0)), 1.0);
@@ -107,6 +112,8 @@ export class FrameEnvironmentGridMaterial extends Three.ShaderMaterial {
         frameLightColors: {
           value: Array.from({ length: frameMaxEnvironmentLights }, () => new Three.Vector3()),
         },
+        // NOTE Multiple scattering of frameRenderer.settings (core/framePhase.js). 0.0 is single scattering.
+        frameMultipleScattering: { value: 0.0 },
       },
       vertexShader,
       fragmentShader,

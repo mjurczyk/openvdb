@@ -6,6 +6,8 @@ import {
   noisePars,
   environmentPars,
   environmentGridPars,
+  phasePars,
+  shadowPars,
   tileQuadVertexShader,
   createVolumeUniforms,
 } from './frameShaderChunks.js';
@@ -31,9 +33,19 @@ const fragmentShader = `
   ${noisePars}
   ${environmentPars}
   ${environmentGridPars}
+  ${phasePars}
+  ${shadowPars}
+
+  #define FRAME_SHADOW_SLOTS 6
 
   uniform sampler2D frameTransmittanceMap0;
   uniform sampler2D frameTransmittanceMap1;
+  // NOTE Direct transmittance of the 6 light slots
+  uniform sampler2D frameTransmittanceMap2;
+  uniform sampler2D frameTransmittanceMap3;
+  // NOTE World-space shadow lights. Scene lights get the phase here, at the visible position of each volume.
+  uniform vec4 frameShadowLights[FRAME_SHADOW_SLOTS];
+  uniform int frameShadowSceneLightCount;
   uniform sampler2D frameEnvironmentGridMap;
   uniform int frameEnvironmentMode;
   uniform bool frameUseShadows;
@@ -108,21 +120,47 @@ const fragmentShader = `
     vec3 emission = frameSampleEmission(visiblePosition, lod) + frameScatterColor;
 
     // NOTE Shadows at the visible position of this volume, not of other volumes in the froxel
+    // NOTE shadow0, shadow1: total transmittance. direct0, direct1: direct transmittance of the 6 light slots.
     vec4 shadow0 = vec4(1.0);
     vec4 shadow1 = vec4(1.0);
+    vec4 direct0 = vec4(1.0);
+    vec4 direct1 = vec4(1.0);
+    vec3 visibleWorldPosition = (frameCameraMatrixWorld * vec4(mix(viewNear, viewFar, visibleT), 1.0)).xyz;
 
     if (frameUseShadows) {
-      vec3 viewPosition = mix(viewNear, viewFar, visibleT);
-      vec3 worldPosition = (frameCameraMatrixWorld * vec4(viewPosition, 1.0)).xyz;
-
       frameSampleShadows(
         frameTransmittanceMap0,
         frameTransmittanceMap1,
-        worldPosition,
+        frameTransmittanceMap2,
+        frameTransmittanceMap3,
+        visibleWorldPosition,
         shadow0,
-        shadow1
+        shadow1,
+        direct0,
+        direct1
       );
     }
+
+    // NOTE Scene light slots store phase * direct + scattered. Scattered light is isotropic.
+    // NOTE Other slots (the environment light) keep the total transmittance.
+    vec3 rayDirection = normalize(mat3(frameCameraMatrixWorld) * (viewFar - viewNear));
+    float slotTotal[FRAME_SHADOW_SLOTS] = float[](shadow0.z, shadow0.w, shadow1.x, shadow1.y, shadow1.z, shadow1.w);
+    float slotDirect[FRAME_SHADOW_SLOTS] = float[](direct0.x, direct0.y, direct0.z, direct0.w, direct1.x, direct1.y);
+
+    for (int i = 0; i < FRAME_SHADOW_SLOTS; i++) {
+      if (i >= frameShadowSceneLightCount) {
+        break;
+      }
+
+      vec4 light = frameShadowLights[i];
+      vec3 lightDirection = light.w < 1.5 ? light.xyz : normalize(light.xyz - visibleWorldPosition);
+      float phase = framePhaseWeight(rayDirection, lightDirection);
+
+      slotTotal[i] = frameShadowedLight(phase, vec2(slotDirect[i], slotTotal[i]));
+    }
+
+    shadow0.zw = vec2(slotTotal[0], slotTotal[1]);
+    shadow1 = vec4(slotTotal[2], slotTotal[3], slotTotal[4], slotTotal[5]);
 
     // NOTE Environment along the outward direction from the volume center, the same as per-volume lighting.
     // NOTE Its shadow is between the sky down and sky up transmittance of the shadow grid.
@@ -154,8 +192,9 @@ const fragmentShader = `
     // NOTE Values are weighted by extinction. Additive blending then gives extinction-weighted means.
     frameDensityAlbedo = vec4(albedo * extinction, extinction);
     frameDensityEmission = vec4(emission * extinction, visibleT * extinction);
-    frameDensityShadow0 = shadow0 * extinction;
-    frameDensityShadow1 = shadow1 * extinction;
+    // NOTE Light slots can be more than 1 (phase). The limit keeps them below the half float maximum.
+    frameDensityShadow0 = min(shadow0 * extinction, vec4(6.0e4));
+    frameDensityShadow1 = min(shadow1 * extinction, vec4(6.0e4));
   }
 `;
 

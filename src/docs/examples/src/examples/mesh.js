@@ -152,7 +152,7 @@ export const exampleMesh = ({ scene }) => {
         // NOTE The volume box is the MeshVolume sampler box: size and center in model space
         const volume = new OpenVDB.FrameVolume(
           meshVolume,
-          { resolution: params.resolution, progressive: true },
+          { resolution: params.resolution, progressive: true, extinction: 350.0 },
           () => {
             stopLoading();
 
