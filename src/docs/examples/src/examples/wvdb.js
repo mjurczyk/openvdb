@@ -227,7 +227,7 @@ export const exampleWVDB = ({ scene }) => {
 
         const grid = Object.values(volumeData.grids)[0];
         const volume = new OpenVDB.FrameVolume(grid.data, {
-          resolution: grid.resolution,
+          dimensions: grid.dimensions,
           bbox: grid.bbox,
         });
 

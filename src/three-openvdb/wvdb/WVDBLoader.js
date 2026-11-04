@@ -46,8 +46,9 @@ export class WVDBVolumeData {
         get dimensions() {
           return grid.dimensions;
         },
+        // NOTE Texels on the longest side
         get resolution() {
-          return grid.dimensions[0];
+          return Math.max(...grid.dimensions);
         },
         get lod() {
           return grid.lod;

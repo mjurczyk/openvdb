@@ -24,7 +24,7 @@ import {
 export const bakeDefaults = {
   // NOTE Grid names to keep. Null keeps all scalar grids.
   grids: null,
-  // NOTE Texels per side of the finest LOD
+  // NOTE Texels on the longest box side of the finest LOD. Texels are cubes.
   resolution: 128,
   lods: 3,
   bits: 8,
@@ -147,10 +147,21 @@ export const mergeWVDBBoxes = (a, b) => {
   ];
 };
 
+// NOTE Cube-shaped texels, same as FrameVolume in three-openvdb. The longest box side has resolution texels.
+const getFinestDimensions = (size, resolution) => {
+  const longest = Math.max(size.x, size.y, size.z);
+
+  if (!(longest > 0.0)) {
+    return [resolution, resolution, resolution];
+  }
+
+  return size.toArray().map((side) => Math.max(1, Math.round((side * resolution) / longest)));
+};
+
 // NOTE Point samples at texel centres, same as FrameVolume.convert in three-openvdb.
 // Vector grids give 3 planes, one channel after the other.
-const sampleGrid = (grid, min, size, resolution, bits, channels) => {
-  const count = resolution * resolution * resolution;
+const sampleGrid = (grid, min, size, dimensions, bits, channels) => {
+  const count = dimensions[0] * dimensions[1] * dimensions[2];
   const values = new Float32Array(count * channels);
   const background = getBackground(grid);
 
@@ -161,23 +172,23 @@ const sampleGrid = (grid, min, size, resolution, bits, channels) => {
   }
 
   if (channels === 3) {
-    return sampleVectorGrid(grid, min, size, resolution, values, background);
+    return sampleVectorGrid(grid, min, size, dimensions, values, background);
   }
 
-  return sampleScalarGrid(grid, min, size, resolution, bits, values);
+  return sampleScalarGrid(grid, min, size, dimensions, bits, values);
 };
 
-const forEachTexel = (grid, min, size, resolution, callback) => {
+const forEachTexel = (grid, min, size, [width, height, depth], callback) => {
   const world = new Vector3();
   const index = new Vector3();
 
   let offset = 0;
 
-  for (let z = 0; z < resolution; z++) {
-    for (let y = 0; y < resolution; y++) {
-      for (let x = 0; x < resolution; x++) {
+  for (let z = 0; z < depth; z++) {
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
         world
-          .set((x + 0.5) / resolution, (y + 0.5) / resolution, (z + 0.5) / resolution)
+          .set((x + 0.5) / width, (y + 0.5) / height, (z + 0.5) / depth)
           .multiply(size)
           .add(min);
         grid.transform.applyInverseTransformMap(index.copy(world));
@@ -188,10 +199,10 @@ const forEachTexel = (grid, min, size, resolution, callback) => {
   }
 };
 
-const sampleVectorGrid = (grid, min, size, resolution, values, background) => {
-  const count = resolution * resolution * resolution;
+const sampleVectorGrid = (grid, min, size, dimensions, values, background) => {
+  const count = dimensions[0] * dimensions[1] * dimensions[2];
 
-  forEachTexel(grid, min, size, resolution, (index, offset) => {
+  forEachTexel(grid, min, size, dimensions, (index, offset) => {
     const value = grid.getValue(index);
     const vector = isVector(value) ? [value.x, value.y, value.z] : background;
 
@@ -203,14 +214,14 @@ const sampleVectorGrid = (grid, min, size, resolution, values, background) => {
   return values;
 };
 
-const sampleScalarGrid = (grid, min, size, resolution, bits, values) => {
+const sampleScalarGrid = (grid, min, size, dimensions, bits, values) => {
   const background = grid.root.background;
   const isLevelSet = grid.isLevelSet();
 
   // NOTE Active level set values stay one quantization step inside the band. Then they never decode as inactive.
   const bandLimit = background - (2.0 * background) / ((1 << bits) - 1);
 
-  forEachTexel(grid, min, size, resolution, (index, offset) => {
+  forEachTexel(grid, min, size, dimensions, (index, offset) => {
     let value = grid.getValue(index);
 
     if (!Number.isFinite(value)) {
@@ -406,6 +417,7 @@ export const bakeWVDB = (vdb, options, { compress, source }) => {
   const bbox = settings.bbox || getWVDBBox(vdb, settings.grids);
   const min = bbox ? new Vector3().fromArray(bbox[0]) : new Vector3();
   const size = bbox ? new Vector3().fromArray(bbox[1]).sub(min) : new Vector3();
+  const dimensions = getFinestDimensions(size, resolution);
 
   const encodedGrids = grids.map((grid, gridIndex) => {
     const channels = getChannels(grid);
@@ -413,8 +425,8 @@ export const bakeWVDB = (vdb, options, { compress, source }) => {
 
     const levels = [];
     levels[lods - 1] = {
-      values: sampleGrid(grid, min, size, resolution, bits, channels),
-      dimensions: [resolution, resolution, resolution],
+      values: sampleGrid(grid, min, size, dimensions, bits, channels),
+      dimensions,
     };
 
     for (let lod = lods - 2; lod >= 0; lod--) {

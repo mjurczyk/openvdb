@@ -19,7 +19,8 @@ Options:
   -o, --output <path>     One .vdb input: output file. Folder or ZIP input: output folder.
                           Default: next to the input (<folder>_wvdb/ for folders and ZIP files)
   --grids <a,b>           Grid names to keep. Default: all scalar grids
-  --resolution <n>        Texels per side of the finest LOD. Default: ${bakeDefaults.resolution}
+  --resolution <n>        Texels on the longest box side of the finest LOD. Texels are cubes.
+                          Default: ${bakeDefaults.resolution}
   --lods <n>              LOD count. Default: ${bakeDefaults.lods}
   --bits <8|16>           Quantization bits. Default: ${bakeDefaults.bits}
   --layout <sparse|dense> Brick layout. Default: ${bakeDefaults.layout}

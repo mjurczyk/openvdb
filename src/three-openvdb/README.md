@@ -12,7 +12,7 @@ import { FrameVolume, WVDBLoader, WVDBAnimationLoader } from 'three-openvdb';
 // NOTE One file. LOD 0 shows at once, each next LOD replaces it while the download continues.
 new WVDBLoader().load('./explosion.wvdb', (volumeData) => {
   const grid = volumeData.grids.density;
-  const volume = new FrameVolume(grid.data, { resolution: grid.resolution, bbox: grid.bbox });
+  const volume = new FrameVolume(grid.data, { dimensions: grid.dimensions, bbox: grid.bbox });
 
   volumeData.attach(volume);
   scene.add(volume);

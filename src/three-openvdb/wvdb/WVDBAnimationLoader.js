@@ -208,7 +208,7 @@ class WVDBAnimationLoader extends Three.Loader {
     return volumeData.attach(
       new FrameVolume(densityGrid.data, {
         ...props,
-        resolution: densityGrid.resolution,
+        dimensions: densityGrid.dimensions,
         bbox: densityGrid.bbox,
       })
     );
