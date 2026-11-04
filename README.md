@@ -296,12 +296,41 @@ Froxel grid settings are global, in `frameRenderer.settings`:
 * `shadowDistance` - (default: `512`) the finer shadow grid cascades cover only this distance from the camera. The last cascade covers all volumes, with coarser voxels (`'frame'` lighting only).
 * `phase`, `phaseG`, `phaseBackG`, `phaseBackWeight` - (default: `'henyey-greenstein'`, `0.8`, `-0.3`, `0.2`) one phase function for all volumes with `'frame'` lighting. The values are the same as the `FrameVolume` phase props. `'volume'` lighting uses the phase props of each `FrameVolume`.
 * `srgbBlending` - (default: `true`) blends the volumes over the scene in sRGB, the same as `WebGLRenderer` did. `false` blends in linear space, the default of `WebGPURenderer`. Linear blending makes thin fog brighter.
+* `castShadows` - (default: `false`) volumes cast shadows on meshes, for directional, point and spot lights with `castShadow` (see Volume shadows).
+* `castShadowMapSize` - (default: `512`) texels on each side of a volume shadow map (of each cascade tile and cube face).
+* `castShadowCascades` - (default: `1`, max `4`) cascades of the volume shadow map of a directional light.
+* `castShadowDistance` - (default: `4000`) the largest view distance of the cascades.
+* `castShadowSteps` - (default: `32`) grid samples on each light ray of a volume shadow map.
+* `castShadowUpdatesPerFrame` - (default: `1`) volume shadow map pieces made again in one render (a cascade tile or a spot map counts 1, a cube map 6). Pieces that wait are older for some frames.
+* `castShadowCoarse` - (default: `false`) 64-texel maps and 8 samples: soft blob shadows at almost no cost.
 
 With `mipmaps`, large froxels far away sample a lower mip level, so small details fade to transparent.
 
 With `'frame'` lighting, the first directional, point and spot lights (6 in total) cast shadows. Hemisphere lights and light probes use the shadow grid in the up and down directions. The environment (`scene.environment`) lights each volume along its outward direction, the same as `'volume'` lighting. Its shadow is between the up and down shadows of the grid. Ambient light has no shadow. `lights` and `shadowSteps` are not used, `scatterColor` is added as emission, and `absorbance` scales the shadow of each volume.
 
 Limits: with `'volume'` lighting, volumes do not shadow other volumes, and point and spot lights have no distance falloff. The first 16 directional, point and spot lights light the volumes. With `'volume'` lighting, the first 4 hemisphere lights are used. Logarithmic depth buffers are not supported.
+
+#### Volume shadows
+
+```js
+renderer.shadowMap.enabled = true;
+OpenVDB.frameRenderer.settings.castShadows = true;
+
+light.castShadow = true;
+mesh.receiveShadow = true;
+```
+
+With `castShadows`, each directional, point and spot light with `castShadow` gets a volume shadow map (a Beer shadow map). The map is made from the world shadow grid of the frame renderer (the extinction of all volumes, the same grid as `'frame'` lighting): each texel samples its light ray `castShadowSteps` times in the last grid cascade (the cascade that covers all volumes), and keeps the optical depth and the depths where the density starts and ends. A mesh that receives shadows multiplies the three.js shadow with the volume transmittance at its depth. Mesh shadows and volume shadows add up, also for meshes in a volume. Volumes out of the view cast shadows too.
+
+Directional lights use cascades of the view, the same as three.js `CSMShadowNode`: near the camera the shadows are fine, far away coarse. The cascades end behind the volumes (the far corner of the volume box plus one box diagonal), up to `castShadowDistance`. Spot lights use the light shadow camera, point lights a cube map.
+
+Cost: the number of volumes and the camera do not change the cost of a map piece (a fixed number of samples for each texel). A piece is made again only when its camera, the volumes or the grid change, and at most `castShadowUpdatesPerFrame` pieces in a render, the oldest first. A static scene has no volume shadow passes. With `'volume'` lighting, `castShadows` makes only the last grid cascade, and only when it changes. Each lit pixel reads one texel for each shadow light.
+
+`three-openvdb` (`WebGPURenderer`): the volume shadow uses `light.shadow.filterNode`. A filter set before is kept and multiplied. Lights with a shadow from before `castShadows` get a new shadow node, so their materials compile again one time.
+
+`three-openvdb/webgl` (`WebGLRenderer`): lit materials (`MeshStandardMaterial`, `MeshPhysicalMaterial`, `MeshLambertMaterial`, `MeshPhongMaterial`, `MeshToonMaterial`) get a shader patch (`onBeforeCompile`, after their own `onBeforeCompile`). After the three.js shadow of each light, it multiplies the volume transmittance. A child mesh of each shadow light that draws nothing makes the maps first in the render list. The first 4 shadow lights of each type get volume shadows. Point lights need the `PCFShadowMap` or `BasicShadowMap` shadow type.
+
+Limits: three.js applies the volume shadow only in the light shadow camera, the same as mesh shadows. Shadow detail is set by the voxels of the last grid cascade (`shadowResolution`). One start and one end depth for each texel, so two volumes on one light ray give one smooth shadow between them. Volumes out of the light shadow camera cast no shadow, the same as meshes.
 
 ---
 

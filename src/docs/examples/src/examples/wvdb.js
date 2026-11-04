@@ -22,7 +22,6 @@ const sequences = {
     // NOTE Approximately the 99th percentile of the flames grid
     emissiveScale: 6.0,
     baseColor: '#333333',
-    extinction: 450.0,
     fps: 60,
   },
 };
@@ -30,7 +29,7 @@ const sequences = {
 // NOTE On phones sequences stop at LOD 1 (64³). All frames at the finest LOD use approximately 1 GB of GPU memory.
 const sequenceMaxLod = isPhone ? 1 : Infinity;
 
-const defaultExtinction = 100.0;
+const defaultExtinction = 200.0;
 
 const getExtinction = (asset) => sequences[asset]?.extinction ?? defaultExtinction;
 

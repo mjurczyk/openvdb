@@ -25,9 +25,7 @@ const explosion = {
   emissiveGrid: 'flames',
   // NOTE Approximately the 99th percentile of the flames grid
   emissiveScale: 6.0,
-  baseColor: '#888888',
-  extinction: 450.0,
-  emissiveIntensity: 25.0,
+  emissiveIntensity: 3.0,
   // NOTE Emission light settings for the explosion
   lightIntensity: 25.0,
   probes: 32,
@@ -71,9 +69,9 @@ export const exampleFrame = ({ scene }) => {
     absorbance: 1.0,
     densityScale: 1.0,
     opacity: 1.0,
-    extinction: 100.0,
+    extinction: 200.0,
     ...phaseParams,
-    emissiveIntensity: 1.0,
+    emissiveIntensity: 3.0,
     temperatureMin: 600.0,
     temperatureMax: 7000.0,
     shadowSteps: 32,
@@ -81,6 +79,7 @@ export const exampleFrame = ({ scene }) => {
     lighting: 'frame',
     animateLights: true,
     mipmaps: true,
+    castShadow: false,
   };
 
   let entries = [];
@@ -174,6 +173,49 @@ export const exampleFrame = ({ scene }) => {
     orbitSpotLight,
     topSpotLight,
   ];
+
+  // NOTE Lights with a shadow map when "Cast Shadows" is on
+  const shadowLights = [sun, orbitPointLight, topPointLight, insidePointLight, orbitSpotLight, topSpotLight];
+
+  // NOTE The sun shadow camera covers the ground and props (all receivers) as seen from the sun.
+  // NOTE three.js applies shadows, also volume shadows, only in the light shadow camera. Negative near keeps the scene in it.
+  const sunBounds = new Three.Box3();
+  const sunCorner = new Three.Vector3();
+  const sunView = new Three.Box3();
+
+  const fitSunShadow = () => {
+    emission.meshes.updateMatrixWorld(true);
+    sunBounds.setFromObject(emission.meshes);
+    sun.updateMatrixWorld();
+    sun.shadow.updateMatrices(sun);
+    sunView.makeEmpty();
+
+    for (let i = 0; i < 8; i++) {
+      sunCorner
+        .set(
+          i & 1 ? sunBounds.max.x : sunBounds.min.x,
+          i & 2 ? sunBounds.max.y : sunBounds.min.y,
+          i & 4 ? sunBounds.max.z : sunBounds.min.z,
+        )
+        .applyMatrix4(sun.shadow.camera.matrixWorldInverse);
+      sunView.expandByPoint(sunCorner);
+    }
+
+    Object.assign(sun.shadow.camera, {
+      left: sunView.min.x,
+      right: sunView.max.x,
+      top: sunView.max.y,
+      bottom: sunView.min.y,
+      near: -1000.0,
+      far: 1000.0,
+    });
+    sun.shadow.camera.updateProjectionMatrix();
+  };
+
+  shadowLights.forEach((light) => {
+    light.shadow.mapSize.setScalar(light === sun ? 2048 : 1024);
+    light.shadow.normalBias = 0.5;
+  });
 
   setInterval(() => {
     if (params.animateLights) {
@@ -295,6 +337,7 @@ export const exampleFrame = ({ scene }) => {
 
                 // NOTE Z-up: the height is the Z side of the box
                 emission.placeMeshes(size.z * scale, Math.max(size.x, size.y) * scale);
+                fitSunShadow();
                 onBuilt();
               },
               undefined,
@@ -327,6 +370,7 @@ export const exampleFrame = ({ scene }) => {
       const firstPivot = addVolume(createBunny(), center);
       firstPivot.position.set(0.0, 0.0, 0.0);
       emission.placeMeshes(size.y, Math.max(size.x, size.z));
+      fitSunShadow();
 
       if (params.source !== 'twoBunnies') {
         return;
@@ -350,8 +394,10 @@ export const exampleFrame = ({ scene }) => {
       const offset = ((bunnyGridSize - 1) * spacing) / 2.0;
       let source = null;
 
+
       // NOTE The ground covers the grid
       emission.placeMeshes(side, side, (bunnyGridSize * 1.1 + 4.0) / 8.0);
+      fitSunShadow();
 
       const createBunny = () => {
         if (!source) {
@@ -505,10 +551,8 @@ export const exampleFrame = ({ scene }) => {
               getController('emissionResolution')?.setValue(explosion.probes);
               getController('sceneMeshes')?.setValue(true);
               getController('environment')?.setValue('night');
-              getController('lightIntensity')?.setValue(0.0);
-              getController('fogColor')?.setValue(explosion.baseColor);
-              getController('extinction')?.setValue(explosion.extinction);
               getController('emissiveIntensity')?.setValue(explosion.emissiveIntensity);
+              getController('castShadow')?.setValue(true);
             }
 
             rebuild();
@@ -764,6 +808,85 @@ export const exampleFrame = ({ scene }) => {
       folder: 'Light Emission',
       closed: true,
       children: [...emission.lightFields, emission.meshesField],
+    },
+    {
+      folder: 'Shadow Casting',
+      closed: true,
+      children: [
+        {
+          id: 'castShadow',
+          name: 'Cast Shadows',
+          defaultValue: params.castShadow,
+          onChange: (value) => {
+            params.castShadow = value;
+            OpenVDB.frameRenderer.settings.castShadows = value;
+
+            // NOTE Ground and props show the shadows
+            shadowLights.forEach((light) => {
+              light.castShadow = value;
+            });
+
+            [emission.meshes, debugObstacle].forEach((object) =>
+              object.traverse((mesh) => {
+                if (mesh.isMesh) {
+                  mesh.castShadow = value;
+                  mesh.receiveShadow = value;
+                }
+              }),
+            );
+
+            if (value) {
+              getController('sceneMeshes')?.setValue(true);
+            }
+          },
+        },
+        {
+          id: 'shadowMapSize',
+          name: 'Volume Shadow Map',
+          defaultValue: OpenVDB.frameRenderer.settings.castShadowMapSize,
+          options: { 128: 128, 256: 256, 512: 512, 1024: 1024 },
+          onChange: (value) => {
+            OpenVDB.frameRenderer.settings.castShadowMapSize = value;
+          },
+        },
+        {
+          id: 'castShadowSteps',
+          name: 'Shadow Samples',
+          defaultValue: OpenVDB.frameRenderer.settings.castShadowSteps,
+          min: 4,
+          max: 128,
+          onChange: (value) => {
+            OpenVDB.frameRenderer.settings.castShadowSteps = Math.round(value);
+          },
+        },
+        {
+          id: 'castShadowUpdatesPerFrame',
+          name: 'Updates / Frame',
+          defaultValue: OpenVDB.frameRenderer.settings.castShadowUpdatesPerFrame,
+          min: 1,
+          max: 24,
+          onChange: (value) => {
+            OpenVDB.frameRenderer.settings.castShadowUpdatesPerFrame = Math.round(value);
+          },
+        },
+        {
+          id: 'castShadowCascades',
+          name: 'Sun Cascades',
+          defaultValue: OpenVDB.frameRenderer.settings.castShadowCascades,
+          options: { 1: 1, 2: 2, 3: 3, 4: 4 },
+          onChange: (value) => {
+            OpenVDB.frameRenderer.settings.castShadowCascades = value;
+          },
+        },
+        {
+          id: 'castShadowCoarse',
+          name: 'Coarse Shadows',
+          defaultValue: OpenVDB.frameRenderer.settings.castShadowCoarse,
+          onChange: (value) => {
+            OpenVDB.frameRenderer.settings.castShadowCoarse = value;
+          },
+        },
+      ],
     },
     {
       folder: 'Volume',

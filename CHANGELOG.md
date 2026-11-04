@@ -1,5 +1,7 @@
 # Unreleased
 
+- `frameRenderer.settings.castShadows` (default `false`): volumes cast shadows on meshes, for directional, point and spot lights with `castShadow`. Each light gets a volume shadow map (Beer shadow map) made from the world shadow grid of the frame renderer. Directional lights use view cascades (`castShadowCascades`, `castShadowDistance`), point lights a cube map. Settings for cost: `castShadowMapSize`, `castShadowSteps`, `castShadowUpdatesPerFrame`, `castShadowCoarse`. Both `three-openvdb` and `three-openvdb/webgl` (a shader patch of the lit materials)
+- Examples: Rendering Frame has a Shadow Casting folder (Cast Shadows, Volume Shadow Map, Shadow Samples, Updates / Frame, Sun Cascades, Coarse Shadows)
 - Phase functions of directional, point and spot lights: Henyey-Greenstein (default), dual-lobe and tabulated Lorenz-Mie (`'lorenz-mie'`), with `phase`, `phaseG`, `phaseBackG` and `phaseBackWeight`. Back-lit volumes get a silver lining. `FrameVolume` props for `'volume'` lighting, `frameRenderer.settings` for `'frame'` lighting (one phase for all volumes). Both `three-openvdb` and `three-openvdb/webgl`
 - `scripts/mie-phase-table.mjs` makes the Lorenz-Mie table (cumulus droplets, 550 nm)
 - Examples: Rendering Frame and Custom VDB have Phase G, Phase Back G and Phase Back Weight fields (Volume folder, Per-volume lighting) and Combined Phase fields (Rendering folder and Scene folder, Combined lighting)
