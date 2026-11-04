@@ -1,6 +1,7 @@
 import * as Three from 'three';
 import { getFramePhase } from '../core/framePhase.js';
 import { frameMieTable, frameMieTableSize } from '../core/frameMieTable.js';
+import { frameMaxEnvironmentLights } from '../core/frameEnvironment.js';
 
 // NOTE Froxel grid layout and view reconstruction. Shared by all froxel passes.
 export const froxelPars = `
@@ -278,8 +279,9 @@ export const gridPars = `
     return -1;
   }
 
-  // NOTE Hardware bilinear filter in the slice, manual linear filter between slices
-  vec4 frameSampleGrid(sampler2D atlas, int cascade, vec3 gridUvw) {
+  // NOTE Hardware bilinear filter in the slice, manual linear filter between slices.
+  // NOTE The grid is the z slices (tiles) from tileOffset in an atlas with columns tile columns.
+  vec4 frameSampleTiles(sampler2D atlas, float tileOffset, float columns, vec2 atlasSize, vec3 gridUvw) {
     float resolution = frameGridResolution;
     float z = gridUvw.z * resolution - 0.5;
     float z0 = clamp(floor(z), 0.0, resolution - 1.0);
@@ -287,16 +289,19 @@ export const gridPars = `
     float blend = clamp(z - z0, 0.0, 1.0);
     vec2 xy = clamp(gridUvw.xy * resolution, vec2(0.5), vec2(resolution - 0.5));
 
-    float tileOffset = float(cascade) * resolution;
     float tile0Index = tileOffset + z0;
     float tile1Index = tileOffset + z1;
-    vec2 tile0 = vec2(mod(tile0Index, frameGridColumns), floor(tile0Index / frameGridColumns));
-    vec2 tile1 = vec2(mod(tile1Index, frameGridColumns), floor(tile1Index / frameGridColumns));
+    vec2 tile0 = vec2(mod(tile0Index, columns), floor(tile0Index / columns));
+    vec2 tile1 = vec2(mod(tile1Index, columns), floor(tile1Index / columns));
 
-    vec4 sample0 = texture(atlas, (tile0 * resolution + xy) / frameGridAtlasSize);
-    vec4 sample1 = texture(atlas, (tile1 * resolution + xy) / frameGridAtlasSize);
+    vec4 sample0 = texture(atlas, (tile0 * resolution + xy) / atlasSize);
+    vec4 sample1 = texture(atlas, (tile1 * resolution + xy) / atlasSize);
 
     return mix(sample0, sample1, blend);
+  }
+
+  vec4 frameSampleGrid(sampler2D atlas, int cascade, vec3 gridUvw) {
+    return frameSampleTiles(atlas, float(cascade) * frameGridResolution, frameGridColumns, frameGridAtlasSize, gridUvw);
   }
 
   // NOTE Transmittance of the shadow slots at a world position. 1.0 outside the grid.
@@ -347,6 +352,54 @@ export const gridPars = `
     return int(cascade);
   }
 `;
+
+// NOTE Environment lights (frameRenderer.settings.environmentLighting). World directions to the light.
+// NOTE Colors are isotropic irradiance, no phase. Count is 0 with the 'outward' environment.
+// NOTE Unshadowed is the sum of the environment grid light colors, clamped to 0 or more. Used outside the environment grid.
+export const environmentPars = `
+  #define FRAME_MAX_ENVIRONMENT_LIGHTS ${frameMaxEnvironmentLights}
+
+  uniform int frameEnvironmentCount;
+  uniform vec3 frameEnvironmentDirections[FRAME_MAX_ENVIRONMENT_LIGHTS];
+  uniform vec3 frameEnvironmentColors[FRAME_MAX_ENVIRONMENT_LIGHTS];
+  uniform vec3 frameEnvironmentUnshadowed;
+`;
+
+export const createEnvironmentUniforms = () => ({
+  frameEnvironmentCount: { value: 0 },
+  frameEnvironmentDirections: {
+    value: Array.from({ length: frameMaxEnvironmentLights }, () => new Three.Vector3(0.0, 1.0, 0.0)),
+  },
+  frameEnvironmentColors: {
+    value: Array.from({ length: frameMaxEnvironmentLights }, () => new Three.Vector3()),
+  },
+  frameEnvironmentUnshadowed: { value: new Three.Vector3() },
+});
+
+// NOTE Environment grid: environment light of each voxel of the last shadow grid cascade, in its own atlas.
+// NOTE Needs gridPars before it.
+export const environmentGridPars = `
+  uniform int frameEnvironmentGridCascade;
+  uniform float frameEnvironmentGridColumns;
+  uniform vec2 frameEnvironmentGridAtlasSize;
+
+  // NOTE outside is the value outside the environment grid
+  vec4 frameSampleEnvironmentGrid(sampler2D map, vec3 worldPosition, vec4 outside) {
+    vec3 gridUvw = frameGridUvw(frameEnvironmentGridCascade, worldPosition);
+
+    if (!frameInsideGrid(gridUvw)) {
+      return outside;
+    }
+
+    return frameSampleTiles(map, 0.0, frameEnvironmentGridColumns, frameEnvironmentGridAtlasSize, gridUvw);
+  }
+`;
+
+export const createEnvironmentGridUniforms = () => ({
+  frameEnvironmentGridCascade: { value: 0 },
+  frameEnvironmentGridColumns: { value: 1.0 },
+  frameEnvironmentGridAtlasSize: { value: new Three.Vector2(1.0, 1.0) },
+});
 
 // NOTE Instanced quad for density passes. One instance for each tile (slice), the quad covers the volume rectangle.
 export const tileQuadVertexShader = `

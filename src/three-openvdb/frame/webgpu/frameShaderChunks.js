@@ -35,6 +35,7 @@ import {
 } from 'three/tsl';
 import { getFramePhase } from '../core/framePhase.js';
 import { frameMieTable, frameMieTableSize } from '../core/frameMieTable.js';
+import { frameMaxEnvironmentLights } from '../core/frameEnvironment.js';
 
 // NOTE Shaders use the bottom-left pixel origin of GLSL (gl_FragCoord).
 // NOTE three.js nodes use the top-left origin of WebGPU. These helpers convert between them.
@@ -223,6 +224,19 @@ export const createLightUniforms = () => ({
     Array.from({ length: frameMaxLights }, () => new Three.Vector2()),
     'vec2',
   ),
+  // NOTE Environment lights (frameRenderer.settings.environmentLighting). World directions to the light.
+  // Colors are isotropic irradiance, no phase. Count is 0 with the 'outward' environment.
+  frameEnvironmentCount: uniform(0, 'int'),
+  frameEnvironmentDirections: uniformArray(
+    Array.from({ length: frameMaxEnvironmentLights }, () => new Three.Vector3(0.0, 1.0, 0.0)),
+    'vec3',
+  ),
+  frameEnvironmentColors: uniformArray(
+    Array.from({ length: frameMaxEnvironmentLights }, () => new Three.Vector3()),
+    'vec3',
+  ),
+  // NOTE Environment grid lights with no shadow, clamped to 0 or more. Used outside the environment grid.
+  frameEnvironmentUnshadowed: uniform(new Three.Vector3()),
 });
 
 // NOTE Bound to volumes without an emissive, base color or mask grid
@@ -568,6 +582,13 @@ export const createGridUniforms = (frameJitter) => ({
   frameJitter,
 });
 
+// NOTE Environment grid: environment light of each voxel of the last shadow grid cascade, in its own atlas
+export const createEnvironmentGridUniforms = () => ({
+  frameEnvironmentGridCascade: uniform(0, 'int'),
+  frameEnvironmentGridColumns: uniform(1.0),
+  frameEnvironmentGridAtlasSize: uniform(new Three.Vector2(1.0, 1.0)),
+});
+
 export const createGridNodes = (grid) => {
   const { frameGridMin, frameGridSize, frameGridCount, frameGridResolution, frameGridColumns } =
     grid;
@@ -602,8 +623,9 @@ export const createGridNodes = (grid) => {
     return cascade;
   };
 
-  // NOTE Hardware bilinear filter in the slice, manual linear filter between slices
-  const sampleGrid = (atlas, cascade, uvw) => {
+  // NOTE Hardware bilinear filter in the slice, manual linear filter between slices.
+  // NOTE The grid is the z slices (tiles) from tileOffset in an atlas with columns tile columns.
+  const sampleTiles = (atlas, tileOffset, columns, atlasSize, uvw) => {
     const resolution = frameGridResolution;
     const z = uvw.z.mul(resolution).sub(0.5);
     const z0 = clamp(floor(z), 0.0, resolution.sub(1.0));
@@ -611,11 +633,10 @@ export const createGridNodes = (grid) => {
     const blend = clamp(z.sub(z0), 0.0, 1.0);
     const xy = clamp(uvw.xy.mul(resolution), vec2(0.5), vec2(resolution.sub(0.5)));
 
-    const tileOffset = float(cascade).mul(resolution);
     const tileUv = (index) => {
-      const tile = vec2(mod(index, frameGridColumns), floor(index.div(frameGridColumns)));
+      const tile = vec2(mod(index, columns), floor(index.div(columns)));
 
-      return tile.mul(resolution).add(xy).div(grid.frameGridAtlasSize);
+      return tile.mul(resolution).add(xy).div(atlasSize);
     };
 
     return mix(
@@ -623,6 +644,36 @@ export const createGridNodes = (grid) => {
       frameSample(atlas, tileUv(tileOffset.add(z1))),
       blend,
     );
+  };
+
+  const sampleGrid = (atlas, cascade, uvw) =>
+    sampleTiles(
+      atlas,
+      float(cascade).mul(frameGridResolution),
+      frameGridColumns,
+      grid.frameGridAtlasSize,
+      uvw,
+    );
+
+  // NOTE Environment grid: the last cascade only, in its own atlas. outside is the value outside it.
+  // NOTE Call in a Fn body. Returns a vec4 variable.
+  const sampleEnvironmentGrid = (map, environmentGrid, worldPosition, outside) => {
+    const value = vec4(outside).toVar();
+    const uvw = gridUvw(environmentGrid.frameEnvironmentGridCascade, worldPosition).toVar();
+
+    If(insideGrid(uvw), () => {
+      value.assign(
+        sampleTiles(
+          map,
+          float(0.0),
+          environmentGrid.frameEnvironmentGridColumns,
+          environmentGrid.frameEnvironmentGridAtlasSize,
+          uvw,
+        ),
+      );
+    });
+
+    return value;
   };
 
   // NOTE Transmittance of the shadow slots at a world position. 1.0 outside the grid.
@@ -671,7 +722,16 @@ export const createGridNodes = (grid) => {
     };
   };
 
-  return { gridUvw, insideGrid, findCascade, sampleGrid, sampleShadows, getGridCell };
+  return {
+    gridUvw,
+    insideGrid,
+    findCascade,
+    sampleTiles,
+    sampleGrid,
+    sampleEnvironmentGrid,
+    sampleShadows,
+    getGridCell,
+  };
 };
 
 // NOTE Instanced quad for density passes. One instance for each tile (slice), the quad covers the volume rectangle.
