@@ -130,7 +130,6 @@ export class FrameLightingMaterial extends Three.NodeMaterial {
           shadow = select(i.equal(index), slot, shadow);
         });
 
-        shadow = select(i.lessThan(this.frameShadowLightCount), shadow, float(1.0));
 
         const spotAttenuation = select(
           position.w.greaterThan(2.5),
@@ -155,8 +154,11 @@ export class FrameLightingMaterial extends Three.NodeMaterial {
           select(position.w.lessThan(1.5), position.xyz, normalize(lightVector)),
         );
 
+        // NOTE A light with a shadow slot: the density pass stored phase * direct + scattered light
+        const lightFactor = select(i.lessThan(this.frameShadowLightCount), shadow, phase);
+
         irradiance.addAssign(
-          color.rgb.mul(phase).mul(spotAttenuation).mul(distanceAttenuation).mul(shadow),
+          color.rgb.mul(lightFactor).mul(spotAttenuation).mul(distanceAttenuation),
         );
       });
 

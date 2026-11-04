@@ -202,7 +202,7 @@ Converts the given `OpenVDBReader` to a volumetric `Three.Object3D`. `onConverte
 * `resolution: number` - (default: `100`) resolution of the 3D texture of each grid.
 * `dimensions: [x, y, z]` - raw data only: texels of the 3D texture on each axis, for example `grid.dimensions` of `.wvdb` data. Default: `resolution` on each axis.
 * `progressive: boolean` - set to `true` to render the volume while it is converted.
-* `extinction: number` - (default: `100.0`) extinction of density `1.0` for each unit of the volume box (the largest side).
+* `extinction: number` - (default: `350.0`) extinction of density `1.0` for each unit of the volume box (the largest side).
 * `phase: string` - (default: `'henyey-greenstein'`) phase function of directional, point and spot lights. It changes the light with the angle between the view ray and the light. Ambient, hemisphere, light probe and environment light stay isotropic. Used by `'volume'` lighting. `'frame'` lighting lights all volumes with one phase, from `frameRenderer.settings.phase`:
   * `'isotropic'` - the same light in all directions.
   * `'henyey-greenstein'` - one Henyey-Greenstein lobe with `phaseG`. Positive values scatter forward: a volume in front of the light gets bright edges (silver lining).
@@ -245,7 +245,7 @@ new OpenVDB.WVDBAnimationLoader()
   .setOptions({ emissiveGrid: 'flames' })
   .load(urls, (animation) => {
     for (let i = 0; i < 8; i++) {
-      const explosion = animation.createInstance({ extinction: 300.0 });
+      const explosion = animation.createInstance({ extinction: 350.0 });
 
       explosion.position.x = i * 10.0;
       explosion.frame = i * 10;
@@ -302,6 +302,7 @@ Froxel grid settings are global, in `frameRenderer.settings`:
   * `'spherical-harmonics'` - the environment as spherical harmonics (`environmentShOrder` `1` or `2`), with SH-projected transmittance (§7). The transmittance is marched along 6 (L1) or 12 (L2) fixed directions, projected to SH and multiplied with the environment SH. Soft light, no sharp sun shadow, no shadow slot. SH can ring: with a strong sun, a voxel that is shadowed from the side opposite the sun can get a bit more light than an unshadowed voxel.
 * `environmentSamples` - (default: `8`, `1` to `8`) directional lights of `'directional'`.
 * `environmentShOrder` - (default: `1`) SH order of `'spherical-harmonics'`: `1` (4 coefficients, 6 directions) or `2` (9 coefficients, 12 directions).
+* `multipleScattering` - (default: `true`) multiple scattering in the shadows of all lights (scene lights, hemisphere lights, light probes and the environment), with `'frame'` and `'volume'` lighting. Light that scatters again inside the volume goes deep into it, so white volumes (for example clouds) are white inside, not grey. Diffusion approximation: the total transmittance is `exp(-effective) / (1 + 0.75 * reduced)`, never less than the direct transmittance `exp(-opticalDepth)`. `reduced` is the scattering optical depth multiplied by `1 - g` (asymmetry `g` of the phase function: `'frame'` lighting `frameRenderer.settings`, `'volume'` lighting each `FrameVolume`, Lorenz-Mie `g = 0.8526`). `effective` comes from the absorption `1 - albedo` (linear luminance of `baseColor` and `baseColorGrid`). Dark volumes (for example smoke) absorb the scattered light, so they keep sharp shadows. Only the direct light gets the phase function. The scattered light is isotropic. `false` is single scattering (the earlier look).
 * `srgbBlending` - (default: `true`) blends the volumes over the scene in sRGB, the same as `WebGLRenderer` did. `false` blends in linear space, the default of `WebGPURenderer`. Linear blending makes thin fog brighter.
 
 With `mipmaps`, large froxels far away sample a lower mip level, so small details fade to transparent.

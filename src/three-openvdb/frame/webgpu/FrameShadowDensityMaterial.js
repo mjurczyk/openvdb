@@ -6,9 +6,11 @@ import {
   createVolumeUniforms,
   createVolumeNodes,
   createGridNodes,
+  frameShadowAbsorption,
 } from './frameShaderChunks.js';
 
-// NOTE Writes the extinction of one volume into one cascade of the world-space shadow grid.
+// NOTE Writes the extinction and absorption of one volume into one cascade of the world-space shadow grid.
+// NOTE Absorption limits multiple scattering in the shadow marches. Dark volumes keep sharp shadows.
 // NOTE All volumes use this material. Pool meshes set the volume uniforms before each draw.
 export class FrameShadowDensityMaterial extends Three.NodeMaterial {
   constructor({ gridUniforms, gridTileUniforms }) {
@@ -79,7 +81,12 @@ export class FrameShadowDensityMaterial extends Three.NodeMaterial {
         Discard();
       });
 
-      return vec4(extinction, 0.0, 0.0, 0.0);
+      return vec4(
+        extinction,
+        frameShadowAbsorption(extinction, volume.sampleAlbedo(localPosition, lod)),
+        0.0,
+        0.0,
+      );
     })();
   }
 }

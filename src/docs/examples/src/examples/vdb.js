@@ -36,7 +36,7 @@ const params = {
   absorbance: 1.0,
   densityScale: 1.0,
   opacity: 1.0,
-  extinction: 300.0,
+  extinction: 350.0,
   ...phaseParams,
   shadowSteps: 32,
   emissiveIntensity: 1.0,
@@ -670,7 +670,18 @@ export const exampleVDB = ({ scene }) => {
     },
     {
       folder: 'Rendering',
-      children: [createToneMappingField()],
+      children: [
+        // NOTE Off is single scattering: dense volumes get dark inside
+        {
+          id: 'multipleScattering',
+          name: 'Multiple Scattering',
+          defaultValue: OpenVDB.frameRenderer.settings.multipleScattering,
+          onChange: (value) => {
+            OpenVDB.frameRenderer.settings.multipleScattering = value;
+          },
+        },
+        createToneMappingField(),
+      ],
     },
     {
       folder: 'Light Emission',

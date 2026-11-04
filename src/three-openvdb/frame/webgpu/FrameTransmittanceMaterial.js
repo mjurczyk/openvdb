@@ -6,6 +6,7 @@ import {
   Break,
   float,
   int,
+  vec2,
   vec3,
   vec4,
   uniform,
@@ -15,15 +16,23 @@ import {
   outputStruct,
   select,
   abs,
-  exp,
   min,
   max,
   length,
   normalize,
 } from 'three/tsl';
-import { frameFragCoord, frameNoise, frameFullscreenVertex, createGridNodes } from './frameShaderChunks.js';
+import {
+  frameFragCoord,
+  frameNoise,
+  frameFullscreenVertex,
+  createGridNodes,
+  frameShadowStep,
+  frameShadowDepth,
+  frameShadowTransmittance,
+} from './frameShaderChunks.js';
 
-// NOTE Light slots: sky up, sky down, then 6 lights. Two render targets with 4 channels each.
+// NOTE Light slots: sky up, sky down, then 6 lights. Targets 0 and 1: total transmittance of all slots.
+// NOTE Targets 2 and 3: direct transmittance of the 6 lights. Then the lighting gives the phase only to the direct light.
 // NOTE Scene lights take the first slots. The dominant directional environment light takes the next free slot.
 export const frameShadowLightSlots = 6;
 
@@ -41,6 +50,8 @@ export class FrameTransmittanceMaterial extends Three.NodeMaterial {
       Array.from({ length: frameShadowLightSlots }, () => new Three.Vector4()),
       'vec4',
     );
+    // NOTE Multiple scattering of frameRenderer.settings (core/framePhase.js). 0.0 is single scattering.
+    this.frameMultipleScattering = uniform(0.0);
 
     const grid = createGridNodes(gridUniforms);
     const { frameGridMin, frameGridSize, frameGridVoxel, frameGridCount, frameGridAtlasSize } =
@@ -49,22 +60,25 @@ export class FrameTransmittanceMaterial extends Three.NodeMaterial {
 
     const transmittance0 = property('vec4');
     const transmittance1 = property('vec4');
+    const transmittance2 = property('vec4');
+    const transmittance3 = property('vec4');
 
+    // NOTE (extinction, absorption)
     const gridExtinction = (worldPosition) => {
       const found = grid.findCascade(worldPosition, int(0));
       const cascade = max(found, int(0));
 
       return select(
         found.greaterThanEqual(0),
-        grid.sampleGrid(this.frameShadowDensityMap, cascade, grid.gridUvw(cascade, worldPosition)).r,
-        float(0.0),
+        grid.sampleGrid(this.frameShadowDensityMap, cascade, grid.gridUvw(cascade, worldPosition)).rg,
+        vec2(0.0),
       );
     };
 
     // NOTE Each step moves one voxel of the finest cascade at the probe, on the fastest axis of the direction.
     // The march goes to coarser cascades when it leaves a fine cascade.
     const march = (origin, direction, maxDistance, jitter) => {
-      const opticalDepth = float(0.0).toVar();
+      const depths = vec3(0.0).toVar();
       const traveled = float(0.0).toVar();
       const probe = vec3(origin).toVar();
 
@@ -72,7 +86,7 @@ export class FrameTransmittanceMaterial extends Three.NodeMaterial {
         const cascade = grid.findCascade(probe, int(0)).toVar();
 
         If(
-          cascade.lessThan(0).or(traveled.greaterThanEqual(maxDistance)).or(opticalDepth.greaterThan(6.0)),
+          cascade.lessThan(0).or(traveled.greaterThanEqual(maxDistance)).or(frameShadowDepth(depths, this.frameMultipleScattering).greaterThan(6.0)),
           () => {
             Break();
           },
@@ -84,19 +98,21 @@ export class FrameTransmittanceMaterial extends Three.NodeMaterial {
           maxDistance.sub(traveled),
         ).toVar();
 
-        opticalDepth.addAssign(
-          gridExtinction(probe.add(direction.mul(stepLength).mul(jitter))).mul(stepLength),
+        const sample = gridExtinction(probe.add(direction.mul(stepLength).mul(jitter))).toVar();
+
+        depths.addAssign(
+          frameShadowStep(sample.x, sample.y, this.frameMultipleScattering).mul(stepLength),
         );
         probe.addAssign(direction.mul(stepLength));
         traveled.addAssign(stepLength);
       });
 
-      return exp(opticalDepth.negate());
+      return frameShadowTransmittance(depths, this.frameMultipleScattering);
     };
 
     // NOTE Light w is 1.0 for a light direction, 2.0 or more for a light position
     const lightTransmittance = (slot, worldPosition, jitter) => {
-      const result = float(1.0).toVar();
+      const result = vec2(1.0).toVar();
 
       If(int(slot).lessThan(this.frameShadowLightCount), () => {
         const light = this.frameShadowLights.element(slot).toVar();
@@ -125,6 +141,8 @@ export class FrameTransmittanceMaterial extends Three.NodeMaterial {
 
       transmittance0.assign(vec4(1.0));
       transmittance1.assign(vec4(1.0));
+      transmittance2.assign(vec4(1.0));
+      transmittance3.assign(vec4(1.0));
 
       If(cascade.lessThan(frameGridCount), () => {
         const voxel = frameGridVoxel.element(cascade).toVar();
@@ -139,37 +157,35 @@ export class FrameTransmittanceMaterial extends Three.NodeMaterial {
         for (let i = 0; i < 8; i++) {
           const corner = vec3(i & 1, (i >> 1) & 1, (i >> 2) & 1).sub(0.5);
 
-          nearExtinction = nearExtinction.add(gridExtinction(worldPosition.add(corner.mul(voxel))));
+          nearExtinction = nearExtinction.add(gridExtinction(worldPosition.add(corner.mul(voxel))).x);
         }
 
         If(nearExtinction.greaterThan(0.0), () => {
           const jitter = frameNoise(gridUniforms.frameJitter, fragCoord).toVar();
           const skyDirection = normalize(frameSkyDirection).toVar();
 
-          transmittance0.assign(
-            vec4(
-              march(worldPosition, skyDirection, float(1e20), jitter),
-              march(worldPosition, skyDirection.negate(), float(1e20), jitter),
-              lightTransmittance(0, worldPosition, jitter),
-              lightTransmittance(1, worldPosition, jitter),
-            ),
+          const lights = Array.from({ length: frameShadowLightSlots }, (_, slot) =>
+            lightTransmittance(slot, worldPosition, jitter).toVar(),
           );
 
-          transmittance1.assign(
+          transmittance0.assign(
             vec4(
-              lightTransmittance(2, worldPosition, jitter),
-              lightTransmittance(3, worldPosition, jitter),
-              lightTransmittance(4, worldPosition, jitter),
-              lightTransmittance(5, worldPosition, jitter),
+              march(worldPosition, skyDirection, float(1e20), jitter).y,
+              march(worldPosition, skyDirection.negate(), float(1e20), jitter).y,
+              lights[0].y,
+              lights[1].y,
             ),
           );
+          transmittance1.assign(vec4(lights[2].y, lights[3].y, lights[4].y, lights[5].y));
+          transmittance2.assign(vec4(lights[0].x, lights[1].x, lights[2].x, lights[3].x));
+          transmittance3.assign(vec4(lights[4].x, lights[5].x, 1.0, 1.0));
         });
       });
 
       return vec4(0.0);
     })();
 
-    this.outputNode = outputStruct(transmittance0, transmittance1);
+    this.outputNode = outputStruct(transmittance0, transmittance1, transmittance2, transmittance3);
 
     this.side = Three.DoubleSide;
     this.forceSinglePass = true;

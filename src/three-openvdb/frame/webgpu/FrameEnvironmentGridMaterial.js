@@ -15,7 +15,13 @@ import {
   exp,
   max,
 } from 'three/tsl';
-import { frameFragCoord, frameFullscreenVertex, createGridNodes } from './frameShaderChunks.js';
+import {
+  frameFragCoord,
+  frameFullscreenVertex,
+  createGridNodes,
+  frameShadowStep,
+  frameShadowDepth,
+} from './frameShaderChunks.js';
 import { frameMaxEnvironmentLights } from '../core/frameEnvironment.js';
 
 const maxSteps = 1024;
@@ -39,6 +45,8 @@ export class FrameEnvironmentGridMaterial extends Three.NodeMaterial {
       Array.from({ length: frameMaxEnvironmentLights }, () => new Three.Vector3()),
       'vec3',
     );
+    // NOTE Multiple scattering of frameRenderer.settings (core/framePhase.js). 0.0 is single scattering.
+    this.frameMultipleScattering = uniform(0.0);
 
     const grid = createGridNodes(gridUniforms);
     const { frameGridMin, frameGridSize, frameGridVoxel, frameGridResolution } = gridUniforms;
@@ -84,7 +92,7 @@ export class FrameEnvironmentGridMaterial extends Three.NodeMaterial {
             .toVar();
           const step = direction.mul(stepLength).toVar();
           const probe = worldPosition.add(step.mul(0.5)).toVar();
-          const opticalDepth = float(0.0).toVar();
+          const depths = vec3(0.0).toVar();
 
           Loop(maxSteps, () => {
             const uvw = probe.sub(gridMin).div(gridSize);
@@ -97,19 +105,26 @@ export class FrameEnvironmentGridMaterial extends Three.NodeMaterial {
                 .or(uvw.x.greaterThan(1.0))
                 .or(uvw.y.greaterThan(1.0))
                 .or(uvw.z.greaterThan(1.0))
-                .or(opticalDepth.greaterThan(6.0)),
+                .or(frameShadowDepth(depths, this.frameMultipleScattering).greaterThan(6.0)),
               () => {
                 Break();
               },
             );
 
-            opticalDepth.addAssign(
-              grid.sampleGrid(this.frameShadowDensityMap, cascade, uvw).r.mul(stepLength),
+            const sample = grid.sampleGrid(this.frameShadowDensityMap, cascade, uvw).toVar();
+
+            depths.addAssign(
+              frameShadowStep(sample.r, sample.g, this.frameMultipleScattering).mul(stepLength),
             );
             probe.addAssign(step);
           });
 
-          irradiance.addAssign(this.frameLightColors.element(i).mul(exp(opticalDepth.negate())));
+          // NOTE Environment lights are isotropic: total transmittance, no phase
+          irradiance.addAssign(
+            this.frameLightColors
+              .element(i)
+              .mul(exp(frameShadowDepth(depths, this.frameMultipleScattering).negate())),
+          );
         });
 
         result.assign(vec4(max(irradiance, vec3(0.0)), 1.0));

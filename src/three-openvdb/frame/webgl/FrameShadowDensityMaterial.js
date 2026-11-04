@@ -1,5 +1,11 @@
 import * as Three from 'three';
-import { volumePars, gridPars, tileQuadVertexShader, createVolumeUniforms } from './frameShaderChunks.js';
+import {
+  volumePars,
+  gridPars,
+  shadowPars,
+  tileQuadVertexShader,
+  createVolumeUniforms,
+} from './frameShaderChunks.js';
 
 const fragmentShader = `
   precision highp float;
@@ -8,6 +14,7 @@ const fragmentShader = `
 
   ${volumePars}
   ${gridPars}
+  ${shadowPars}
 
   void main() {
     vec3 gridUvw;
@@ -35,11 +42,17 @@ const fragmentShader = `
       discard;
     }
 
-    frameShadowDensity = vec4(extinction, 0.0, 0.0, 0.0);
+    frameShadowDensity = vec4(
+      extinction,
+      frameShadowAbsorption(extinction, frameSampleAlbedo(localPosition, lod)),
+      0.0,
+      0.0
+    );
   }
 `;
 
-// NOTE Writes the extinction of one volume into one cascade of the world-space shadow grid
+// NOTE Writes the extinction and absorption of one volume into one cascade of the world-space shadow grid.
+// NOTE Absorption limits multiple scattering in the shadow marches. Dark volumes keep sharp shadows.
 export class FrameShadowDensityMaterial extends Three.ShaderMaterial {
   name = 'FrameShadowDensityMaterial';
 

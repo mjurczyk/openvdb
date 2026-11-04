@@ -134,7 +134,7 @@ export class FrameVolume extends Three.Group {
       maskGrid,
       baseColor = 0xffffff,
       scatterColor = 0x000000,
-      extinction = 100.0,
+      extinction = 350.0,
       // NOTE Phase of direct lights: 'isotropic', 'henyey-greenstein', 'dual-lobe' or 'lorenz-mie'
       phase = 'henyey-greenstein',
       phaseG = 0.8,

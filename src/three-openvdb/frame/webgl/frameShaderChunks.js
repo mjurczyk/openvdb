@@ -59,6 +59,45 @@ frameMieTexture.needsUpdate = true;
 
 // NOTE Phase function of direct lights. framePhase is (forward g, back g, back weight, Lorenz-Mie weight).
 // See core/framePhase.js.
+// NOTE Multiple scattering in shadow marches. frameMultipleScattering is 1 - g (core/framePhase.js), 0.0 is single scattering.
+export const shadowPars = `
+  uniform float frameMultipleScattering;
+
+  // NOTE Absorption of the shadow extinction: the part of the light that the albedo (linear luminance) does not scatter
+  float frameShadowAbsorption(float extinction, vec3 albedo) {
+    return extinction * (1.0 - clamp(dot(albedo, vec3(0.2126, 0.7152, 0.0722)), 0.0, 1.0));
+  }
+
+  // NOTE March values for each unit of length: (extinction, effective extinction, reduced scattering).
+  // Diffusion approximation: effective = sqrt(3 * absorption * (absorption + reduced)).
+  vec3 frameShadowStep(float extinction, float absorption) {
+    float absorbed = min(absorption, extinction);
+    float reducedScattering = (extinction - absorbed) * frameMultipleScattering;
+
+    return vec3(extinction, sqrt(3.0 * absorbed * (absorbed + reducedScattering)), reducedScattering);
+  }
+
+  // NOTE -log of the total transmittance (direct and scattered light) of the summed march values.
+  // exp(-effective) / (1 + 0.75 * reduced), never less than the direct light exp(-extinction).
+  float frameShadowDepth(vec3 depths) {
+    if (frameMultipleScattering <= 0.0) {
+      return depths.x;
+    }
+
+    return min(depths.x, depths.y + log(1.0 + 0.75 * depths.z));
+  }
+
+  // NOTE (direct, total) transmittance. Direct light gets the phase function, scattered light (total - direct) is isotropic.
+  vec2 frameShadowTransmittance(vec3 depths) {
+    return vec2(exp(-depths.x), exp(-frameShadowDepth(depths)));
+  }
+
+  // NOTE Light of a shadowed light, divided by the light color: phase * direct + scattered
+  float frameShadowedLight(float phase, vec2 transmittance) {
+    return phase * transmittance.x + transmittance.y - transmittance.x;
+  }
+`;
+
 export const phasePars = `
   uniform vec4 framePhase;
   uniform sampler2D frameMieMap;
@@ -308,12 +347,18 @@ export const gridPars = `
   void frameSampleShadows(
     sampler2D map0,
     sampler2D map1,
+    sampler2D map2,
+    sampler2D map3,
     vec3 worldPosition,
     out vec4 shadow0,
-    out vec4 shadow1
+    out vec4 shadow1,
+    out vec4 shadow2,
+    out vec4 shadow3
   ) {
     shadow0 = vec4(1.0);
     shadow1 = vec4(1.0);
+    shadow2 = vec4(1.0);
+    shadow3 = vec4(1.0);
 
     int cascade = frameFindCascade(worldPosition, 0);
 
@@ -325,6 +370,8 @@ export const gridPars = `
 
     shadow0 = frameSampleGrid(map0, cascade, gridUvw);
     shadow1 = frameSampleGrid(map1, cascade, gridUvw);
+    shadow2 = frameSampleGrid(map2, cascade, gridUvw);
+    shadow3 = frameSampleGrid(map3, cascade, gridUvw);
 
     // NOTE Blend to the next cascade near the sides of this cascade. Then cascade borders are not visible.
     vec3 sideDistance = min(gridUvw, 1.0 - gridUvw);
@@ -336,6 +383,8 @@ export const gridPars = `
 
       shadow0 = mix(shadow0, frameSampleGrid(map0, nextCascade, nextUvw), blend);
       shadow1 = mix(shadow1, frameSampleGrid(map1, nextCascade, nextUvw), blend);
+      shadow2 = mix(shadow2, frameSampleGrid(map2, nextCascade, nextUvw), blend);
+      shadow3 = mix(shadow3, frameSampleGrid(map3, nextCascade, nextUvw), blend);
     }
   }
 
