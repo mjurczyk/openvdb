@@ -93,6 +93,9 @@ export class FrameInjectMaterial extends FrameEnvironmentMaterial {
       frameLightPositions,
       frameLightColors,
       frameLightSpots,
+      frameEnvironmentCount,
+      frameEnvironmentDirections,
+      frameEnvironmentColors,
     } = lightUniforms;
     const {
       frameViewToLocal,
@@ -213,15 +216,30 @@ export class FrameInjectMaterial extends FrameEnvironmentMaterial {
         irradiance.addAssign(getShIrradianceAt(outwardNormal, frameLightProbe));
       });
 
-      if (this.environment) {
-        If(useLights(frameLights.useEnvironment), () => {
-          irradiance.addAssign(
-            this.environmentIrradiance(outwardNormal).mul(
-              volumeTransmittance(worldToLocalDirection.mul(outwardNormal), float(1e6)),
-            ),
-          );
+      // NOTE Environment lights replace the outward direction: one shadow march for each light, no phase
+      If(useLights(frameLights.useEnvironment), () => {
+        If(frameEnvironmentCount.greaterThan(0), () => {
+          const environment = vec3(0.0).toVar();
+
+          Loop(frameEnvironmentCount, ({ i }) => {
+            const direction = worldToLocalDirection.mul(frameEnvironmentDirections.element(i)).toVar();
+
+            environment.addAssign(
+              frameEnvironmentColors.element(i).mul(volumeTransmittance(direction, float(1e6))),
+            );
+          });
+
+          irradiance.addAssign(max(environment, vec3(0.0)));
+        }).Else(() => {
+          if (this.environment) {
+            irradiance.addAssign(
+              this.environmentIrradiance(outwardNormal).mul(
+                volumeTransmittance(worldToLocalDirection.mul(outwardNormal), float(1e6)),
+              ),
+            );
+          }
         });
-      }
+      });
 
       If(useLights(frameLights.useHemisphereLights), () => {
         Loop(frameHemiCount, ({ i }) => {

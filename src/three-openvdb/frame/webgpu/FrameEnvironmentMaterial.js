@@ -40,12 +40,17 @@ export class FrameEnvironmentMaterial extends Three.NodeMaterial {
     }
   }
 
-  // NOTE Diffuse irradiance of the PMREM environment, the same as three.js IBL irradiance
-  environmentIrradiance(direction) {
-    const node = pmremTexture(this.environment, direction, float(1.0));
+  // NOTE Radiance of the PMREM environment at the roughness. Rotation is from the pass scene, intensity is not applied.
+  environmentRadiance(direction, roughness) {
+    const node = pmremTexture(this.environment, direction, float(roughness));
 
     this.environmentNodes.push(node);
 
-    return node.mul(Math.PI).mul(materialEnvIntensity);
+    return node;
+  }
+
+  // NOTE Diffuse irradiance of the PMREM environment, the same as three.js IBL irradiance
+  environmentIrradiance(direction) {
+    return this.environmentRadiance(direction, 1.0).mul(Math.PI).mul(materialEnvIntensity);
   }
 }

@@ -1,14 +1,27 @@
 import * as Three from 'three';
 import { FrameInjectMaterial } from './FrameInjectMaterial.js';
 import { FrameIntegrateMaterial } from './FrameIntegrateMaterial.js';
-import { FrameDensityMaterial } from './FrameDensityMaterial.js';
+import { FrameDensityMaterial, frameDensityEnvironment } from './FrameDensityMaterial.js';
 import { FrameShadowDensityMaterial } from './FrameShadowDensityMaterial.js';
 import { FrameTransmittanceMaterial, frameShadowLightSlots } from './FrameTransmittanceMaterial.js';
 import { FrameLightingMaterial } from './FrameLightingMaterial.js';
 import { FrameTemporalMaterial } from './FrameTemporalMaterial.js';
 import { FrameVolumeShadows } from './FrameVolumeShadows.js';
-import { setVolumeUniforms, frameMaxShadowCascades } from './frameShaderChunks.js';
+import { FrameEnvironmentMapMaterial } from './FrameEnvironmentMapMaterial.js';
+import { FrameEnvironmentGridMaterial } from './FrameEnvironmentGridMaterial.js';
+import {
+  setVolumeUniforms,
+  frameMaxShadowCascades,
+  createEnvironmentUniforms,
+  createEnvironmentGridUniforms,
+} from './frameShaderChunks.js';
 import { getFramePhase } from '../core/framePhase.js';
+import {
+  FrameEnvironmentLights,
+  frameEnvironmentModes,
+  frameEnvironmentMapWidth,
+  frameEnvironmentMapHeight,
+} from '../core/frameEnvironment.js';
 
 const textureKeys = ['densityMap3D', 'emissiveMap3D', 'baseColorMap3D', 'maskMap3D'];
 
@@ -111,6 +124,10 @@ export class FrameRenderer {
     castShadowUpdatesPerFrame: 1,
     // NOTE Very small maps and few samples: soft blob shadows, almost no cost
     castShadowCoarse: false,
+    // NOTE Environment light: 'outward', 'directional' or 'spherical-harmonics' (core/frameEnvironment.js)
+    environmentLighting: 'directional',
+    environmentSamples: 8,
+    environmentShOrder: 1,
   };
 
   froxelUniforms = {
@@ -158,12 +175,23 @@ export class FrameRenderer {
     frameUseShadows: { value: false },
     frameCameraMatrixWorld: { value: new Three.Matrix4() },
     frameSkyDirection: { value: new Three.Vector3(0.0, 1.0, 0.0) },
+    // NOTE Environment light of the last cascade voxels (FrameEnvironmentGridMaterial)
+    frameEnvironmentGridMap: { value: null },
+    // NOTE frameDensityEnvironment values
+    frameEnvironmentMode: { value: frameDensityEnvironment.outward },
   };
 
-  injectMaterial = new FrameInjectMaterial(this.froxelUniforms);
+  // NOTE Environment lights (frameRenderer.settings.environmentLighting)
+  environmentUniforms = createEnvironmentUniforms();
+  environmentGridUniforms = createEnvironmentGridUniforms();
+
+  injectMaterial = new FrameInjectMaterial({ ...this.froxelUniforms, ...this.environmentUniforms });
   integrateMaterial = new FrameIntegrateMaterial(this.froxelUniforms);
-  lightingMaterial = new FrameLightingMaterial(this.froxelUniforms);
-  transmittanceMaterial = new FrameTransmittanceMaterial(this.gridUniforms);
+  lightingMaterial = new FrameLightingMaterial({ ...this.froxelUniforms, ...this.environmentUniforms });
+  transmittanceMaterial = new FrameTransmittanceMaterial({
+    ...this.gridUniforms,
+    ...this.environmentUniforms,
+  });
   volumeShadows = new FrameVolumeShadows(this);
   depthMaterial = new Three.MeshBasicMaterial({ colorWrite: false, side: Three.DoubleSide });
 
@@ -194,6 +222,30 @@ export class FrameRenderer {
   previousRange = new Three.Vector2(0.1, 1.0);
   jitterIndex = 0;
 
+  // NOTE Environment lights. A small map of the environment is read one time for each environment change.
+  environmentLights = new FrameEnvironmentLights((renderer, scene) =>
+    this.renderEnvironmentMap(renderer, scene),
+  );
+  environmentMapMaterial = new FrameEnvironmentMapMaterial();
+  environmentMapScene = createScene();
+  environmentMapMesh = new Three.Mesh(createFullscreenGeometry(), this.environmentMapMaterial);
+  // NOTE A camera with updateProjectionMatrix(). Renderers call it, for example on a coordinate system change.
+  environmentMapCamera = new Three.OrthographicCamera(-1.0, 1.0, 1.0, -1.0, 0.0, 1.0);
+  environmentMapTarget = null;
+  environment = null;
+
+  // NOTE Environment grid: environment lights with no shadow slot, in the last cascade. Drawn only on a change.
+  environmentGridMaterial = new FrameEnvironmentGridMaterial({
+    ...this.gridUniforms,
+    ...this.environmentUniforms,
+    ...this.environmentGridUniforms,
+  });
+  environmentGridScene = createScene();
+  environmentGridMesh = new Three.Mesh(createFullscreenGeometry(), this.environmentGridMaterial);
+  environmentGridTarget = null;
+  environmentGridSignature = [];
+  nextEnvironmentGridSignature = [];
+
   atlasTarget = null;
   densityTarget = null;
   shadowDensityTarget = null;
@@ -216,16 +268,23 @@ export class FrameRenderer {
   rendererWarned = false;
 
   constructor() {
-    [this.injectMesh, this.lightingMesh, this.transmittanceMesh, this.temporalMesh].forEach(
-      (mesh) => {
-        mesh.frustumCulled = false;
-      },
-    );
+    [
+      this.injectMesh,
+      this.lightingMesh,
+      this.transmittanceMesh,
+      this.temporalMesh,
+      this.environmentMapMesh,
+      this.environmentGridMesh,
+    ].forEach((mesh) => {
+      mesh.frustumCulled = false;
+    });
 
     this.temporalScene.add(this.temporalMesh);
 
     this.injectScene.add(this.injectMesh, this.lightingMesh);
     this.transmittanceScene.add(this.transmittanceMesh);
+    this.environmentMapScene.add(this.environmentMapMesh);
+    this.environmentGridScene.add(this.environmentGridMesh);
   }
 
   // NOTE Each FrameVolume proxy calls this. The first proxy in a frame renders the frame.
@@ -301,6 +360,101 @@ export class FrameRenderer {
 
   isFrameLighting() {
     return this.settings.lighting === 'frame';
+  }
+
+  // NOTE Environment grid of the last cascade. It is drawn again only when its signature changes.
+  // NOTE Signature: the grid lights, the last cascade, and the caster data that the shadow density pass reads.
+  renderEnvironmentGrid(renderer, camera, casters, gridLights) {
+    const { frameGridMin, frameGridSize, frameGridCount, frameGridResolution } = this.gridUniforms;
+    const cascade = frameGridCount.value - 1;
+    const previous = this.environmentGridSignature;
+    const signature = this.nextEnvironmentGridSignature;
+
+    this.environmentGridUniforms.frameEnvironmentGridCascade.value = cascade;
+
+    signature.length = 0;
+    signature.push(
+      frameGridResolution.value,
+      cascade,
+      ...frameGridMin.value[cascade].toArray(),
+      ...frameGridSize.value[cascade].toArray(),
+    );
+
+    gridLights.forEach(({ direction, color }) => signature.push(...direction, ...color));
+
+    casters.forEach(({ frameVolume, volume }) => {
+      [volume.densityMap3D, volume.maskMap3D].forEach((map) =>
+        signature.push(map, map ? map.version : -1),
+      );
+
+      signature.push(
+        frameVolume.extinction,
+        frameVolume.densityScale,
+        frameVolume.densityCutoff,
+        frameVolume.absorbance,
+        frameVolume.wrap3D,
+        frameVolume.mipmaps,
+        ...frameVolume.offset3D.toArray(),
+        ...volume.matrixWorld.elements,
+      );
+    });
+
+    if (
+      signature.length === previous.length &&
+      signature.every((value, index) => value === previous[index])
+    ) {
+      return;
+    }
+
+    this.environmentGridSignature = signature;
+    this.nextEnvironmentGridSignature = previous;
+
+    const { uniforms } = this.environmentGridMaterial;
+
+    uniforms.frameShadowDensityMap.value = this.shadowDensityTarget.texture;
+    uniforms.frameLightCount.value = gridLights.length;
+
+    gridLights.forEach(({ direction, color }, index) => {
+      uniforms.frameLightDirections.value[index].fromArray(direction);
+      uniforms.frameLightColors.value[index].fromArray(color);
+    });
+
+    this.environmentGridMesh.layers.mask = camera.layers.mask;
+
+    renderer.setRenderTarget(this.environmentGridTarget);
+    renderer.render(this.environmentGridScene, camera);
+  }
+
+  // NOTE Draws the lat-long environment map with the rotation of the scene and intensity 1.0, then reads it.
+  renderEnvironmentMap(renderer, scene) {
+    if (!this.environmentMapTarget) {
+      this.environmentMapTarget = createRenderTarget(frameEnvironmentMapWidth, frameEnvironmentMapHeight, {
+        type: Three.FloatType,
+        minFilter: Three.NearestFilter,
+        magFilter: Three.NearestFilter,
+      });
+    }
+
+    const { environmentMapScene } = this;
+    const pixels = new Float32Array(frameEnvironmentMapWidth * frameEnvironmentMapHeight * 4);
+
+    environmentMapScene.environment = scene.environment;
+    environmentMapScene.environmentIntensity = 1.0;
+    environmentMapScene.environmentRotation.copy(scene.environmentRotation);
+
+    renderer.setRenderTarget(this.environmentMapTarget);
+    renderer.render(environmentMapScene, this.environmentMapCamera);
+
+    return renderer
+      .readRenderTargetPixelsAsync(
+        this.environmentMapTarget,
+        0,
+        0,
+        frameEnvironmentMapWidth,
+        frameEnvironmentMapHeight,
+        pixels,
+      )
+      .then(() => pixels);
   }
 
   collectVolumes(scene, camera) {
@@ -495,6 +649,28 @@ export class FrameRenderer {
       this.castSignature = [];
     }
 
+    // NOTE The environment grid is one cascade. A new target is empty, so the signature is reset.
+    const environmentAtlas = getAtlasLayout(resolution, resolution, resolution);
+
+    if (
+      !this.environmentGridTarget ||
+      this.environmentGridTarget.width !== environmentAtlas.width ||
+      this.environmentGridTarget.height !== environmentAtlas.height
+    ) {
+      if (this.environmentGridTarget) {
+        this.environmentGridTarget.dispose();
+      }
+
+      this.environmentGridTarget = createRenderTarget(environmentAtlas.width, environmentAtlas.height);
+      this.environmentGridSignature = [];
+    }
+
+    this.environmentGridUniforms.frameEnvironmentGridColumns.value = environmentAtlas.columns;
+    this.environmentGridUniforms.frameEnvironmentGridAtlasSize.value.set(
+      environmentAtlas.width,
+      environmentAtlas.height,
+    );
+
     this.gridUniforms.frameGridResolution.value = resolution;
     this.gridUniforms.frameGridColumns.value = gridAtlas.columns;
     this.gridUniforms.frameGridAtlasSize.value.set(gridAtlas.width, gridAtlas.height);
@@ -513,6 +689,9 @@ export class FrameRenderer {
     const currentShadowNeedsUpdate = renderer.shadowMap.needsUpdate;
 
     renderer.getClearColor(clearColor);
+
+    // NOTE null: the environment uses the 'outward' path
+    this.environment = this.environmentLights.update(renderer, scene, this.settings);
 
     this.updateTargets(renderer);
 
@@ -690,6 +869,7 @@ export class FrameRenderer {
       this.gridFreshCamera === camera ? this.gridReady : this.renderShadowDensity(renderer, camera, casters);
 
     this.gridFreshCamera = null;
+    const useEnvironmentGrid = useShadows && lights.environmentGridLights.length > 0;
 
     if (useShadows) {
       const transmittanceUniforms = this.transmittanceMaterial.uniforms;
@@ -708,6 +888,10 @@ export class FrameRenderer {
       renderer.render(this.transmittanceScene, camera);
     }
 
+    if (useEnvironmentGrid) {
+      this.renderEnvironmentGrid(renderer, camera, casters, lights.environmentGridLights);
+    }
+
     const { densityShadowUniforms } = this;
 
     densityShadowUniforms.frameUseShadows.value = useShadows;
@@ -715,6 +899,12 @@ export class FrameRenderer {
     densityShadowUniforms.frameTransmittanceMap1.value = this.transmittanceTarget.textures[1];
     densityShadowUniforms.frameCameraMatrixWorld.value.copy(camera.matrixWorld);
     densityShadowUniforms.frameSkyDirection.value.copy(lights.skyDirection);
+    densityShadowUniforms.frameEnvironmentGridMap.value = this.environmentGridTarget.texture;
+    densityShadowUniforms.frameEnvironmentMode.value = useEnvironmentGrid
+      ? frameDensityEnvironment.grid
+      : useShadows && lights.environmentLightCount > 0
+        ? frameDensityEnvironment.none
+        : frameDensityEnvironment.outward;
 
     // NOTE The density pass adds the environment. Its scene has the environment of the scene.
     this.densityScene.environment = scene.environment;
@@ -749,6 +939,8 @@ export class FrameRenderer {
           ...this.froxelTileUniforms,
           ...this.gridUniforms,
           ...this.densityShadowUniforms,
+          ...this.environmentUniforms,
+          ...this.environmentGridUniforms,
         }),
     );
 
@@ -767,6 +959,8 @@ export class FrameRenderer {
     lightingUniforms.frameShadowLightCount.value = lights.shadowLights.length;
     lightingUniforms.frameShadowPointOffset.value = lights.pointOffset;
     lightingUniforms.frameShadowSpotOffset.value = lights.spotOffset;
+    lightingUniforms.frameEnvironmentLightCount.value = useShadows ? lights.environmentLightCount : 0;
+    lightingUniforms.frameEnvironmentShadowSlot.value = lights.environmentShadowSlot;
     getFramePhase(this.settings, lightingUniforms.framePhase.value);
 
     renderer.setRenderTarget(this.atlasTarget);
@@ -1166,11 +1360,53 @@ export class FrameRenderer {
       skyDirection.set(0.0, 1.0, 0.0);
     }
 
+    // NOTE Environment lights. 'volume' lighting marches all of them in each volume.
+    const { environment } = this;
+    const environmentCount = environment ? environment.count : 0;
+    const { frameEnvironmentCount, frameEnvironmentDirections, frameEnvironmentColors, frameEnvironmentUnshadowed } =
+      this.environmentUniforms;
+
+    frameEnvironmentCount.value = environmentCount;
+
+    for (let i = 0; i < environmentCount; i++) {
+      frameEnvironmentDirections.value[i].fromArray(environment.directions[i]);
+      frameEnvironmentColors.value[i].fromArray(environment.colors[i]);
+    }
+
+    // NOTE 'frame' lighting. Scene lights take the first shadow slots.
+    // NOTE The dominant 'directional' environment light (light 0) takes the next free slot. Other environment lights go to the environment grid.
+    const sceneShadowLights = [...directions, ...points, ...spots].slice(0, frameShadowLightSlots);
+    const frameLighting = this.isFrameLighting() && environmentCount > 0;
+    const environmentLightCount =
+      frameLighting &&
+      environment.mode === frameEnvironmentModes.directional &&
+      sceneShadowLights.length < frameShadowLightSlots
+        ? 1
+        : 0;
+    const environmentGridLights = [];
+
+    frameEnvironmentUnshadowed.value.set(0.0, 0.0, 0.0);
+
+    if (frameLighting) {
+      for (let i = environmentLightCount; i < environmentCount; i++) {
+        environmentGridLights.push({ direction: environment.directions[i], color: environment.colors[i] });
+        frameEnvironmentUnshadowed.value.add(frameEnvironmentColors.value[i]);
+      }
+    }
+
+    frameEnvironmentUnshadowed.value.max(vector3.set(0.0, 0.0, 0.0));
+
     return {
       skyDirection: skyDirection.normalize(),
-      shadowLights: [...directions, ...points, ...spots].slice(0, frameShadowLightSlots),
+      shadowLights:
+        environmentLightCount > 0
+          ? [...sceneShadowLights, new Three.Vector4(...environment.directions[0], 1.0)]
+          : sceneShadowLights,
       pointOffset: directions.length,
       spotOffset: directions.length + points.length,
+      environmentLightCount,
+      environmentShadowSlot: sceneShadowLights.length,
+      environmentGridLights,
     };
   }
 
@@ -1202,14 +1438,25 @@ export class FrameRenderer {
     this.historyTargets = [null, null];
     this.historyValid = false;
 
-    ['atlasTarget', 'densityTarget', 'shadowDensityTarget', 'transmittanceTarget'].forEach(
-      (key) => {
-        if (this[key]) {
-          this[key].dispose();
-          this[key] = null;
-        }
-      },
+    [
+      'atlasTarget',
+      'densityTarget',
+      'shadowDensityTarget',
+      'transmittanceTarget',
+      'environmentMapTarget',
+      'environmentGridTarget',
+    ].forEach((key) => {
+      if (this[key]) {
+        this[key].dispose();
+        this[key] = null;
+      }
+    });
+
+    this.environmentLights = new FrameEnvironmentLights((renderer, scene) =>
+      this.renderEnvironmentMap(renderer, scene),
     );
+    this.environment = null;
+    this.environmentGridSignature = [];
 
     if (this.depthTarget) {
       this.depthTarget.depthTexture.dispose();
@@ -1233,11 +1480,17 @@ export class FrameRenderer {
       this.transmittanceMaterial,
       this.temporalMaterial,
       this.depthMaterial,
+      this.environmentMapMaterial,
+      this.environmentGridMaterial,
     ].forEach((material) => material.dispose());
 
-    [this.injectMesh, this.lightingMesh, this.transmittanceMesh].forEach((mesh) =>
-      mesh.geometry.dispose(),
-    );
+    [
+      this.injectMesh,
+      this.lightingMesh,
+      this.transmittanceMesh,
+      this.environmentMapMesh,
+      this.environmentGridMesh,
+    ].forEach((mesh) => mesh.geometry.dispose());
 
     this.cachedFrame = -1;
     this.cachedCamera = null;

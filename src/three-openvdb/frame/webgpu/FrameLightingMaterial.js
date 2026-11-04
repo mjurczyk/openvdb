@@ -46,6 +46,9 @@ export class FrameLightingMaterial extends Three.NodeMaterial {
     this.frameCameraMatrixWorld = uniform(new Three.Matrix4());
     // NOTE One phase for all volumes, from frameRenderer.settings
     this.framePhase = uniform(new Three.Vector4());
+    // NOTE Environment lights with a shadow slot (0 or 1). Light i has slot frameEnvironmentShadowSlot + i.
+    this.frameEnvironmentLightCount = uniform(0, 'int');
+    this.frameEnvironmentShadowSlot = uniform(0, 'int');
 
     this.vertexNode = frameFullscreenVertex;
     this.fragmentNode = this.createFragmentNode();
@@ -70,6 +73,7 @@ export class FrameLightingMaterial extends Three.NodeMaterial {
       frameLightColors,
       frameLightSpots,
       frameLightFalloffs,
+      frameEnvironmentColors,
     } = lightUniforms;
     const atlasSize = froxelUniforms.froxelAtlasSize;
 
@@ -154,6 +158,18 @@ export class FrameLightingMaterial extends Three.NodeMaterial {
         irradiance.addAssign(
           color.rgb.mul(phase).mul(spotAttenuation).mul(distanceAttenuation).mul(shadow),
         );
+      });
+
+      // NOTE Dominant directional environment light with a shadow slot. Isotropic, no phase.
+      Loop(this.frameEnvironmentLightCount, ({ i }) => {
+        const slot = this.frameEnvironmentShadowSlot.add(i).toVar();
+        let shadow = float(1.0);
+
+        shadowSlots.forEach((value, index) => {
+          shadow = select(slot.equal(index), value, shadow);
+        });
+
+        irradiance.addAssign(frameEnvironmentColors.element(i).mul(shadow));
       });
 
       const albedo = densityAlbedo.rgb.div(extinction);
