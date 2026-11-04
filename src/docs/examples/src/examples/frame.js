@@ -392,7 +392,7 @@ export const exampleFrame = ({ scene }) => {
 
           if (params.source === 'bunnyGrid') {
             addBunnyGrid(Math.max(size.x, size.y, size.z), () => {
-              const volume = new OpenVDB.FrameVolume(grid.data, { resolution: grid.resolution });
+              const volume = new OpenVDB.FrameVolume(grid.data, { dimensions: grid.dimensions });
               volume.scale.copy(size);
 
               return volumeData.attach(volume);
@@ -403,7 +403,7 @@ export const exampleFrame = ({ scene }) => {
 
           addBunnies(center, size, () =>
             volumeData.attach(
-              new OpenVDB.FrameVolume(grid.data, { resolution: grid.resolution, bbox: grid.bbox }),
+              new OpenVDB.FrameVolume(grid.data, { dimensions: grid.dimensions, bbox: grid.bbox }),
             ),
           );
         },

@@ -110,10 +110,11 @@ Thus the voxel centres fill the box. The voxels of one LOD are not cubes if the 
 
 A writer SHOULD make the LODs as follows:
 
-1. The finest LOD contains one sample of the source grid at the world position of each voxel.
-2. For each coarser LOD `k`, the dimensions are `ceil(dimensions(k + 1) / 2)` on each axis.
-3. Each voxel `(x, y, z)` of LOD `k` is the arithmetic mean of the voxels `(2x + i, 2y + j, 2z + k')` of LOD `k + 1`, for `i, j, k'` in `{0, 1}`. Only the voxels inside LOD `k + 1` are used.
-4. Each channel is filtered alone.
+1. The finest LOD has `resolution` voxels on the longest box side. The other dimensions are proportional to the box size, rounded, and 1 or more. Thus the voxels are approximately cubes.
+2. The finest LOD contains one sample of the source grid at the world position of each voxel.
+3. For each coarser LOD `k`, the dimensions are `ceil(dimensions(k + 1) / 2)` on each axis.
+4. Each voxel `(x, y, z)` of LOD `k` is the arithmetic mean of the voxels `(2x + i, 2y + j, 2z + k')` of LOD `k + 1`, for `i, j, k'` in `{0, 1}`. Only the voxels inside LOD `k + 1` are used.
+5. Each channel is filtered alone.
 
 ### 3.3. Bricks
 
@@ -207,7 +208,7 @@ The header is one JSON object. A reader MUST ignore header members that this doc
 | --- | --- | --- | --- |
 | `bits` | integer | yes | The quantization bit count: 8 or 16 (section 7). |
 | `lods` | integer | yes | The number of LODs. MUST be equal to the length of the `lods` array of each grid. |
-| `resolution` | integer | yes | The number of voxels on each axis of the finest LOD that the writer requested. |
+| `resolution` | integer | yes | The number of voxels on the longest box side of the finest LOD that the writer requested. |
 | `layout` | string | yes | `"dense"` or `"sparse"`. The layout that the writer requested. |
 | `pageBricks` | integer | yes | The maximum number of bricks in one page chunk. |
 | `grids` | array of strings or `null` | yes | The names of the source grids that the writer selected. `null` selects all supported grids. |
@@ -446,19 +447,19 @@ One fog volume grid, 3 LODs, sparse layout, 8 bits:
       "bbox": [[-111.5, -114.5, -159.5], [109.5, 141.5, 122.5]],
       "lods": [
         {
-          "dimensions": [32, 32, 32],
+          "dimensions": [25, 29, 32],
           "bricks": 49,
           "mask": { "offset": 0, "length": 21 },
           "pages": [{ "offset": 21, "length": 6012, "bricks": 49 }]
         },
         {
-          "dimensions": [64, 64, 64],
+          "dimensions": [50, 58, 64],
           "bricks": 295,
           "mask": { "offset": 6033, "length": 52 },
           "pages": [{ "offset": 6085, "length": 41200, "bricks": 295 }]
         },
         {
-          "dimensions": [128, 128, 128],
+          "dimensions": [100, 116, 128],
           "bricks": 1799,
           "mask": { "offset": 47285, "length": 260 },
           "pages": [

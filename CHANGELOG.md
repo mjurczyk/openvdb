@@ -1,5 +1,7 @@
 # Unreleased
 
+- Fix: `wvdb` baked a `resolution`³ cube for each box, so volumes with a long box side were blurred along that side. Now texels are cubes: the longest box side has `resolution` texels. `FrameVolume` `dimensions` prop for raw data (`grid.dimensions` of `.wvdb` data)
+- Examples: Venus Statue `.wvdb` baked again with cube-shaped texels
 - Examples: new UltraHDR environments (Desert, Grassland, Shore, Town Square, Sky Cloudy, Sky Dusk, Sky Midday, Sky Night). Desert is the default. The EnvMap field is in the General folder of all demos. Fiery Sky, Magic Forest and Night Realistic are removed
 - Examples: Desert, Grassland, Shore and Town Square show their lower half as a flat ground (GroundedSkybox). The camera starts lower
 - Examples: Custom VDB volumes stand on the ground. `.vdb` files convert at resolution 200 (was 100)
