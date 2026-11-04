@@ -1,7 +1,7 @@
 import * as Three from 'three';
 import * as OpenVDB from 'three-openvdb';
 import { gui, setGuiFields } from '../utils/gui';
-import { loadEnvironment, loaders } from '../utils/resources';
+import { loaders } from '../utils/resources';
 import { setLoading } from '../utils/loading';
 
 // NOTE Longest side of the mesh and of the volume in scene units
@@ -88,8 +88,6 @@ export const exampleMesh = ({ scene }) => {
   sun.position.set(100.0, 200.0, 100.0);
   scene.add(sun);
   scene.add(new Three.HemisphereLight(0x88aaff, 0x443322, 0.5));
-
-  loadEnvironment(scene, 'uv-1');
 
   const setStatus = (text) => {
     getController('status')?.setValue(text);

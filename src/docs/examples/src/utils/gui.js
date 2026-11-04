@@ -5,11 +5,15 @@ import { exampleWVDB } from "../examples/wvdb";
 import { exampleMesh } from "../examples/mesh";
 import { scene } from "../main";
 import { isPhone } from "./device";
+import { loadEnvironment } from "./resources";
 
 export let gui = new GUI();
 export const dropTarget = document.querySelector('#dropzone');
 
 let activeDemo = 'vdb';
+
+// NOTE All demos share the environment. A demo change keeps it.
+let activeEnvironment = 'desert';
 
 export const setActiveDemo = (id) => {
   activeDemo = id;
@@ -61,6 +65,27 @@ const guiBaseFields = () => [
             case 'mesh':
               return exampleMesh({ scene });
           }
+        }
+      },
+      {
+        id: 'environment',
+        name: 'EnvMap',
+        options: {
+          Desert: 'desert',
+          Grassland: 'grassland',
+          Shore: 'shore',
+          'Town Square': 'townsquare',
+          'Sky Cloudy': 'sky-cloudy',
+          'Sky Dusk': 'sky-dusk',
+          'Sky Midday': 'sky-midday',
+          'Sky Night': 'sky-night',
+          UV: 'uv-1',
+        },
+        defaultValue: activeEnvironment,
+        onChange: (value) => {
+          activeEnvironment = value;
+
+          loadEnvironment(scene, value);
         }
       }
     ]

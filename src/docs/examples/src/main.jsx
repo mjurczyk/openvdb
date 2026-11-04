@@ -24,7 +24,8 @@ const stats = new Stats();
 document.body.appendChild(stats.dom);
 
 const init = () => {
-  camera.position.set(-100.0, 80.0, 80.0);
+  // NOTE 39 units above the ground of the environments (y = -50)
+  camera.position.set(-100.0, -11.0, 80.0);
 
   scene.background = new Three.Color(0x598eff);
 
