@@ -1,7 +1,7 @@
 import * as Three from 'three';
 import * as OpenVDB from 'three-openvdb';
 import { gui, setGuiFields } from '../utils/gui';
-import { loadAndCacheVDB, loadEnvironment } from '../utils/resources';
+import { loadAndCacheVDB } from '../utils/resources';
 import { setLoading } from '../utils/loading';
 import { createEmissionDemo } from '../utils/emission';
 import {
@@ -498,13 +498,12 @@ export const exampleFrame = ({ scene }) => {
           onChange: (value) => {
             params.source = value;
 
-            // NOTE The explosion lights the ground at night
+            // NOTE The explosion lights the ground
             if (value === 'explosion') {
               getController('emissionLight')?.setValue(true);
               getController('emissionIntensity')?.setValue(explosion.lightIntensity);
               getController('emissionResolution')?.setValue(explosion.probes);
               getController('sceneMeshes')?.setValue(true);
-              getController('environment')?.setValue('night');
               getController('fogColor')?.setValue(explosion.baseColor);
               getController('extinction')?.setValue(explosion.extinction);
               getController('emissiveIntensity')?.setValue(explosion.emissiveIntensity);
@@ -519,20 +518,6 @@ export const exampleFrame = ({ scene }) => {
       folder: 'Scene',
       closed: true,
       children: [
-        {
-          id: 'environment',
-          name: 'EnvMap',
-          defaultValue: 'uv-1',
-          options: {
-            'Night Realistic': 'night',
-            'Fiery Sky': 'fiery-sky-1',
-            'Magic Forest': 'magic-forest-5',
-            UV: 'uv-1',
-          },
-          onChange: (value) => {
-            loadEnvironment(scene, value);
-          },
-        },
         {
           id: 'lightSetup',
           name: 'Lights',
@@ -682,7 +667,7 @@ export const exampleFrame = ({ scene }) => {
             OpenVDB.frameRenderer.settings.lighting = value;
           },
         },
-        // NOTE Environment light with self-shadowing. Use with an environment that has a sun, for example Night Realistic.
+        // NOTE Environment light with self-shadowing. Use with an environment that has a sun, for example Sky Midday.
         {
           id: 'environmentLighting',
           name: 'Environment Light',
