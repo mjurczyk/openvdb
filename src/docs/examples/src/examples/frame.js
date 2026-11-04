@@ -11,6 +11,7 @@ import {
   applyPhaseParams,
 } from '../utils/phase';
 import { createToneMappingField } from '../utils/toneMapping';
+import { createMultipleScatteringFields } from '../utils/scattering';
 import { isPhone } from '../utils/device';
 
 // NOTE Stress test: one bunny is converted one time, in a cube box.
@@ -688,15 +689,7 @@ export const exampleFrame = ({ scene }) => {
           max: 8,
           onChange: setFrameSetting('environmentSamples'),
         },
-        // NOTE Off is single scattering: dense volumes get dark inside
-        {
-          id: 'multipleScattering',
-          name: 'Multiple Scattering',
-          defaultValue: OpenVDB.frameRenderer.settings.multipleScattering,
-          onChange: (value) => {
-            OpenVDB.frameRenderer.settings.multipleScattering = value;
-          },
-        },
+        ...createMultipleScatteringFields(),
         ...createFramePhaseFields(),
         createToneMappingField(),
         // NOTE WebGPURenderer only. WebGLRenderer always blends on the sRGB canvas.

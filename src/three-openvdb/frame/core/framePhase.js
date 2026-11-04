@@ -27,7 +27,7 @@ export const getFramePhase = (source, target) => {
 };
 
 // NOTE Asymmetry g of the Lorenz-Mie table, see core/frameMieTable.js
-const mieAsymmetry = 0.8526;
+export const frameMieAsymmetry = 0.8526;
 
 // NOTE Asymmetry g (mean cosine of the scattering angle) of the phase of source
 const getFramePhaseAsymmetry = (source) => {
@@ -42,13 +42,34 @@ const getFramePhaseAsymmetry = (source) => {
   }
 
   if (source.phase === 'lorenz-mie') {
-    return mieAsymmetry;
+    return frameMieAsymmetry;
   }
 
   return 0.0;
 };
 
 // NOTE Multiple scattering value of the shadow marches: 1 - g, the reduced scattering of each unit of scattering.
-// 0.0 is single scattering. See frameShadowDepth in the shader chunks.
-export const getFrameMultipleScattering = (enabled, source) =>
-  enabled ? 1.0 - getFramePhaseAsymmetry(source) : 0.0;
+// Only mode true (diffusion approximation). 'octaves' and false give 0.0. See frameShadowDepth in the shader chunks.
+export const getFrameMultipleScattering = (mode, source) =>
+  mode && mode !== 'octaves' ? 1.0 - getFramePhaseAsymmetry(source) : 0.0;
+
+export const frameMaxScatteringOctaves = 8;
+
+const clampUnit = (value, fallback) => Math.min(1.0, Math.max(0.0, Number.isFinite(Number(value)) ? Number(value) : fallback));
+
+// NOTE Indirect light octaves of multipleScattering 'octaves'. Writes (count N, extinction a, contribution b, phase c) to target.
+// Octave n (1 to N) has extinction * a^n, light * b^n and phase g * c^n. Count 0 is off (true or false multipleScattering).
+export const getFrameScatteringOctaves = (settings, target) => {
+  if (settings.multipleScattering !== 'octaves') {
+    return target.set(0.0, 0.0, 0.0, 0.0);
+  }
+
+  const count = Math.min(frameMaxScatteringOctaves, Math.max(1, Math.round(Number(settings.scatteringOctaves) || 1)));
+
+  return target.set(
+    count,
+    clampUnit(settings.scatteringOctaveExtinction, 0.5),
+    clampUnit(settings.scatteringOctaveContribution, 0.5),
+    clampUnit(settings.scatteringOctavePhase, 0.5),
+  );
+};

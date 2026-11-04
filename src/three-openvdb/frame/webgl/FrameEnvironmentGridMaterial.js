@@ -39,7 +39,8 @@ const fragmentShader = `
     vec3 gridSize = frameGridSize[cascade];
     vec3 worldPosition = gridMin + gridUvw * gridSize;
 
-    gl_FragColor = vec4(frameEnvironmentUnshadowed, 1.0);
+    // NOTE Octaves: unshadowed light also gets the octaves
+    gl_FragColor = vec4(frameEnvironmentUnshadowed * frameShadowTotal(1.0), 1.0);
 
     if (z >= resolution) {
       return;
@@ -75,7 +76,7 @@ const fragmentShader = `
       for (int j = 0; j < FRAME_MAX_STEPS; j++) {
         vec3 uvw = (probe - gridMin) / gridSize;
 
-        if (any(lessThan(uvw, vec3(0.0))) || any(greaterThan(uvw, vec3(1.0))) || frameShadowDepth(depths) > 6.0) {
+        if (any(lessThan(uvw, vec3(0.0))) || any(greaterThan(uvw, vec3(1.0))) || frameShadowMarchDepth(depths) > 6.0) {
           break;
         }
 
@@ -86,7 +87,7 @@ const fragmentShader = `
       }
 
       // NOTE Environment lights are isotropic: total transmittance, no phase
-      irradiance += frameLightColors[i] * exp(-frameShadowDepth(depths));
+      irradiance += frameLightColors[i] * frameShadowTotal(frameShadowTransmittance(depths).y);
     }
 
     gl_FragColor = vec4(max(irradiance, vec3(0.0)), 1.0);
@@ -114,6 +115,8 @@ export class FrameEnvironmentGridMaterial extends Three.ShaderMaterial {
         },
         // NOTE Multiple scattering of frameRenderer.settings (core/framePhase.js). 0.0 is single scattering.
         frameMultipleScattering: { value: 0.0 },
+        // NOTE Scattering octaves of frameRenderer.settings (core/framePhase.js). Count 0 is off.
+        frameScatteringOctaves: { value: new Three.Vector4() },
       },
       vertexShader,
       fragmentShader,

@@ -1,5 +1,12 @@
 import * as Three from 'three';
-import { froxelPars, phasePars, environmentPars, frameMieTexture } from './frameShaderChunks.js';
+import {
+  froxelPars,
+  phasePars,
+  shadowPars,
+  scatteringPars,
+  environmentPars,
+  frameMieTexture,
+} from './frameShaderChunks.js';
 
 const vertexShader = `
   void main() {
@@ -12,6 +19,8 @@ const fragmentShader = `
 
   ${froxelPars}
   ${phasePars}
+  ${shadowPars}
+  ${scatteringPars}
   ${environmentPars}
 
   uniform sampler2D frameDensityAlbedoMap;
@@ -43,9 +52,14 @@ const fragmentShader = `
     return 1.0;
   }
 
-  // NOTE A scene light with a shadow slot: the density pass stored phase * direct + scattered light
-  float frameLightFactor(int slot, float phase, vec4 shadow0, vec4 shadow1) {
-    return slot < frameShadowLightCount ? frameShadowSlot(slot, shadow0, shadow1) : phase;
+  // NOTE A scene light with a shadow slot: the density pass stored phase * direct + scattered light.
+  // A light with no shadow slot: no shadow, then octaves still add their light.
+  float frameLightFactor(int slot, vec3 rayDirection, vec3 lightDirection, vec4 shadow0, vec4 shadow1) {
+    if (slot < frameShadowLightCount) {
+      return frameShadowSlot(slot, shadow0, shadow1);
+    }
+
+    return frameShadowedLight(rayDirection, lightDirection, vec2(1.0));
   }
 
   void main() {
@@ -97,9 +111,8 @@ const fragmentShader = `
     #if NUM_DIR_LIGHTS > 0
       for (int i = 0; i < NUM_DIR_LIGHTS; i++) {
         DirectionalLight directionalLight = directionalLights[i];
-        float phase = framePhaseWeight(rayDirection, directionalLight.direction);
 
-        irradiance += directionalLight.color * frameLightFactor(i, phase, shadow0, shadow1);
+        irradiance += directionalLight.color * frameLightFactor(i, rayDirection, directionalLight.direction, shadow0, shadow1);
       }
     #endif
 
@@ -108,9 +121,8 @@ const fragmentShader = `
         PointLight pointLight = pointLights[i];
         vec3 lightVector = pointLight.position - viewPosition;
         float distanceAttenuation = getDistanceAttenuation(length(lightVector), pointLight.distance, pointLight.decay);
-        float phase = framePhaseWeight(rayDirection, normalize(lightVector));
 
-        irradiance += pointLight.color * distanceAttenuation * frameLightFactor(frameShadowPointOffset + i, phase, shadow0, shadow1);
+        irradiance += pointLight.color * distanceAttenuation * frameLightFactor(frameShadowPointOffset + i, rayDirection, normalize(lightVector), shadow0, shadow1);
       }
     #endif
 
@@ -121,9 +133,8 @@ const fragmentShader = `
         float angleCos = dot(normalize(lightVector), spotLight.direction);
         float spotAttenuation = getSpotAttenuation(spotLight.coneCos, spotLight.penumbraCos, angleCos);
         float distanceAttenuation = getDistanceAttenuation(length(lightVector), spotLight.distance, spotLight.decay);
-        float phase = framePhaseWeight(rayDirection, normalize(lightVector));
 
-        irradiance += spotLight.color * spotAttenuation * distanceAttenuation * frameLightFactor(frameShadowSpotOffset + i, phase, shadow0, shadow1);
+        irradiance += spotLight.color * spotAttenuation * distanceAttenuation * frameLightFactor(frameShadowSpotOffset + i, rayDirection, normalize(lightVector), shadow0, shadow1);
       }
     #endif
 
@@ -170,6 +181,8 @@ export class FrameLightingMaterial extends Three.MeshStandardMaterial {
       // NOTE One phase for all volumes, from frameRenderer.settings
       framePhase: { value: new Three.Vector4() },
       frameMieMap: { value: frameMieTexture },
+      // NOTE Scattering octaves of frameRenderer.settings (core/framePhase.js). Count 0 is off.
+      frameScatteringOctaves: { value: new Three.Vector4() },
     };
 
     this.depthTest = false;

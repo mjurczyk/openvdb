@@ -30,8 +30,8 @@ import {
   createVolumeUniforms,
   createVolumeNodes,
   createGridNodes,
-  framePhaseWeight,
   frameShadowedLight,
+  frameShadowTotal,
 } from './frameShaderChunks.js';
 import { FrameEnvironmentMaterial } from './FrameEnvironmentMaterial.js';
 
@@ -46,6 +46,8 @@ export const createDensityShadowUniforms = () => ({
   frameShadowSceneLightCount: uniform(0, 'int'),
   // NOTE One phase for all volumes, from frameRenderer.settings
   framePhase: uniform(new Three.Vector4()),
+  // NOTE Scattering octaves of frameRenderer.settings (core/framePhase.js). Count 0 is off.
+  frameScatteringOctaves: uniform(new Three.Vector4()),
   frameUseShadows: uniform(0, 'int'),
   frameCameraMatrixWorld: uniform(new Three.Matrix4()),
   // NOTE Environment light of the last cascade voxels (FrameEnvironmentGridMaterial)
@@ -222,8 +224,8 @@ export class FrameDensityMaterial extends FrameEnvironmentMaterial {
         direct1.assign(shadows[3]);
       });
 
-      // NOTE Scene light slots store phase * direct + scattered. Scattered light is isotropic.
-      // NOTE Other slots (the environment light) keep the total transmittance.
+      // NOTE Scene light slots store phase * direct + scattered (frameShadowedLight).
+      // NOTE Other slots (sky up and down, the environment light) store the isotropic total transmittance.
       const rayDirection = normalize(mat3(frameCameraMatrixWorld).mul(viewFar.sub(viewNear))).toVar();
       const lightSlots = [
         [shadow0, 'z', direct0.x],
@@ -234,18 +236,28 @@ export class FrameDensityMaterial extends FrameEnvironmentMaterial {
         [shadow1, 'w', direct1.y],
       ];
 
+      const { frameScatteringOctaves } = densityShadowUniforms;
+
       lightSlots.forEach(([shadow, channel, direct], index) => {
         If(int(index).lessThan(densityShadowUniforms.frameShadowSceneLightCount), () => {
           const light = lightUniforms.frameLightPositions.element(index).toVar();
-          const phase = framePhaseWeight(
-            densityShadowUniforms.framePhase,
-            rayDirection,
-            select(light.w.lessThan(1.5), light.xyz, normalize(light.xyz.sub(visibleWorldPosition))),
-          );
 
-          shadow[channel].assign(frameShadowedLight(phase, vec2(direct, shadow[channel])));
+          shadow[channel].assign(
+            frameShadowedLight(
+              densityShadowUniforms.framePhase,
+              frameScatteringOctaves,
+              rayDirection,
+              select(light.w.lessThan(1.5), light.xyz, normalize(light.xyz.sub(visibleWorldPosition))),
+              vec2(direct, shadow[channel]),
+            ),
+          );
+        }).Else(() => {
+          shadow[channel].assign(frameShadowTotal(shadow[channel], frameScatteringOctaves));
         });
       });
+
+      shadow0.x.assign(frameShadowTotal(shadow0.x, frameScatteringOctaves));
+      shadow0.y.assign(frameShadowTotal(shadow0.y, frameScatteringOctaves));
 
       const { frameEnvironmentMode } = densityShadowUniforms;
 
@@ -282,7 +294,7 @@ export class FrameDensityMaterial extends FrameEnvironmentMaterial {
           densityShadowUniforms.frameEnvironmentGridMap,
           environmentGridUniforms,
           worldPosition,
-          vec4(lightUniforms.frameEnvironmentUnshadowed, 1.0),
+          vec4(lightUniforms.frameEnvironmentUnshadowed.mul(frameShadowTotal(float(1.0), frameScatteringOctaves)), 1.0),
         );
 
         emission.addAssign(albedo.mul(environment.rgb).mul(1.0 / Math.PI));

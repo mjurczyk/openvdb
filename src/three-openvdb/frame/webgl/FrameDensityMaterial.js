@@ -8,6 +8,7 @@ import {
   environmentGridPars,
   phasePars,
   shadowPars,
+  scatteringPars,
   tileQuadVertexShader,
   createVolumeUniforms,
 } from './frameShaderChunks.js';
@@ -35,6 +36,7 @@ const fragmentShader = `
   ${environmentGridPars}
   ${phasePars}
   ${shadowPars}
+  ${scatteringPars}
 
   #define FRAME_SHADOW_SLOTS 6
 
@@ -141,25 +143,26 @@ const fragmentShader = `
       );
     }
 
-    // NOTE Scene light slots store phase * direct + scattered. Scattered light is isotropic.
-    // NOTE Other slots (the environment light) keep the total transmittance.
+    // NOTE Scene light slots store phase * direct + scattered (frameShadowedLight).
+    // NOTE Other slots (sky up and down, the environment light) store the isotropic total transmittance.
     vec3 rayDirection = normalize(mat3(frameCameraMatrixWorld) * (viewFar - viewNear));
     float slotTotal[FRAME_SHADOW_SLOTS] = float[](shadow0.z, shadow0.w, shadow1.x, shadow1.y, shadow1.z, shadow1.w);
     float slotDirect[FRAME_SHADOW_SLOTS] = float[](direct0.x, direct0.y, direct0.z, direct0.w, direct1.x, direct1.y);
 
     for (int i = 0; i < FRAME_SHADOW_SLOTS; i++) {
       if (i >= frameShadowSceneLightCount) {
-        break;
+        slotTotal[i] = frameShadowTotal(slotTotal[i]);
+
+        continue;
       }
 
       vec4 light = frameShadowLights[i];
       vec3 lightDirection = light.w < 1.5 ? light.xyz : normalize(light.xyz - visibleWorldPosition);
-      float phase = framePhaseWeight(rayDirection, lightDirection);
 
-      slotTotal[i] = frameShadowedLight(phase, vec2(slotDirect[i], slotTotal[i]));
+      slotTotal[i] = frameShadowedLight(rayDirection, lightDirection, vec2(slotDirect[i], slotTotal[i]));
     }
 
-    shadow0.zw = vec2(slotTotal[0], slotTotal[1]);
+    shadow0 = vec4(frameShadowTotal(shadow0.x), frameShadowTotal(shadow0.y), slotTotal[0], slotTotal[1]);
     shadow1 = vec4(slotTotal[2], slotTotal[3], slotTotal[4], slotTotal[5]);
 
     // NOTE Environment along the outward direction from the volume center, the same as per-volume lighting.
@@ -183,7 +186,7 @@ const fragmentShader = `
       vec3 environment = frameSampleEnvironmentGrid(
         frameEnvironmentGridMap,
         worldPosition,
-        vec4(frameEnvironmentUnshadowed, 1.0)
+        vec4(frameEnvironmentUnshadowed * frameShadowTotal(1.0), 1.0)
       ).rgb;
 
       emission += albedo * environment * RECIPROCAL_PI;
@@ -213,6 +216,8 @@ export class FrameDensityMaterial extends Three.MeshStandardMaterial {
       ...createVolumeUniforms(),
       frameRect: { value: new Three.Vector4() },
       frameSliceStart: { value: 0.0 },
+      // NOTE Scattering octaves of frameRenderer.settings (core/framePhase.js). Count 0 is off.
+      frameScatteringOctaves: { value: new Three.Vector4() },
     };
 
     this.glslVersion = Three.GLSL3;

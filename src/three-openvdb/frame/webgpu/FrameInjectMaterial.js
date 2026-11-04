@@ -29,11 +29,11 @@ import {
   getFroxelLod,
   frameNoise,
   frameFullscreenVertex,
-  framePhaseWeight,
   frameShadowAbsorption,
   frameShadowStep,
-  frameShadowDepth,
+  frameShadowMarchDepth,
   frameShadowTransmittance,
+  frameShadowTotal,
   frameShadowedLight,
   createVolumeUniforms,
   createVolumeNodes,
@@ -55,6 +55,8 @@ export class FrameInjectMaterial extends FrameEnvironmentMaterial {
     this.frameShadowSteps = uniform(32, 'int');
     // NOTE Multiple scattering of this volume (core/framePhase.js). 0.0 is single scattering.
     this.frameMultipleScattering = uniform(0.0);
+    // NOTE Scattering octaves of frameRenderer.settings (core/framePhase.js). Count 0 is off.
+    this.frameScatteringOctaves = uniform(new Three.Vector4());
     this.frameCameraMatrixWorld = uniform(new Three.Matrix4());
     this.mipmaps = false;
 
@@ -179,7 +181,7 @@ export class FrameInjectMaterial extends FrameEnvironmentMaterial {
       const albedo = volume.sampleAlbedo(localPosition, lod).toVar();
 
       // NOTE Shadow march inside this volume only. Call in the Fn body.
-      // NOTE Returns (direct, total) transmittance. The absorption uses the albedo at the lit position.
+      // NOTE Returns shadow values (frameShadowTransmittance). The absorption uses the albedo at the lit position.
       const volumeTransmittance = (localDirection, maxLocalDistance) => {
         const result = vec2(1.0).toVar();
 
@@ -206,19 +208,23 @@ export class FrameInjectMaterial extends FrameEnvironmentMaterial {
                 ),
               );
 
-              If(frameShadowDepth(depths, this.frameMultipleScattering).greaterThan(8.0), () => {
+              If(frameShadowMarchDepth(depths, this.frameMultipleScattering, this.frameScatteringOctaves).greaterThan(8.0), () => {
                 Break();
               });
 
               probe.addAssign(direction.mul(localStep));
             });
 
-            result.assign(frameShadowTransmittance(depths, this.frameMultipleScattering));
+            result.assign(frameShadowTransmittance(depths, this.frameMultipleScattering, this.frameScatteringOctaves));
           });
         });
 
         return result;
       };
+
+      // NOTE Isotropic light (no phase): total transmittance
+      const totalTransmittance = (localDirection, maxLocalDistance) =>
+        frameShadowTotal(volumeTransmittance(localDirection, maxLocalDistance).y, this.frameScatteringOctaves);
 
       const outwardNormal = select(
         length(localPosition).greaterThan(1e-4),
@@ -242,7 +248,7 @@ export class FrameInjectMaterial extends FrameEnvironmentMaterial {
             const direction = worldToLocalDirection.mul(frameEnvironmentDirections.element(i)).toVar();
 
             environment.addAssign(
-              frameEnvironmentColors.element(i).mul(volumeTransmittance(direction, float(1e6)).y),
+              frameEnvironmentColors.element(i).mul(totalTransmittance(direction, float(1e6))),
             );
           });
 
@@ -251,7 +257,7 @@ export class FrameInjectMaterial extends FrameEnvironmentMaterial {
           if (this.environment) {
             irradiance.addAssign(
               this.environmentIrradiance(outwardNormal).mul(
-                volumeTransmittance(worldToLocalDirection.mul(outwardNormal), float(1e6)).y,
+                totalTransmittance(worldToLocalDirection.mul(outwardNormal), float(1e6)),
               ),
             );
           }
@@ -266,13 +272,13 @@ export class FrameInjectMaterial extends FrameEnvironmentMaterial {
             frameHemiSkyColors
               .element(i)
               .mul(0.5)
-              .mul(volumeTransmittance(upDirection, float(1e6)).y),
+              .mul(totalTransmittance(upDirection, float(1e6))),
           );
           irradiance.addAssign(
             frameHemiGroundColors
               .element(i)
               .mul(0.5)
-              .mul(volumeTransmittance(upDirection.negate(), float(1e6)).y),
+              .mul(totalTransmittance(upDirection.negate(), float(1e6))),
           );
         });
       });
@@ -310,17 +316,16 @@ export class FrameInjectMaterial extends FrameEnvironmentMaterial {
             toLight,
           );
           const maxDistance = select(isDirectional, float(1e6), length(toLight));
-          const phase = framePhaseWeight(
+          const lightDirection = select(isDirectional, position.xyz, normalize(position.xyz.sub(worldPosition)));
+          const light = frameShadowedLight(
             volumeUniforms.framePhase,
+            this.frameScatteringOctaves,
             rayDirection,
-            select(isDirectional, position.xyz, normalize(position.xyz.sub(worldPosition))),
+            lightDirection,
+            volumeTransmittance(localDirection, maxDistance).toVar(),
           );
 
-          irradiance.addAssign(
-            color.rgb
-              .mul(frameShadowedLight(phase, volumeTransmittance(localDirection, maxDistance)))
-              .mul(spotAttenuation),
-          );
+          irradiance.addAssign(color.rgb.mul(light).mul(spotAttenuation));
         });
       });
 

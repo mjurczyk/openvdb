@@ -3,6 +3,7 @@ import { gridPars, noisePars, shadowPars } from './frameShaderChunks.js';
 
 // NOTE Light slots: sky up, sky down, then 6 lights. Targets 0 and 1: total transmittance of all slots.
 // NOTE Targets 2 and 3: direct transmittance of the 6 lights. Then the lighting gives the phase only to the direct light.
+// NOTE Scattering octaves: targets 0 and 1 have 1 / (1 + optical depth), see frameShadowTransmittance. 1.0 is no shadow.
 // NOTE Scene lights take the first slots. The dominant directional environment light takes the next free slot.
 export const frameShadowLightSlots = 6;
 
@@ -54,7 +55,7 @@ const fragmentShader = `
     for (int i = 0; i < FRAME_MAX_SHADOW_STEPS; i++) {
       int cascade = frameFindCascade(probe, 0);
 
-      if (cascade < 0 || traveled >= maxDistance || frameShadowDepth(depths) > 6.0) {
+      if (cascade < 0 || traveled >= maxDistance || frameShadowMarchDepth(depths) > 6.0) {
         break;
       }
 
@@ -161,6 +162,8 @@ export class FrameTransmittanceMaterial extends Three.ShaderMaterial {
         frameShadowLightCount: { value: 0 },
         // NOTE Multiple scattering of frameRenderer.settings (core/framePhase.js). 0.0 is single scattering.
         frameMultipleScattering: { value: 0.0 },
+        // NOTE Scattering octaves of frameRenderer.settings (core/framePhase.js). Count 0 is off.
+        frameScatteringOctaves: { value: new Three.Vector4() },
       },
       vertexShader,
       fragmentShader,

@@ -5,6 +5,7 @@ import {
   noisePars,
   phasePars,
   shadowPars,
+  scatteringPars,
   environmentPars,
   createVolumeUniforms,
 } from './frameShaderChunks.js';
@@ -35,6 +36,7 @@ const fragmentShader = `
   ${noisePars}
   ${phasePars}
   ${shadowPars}
+  ${scatteringPars}
   ${environmentPars}
 
   #include <common>
@@ -43,7 +45,7 @@ const fragmentShader = `
   #include <envmap_physical_pars_fragment>
 
   // NOTE Shadow march inside the source volume only. Other volumes do not cast shadows.
-  // NOTE Returns (direct, total) transmittance. The absorption uses the albedo at the lit position.
+  // NOTE Returns shadow values (frameShadowTransmittance). The absorption uses the albedo at the lit position.
   vec2 frameTransmittance(vec3 origin, vec3 localDirection, float maxLocalDistance, float lod, vec3 albedo) {
     if (frameAbsorbance <= 0.0 || frameShadowSteps <= 0) {
       return vec2(1.0);
@@ -68,7 +70,7 @@ const fragmentShader = `
 
       depths += frameShadowStep(extinction, frameShadowAbsorption(extinction, albedo));
 
-      if (frameShadowDepth(depths) > 8.0) {
+      if (frameShadowMarchDepth(depths) > 8.0) {
         break;
       }
 
@@ -169,13 +171,13 @@ const fragmentShader = `
           break;
         }
 
-        environment += frameEnvironmentColors[i] * frameTransmittance(
+        environment += frameEnvironmentColors[i] * frameShadowTotal(frameTransmittance(
           localPosition,
           worldToLocalDirection * frameEnvironmentDirections[i],
           1e6,
           lod,
           albedo
-        ).y;
+        ).y);
       }
 
       irradiance += max(environment, vec3(0.0));
@@ -183,7 +185,7 @@ const fragmentShader = `
 
     #if defined( USE_ENVMAP )
       if ((frameLights & FRAME_LIGHT_ENV) != 0 && frameEnvironmentCount == 0) {
-        float envTransmittance = frameTransmittance(localPosition, viewToLocalDirection * outwardNormal, 1e6, lod, albedo).y;
+        float envTransmittance = frameShadowTotal(frameTransmittance(localPosition, viewToLocalDirection * outwardNormal, 1e6, lod, albedo).y);
 
         irradiance += getIBLIrradiance(outwardNormal) * envTransmittance;
       }
@@ -195,8 +197,8 @@ const fragmentShader = `
           HemisphereLight hemiLight = hemisphereLights[i];
           vec3 upDirection = viewToLocalDirection * hemiLight.direction;
 
-          irradiance += 0.5 * hemiLight.skyColor * frameTransmittance(localPosition, upDirection, 1e6, lod, albedo).y;
-          irradiance += 0.5 * hemiLight.groundColor * frameTransmittance(localPosition, -upDirection, 1e6, lod, albedo).y;
+          irradiance += 0.5 * hemiLight.skyColor * frameShadowTotal(frameTransmittance(localPosition, upDirection, 1e6, lod, albedo).y);
+          irradiance += 0.5 * hemiLight.groundColor * frameShadowTotal(frameTransmittance(localPosition, -upDirection, 1e6, lod, albedo).y);
         }
       }
     #endif
@@ -206,10 +208,9 @@ const fragmentShader = `
         for (int i = 0; i < NUM_DIR_LIGHTS; i++) {
           DirectionalLight directionalLight = directionalLights[i];
 
-          float phase = framePhaseWeight(rayDirection, directionalLight.direction);
-
           irradiance += directionalLight.color * frameShadowedLight(
-            phase,
+            rayDirection,
+            directionalLight.direction,
             frameTransmittance(localPosition, viewToLocalDirection * directionalLight.direction, 1e6, lod, albedo)
           );
         }
@@ -223,10 +224,10 @@ const fragmentShader = `
         for (int i = 0; i < NUM_POINT_LIGHTS; i++) {
           PointLight pointLight = pointLights[i];
           vec3 toLight = (frameViewToLocal * vec4(pointLight.position, 1.0)).xyz - localPosition;
-          float phase = framePhaseWeight(rayDirection, normalize(pointLight.position - viewPosition));
 
           irradiance += pointLight.color * frameShadowedLight(
-            phase,
+            rayDirection,
+            normalize(pointLight.position - viewPosition),
             frameTransmittance(localPosition, toLight, length(toLight), lod, albedo)
           );
         }
@@ -242,10 +243,10 @@ const fragmentShader = `
 
           if (spotAttenuation > 0.0) {
             vec3 toLight = (frameViewToLocal * vec4(spotLight.position, 1.0)).xyz - localPosition;
-            float phase = framePhaseWeight(rayDirection, normalize(spotLight.position - viewPosition));
 
             irradiance += spotLight.color * spotAttenuation * frameShadowedLight(
-              phase,
+              rayDirection,
+              normalize(spotLight.position - viewPosition),
               frameTransmittance(localPosition, toLight, length(toLight), lod, albedo)
             );
           }
@@ -277,6 +278,8 @@ export class FrameInjectMaterial extends Three.MeshStandardMaterial {
       frameShadowSteps: { value: 32 },
       // NOTE Multiple scattering of this volume (core/framePhase.js). 0.0 is single scattering.
       frameMultipleScattering: { value: 0.0 },
+      // NOTE Scattering octaves of frameRenderer.settings (core/framePhase.js). Count 0 is off.
+      frameScatteringOctaves: { value: new Three.Vector4() },
     };
 
     this.transparent = true;
