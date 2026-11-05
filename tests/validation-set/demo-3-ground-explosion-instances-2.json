@@ -1,5 +1,6 @@
 {
   "demo": "wvdb",
   "asset": "ground_explosion",
-  "instances": 2
+  "instances": 2,
+  "advanceFrames": 30
 }

@@ -1,0 +1,6 @@
+{
+  "demo": "frame",
+  "source": "explosion",
+  "castShadow": false,
+  "advanceFrames": 30
+}

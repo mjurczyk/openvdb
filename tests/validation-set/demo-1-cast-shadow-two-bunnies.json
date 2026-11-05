@@ -1,5 +1,5 @@
 {
   "demo": "frame",
   "source": "twoBunnies",
-  "rotate": false
+  "castShadow": true
 }

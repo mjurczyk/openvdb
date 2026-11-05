@@ -1,0 +1,7 @@
+{
+  "demo": "frame",
+  "castShadow": true,
+  "showObstacle": true,
+  "castShadowCascades": 4,
+  "castShadowUpdatesPerFrame": 24
+}

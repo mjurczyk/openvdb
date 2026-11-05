@@ -1,0 +1,6 @@
+{
+  "demo": "frame",
+  "source": "explosion",
+  "emissionIntensity": 50,
+  "advanceFrames": 30
+}

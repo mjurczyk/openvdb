@@ -1,0 +1,5 @@
+{
+  "demo": "frame",
+  "multipleScattering": "octaves",
+  "scatteringOctaveContribution": 1
+}

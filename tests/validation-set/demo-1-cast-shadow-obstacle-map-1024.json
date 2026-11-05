@@ -1,0 +1,6 @@
+{
+  "demo": "frame",
+  "castShadow": true,
+  "showObstacle": true,
+  "shadowMapSize": 1024
+}
