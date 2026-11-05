@@ -39,6 +39,7 @@ import {
 import { getFramePhase, frameMieAsymmetry, frameMaxScatteringOctaves } from '../core/framePhase.js';
 import { frameMieTable, frameMieTableSize } from '../core/frameMieTable.js';
 import { frameMaxEnvironmentLights } from '../core/frameEnvironment.js';
+import { getFrameExtinctionSpectrum } from '../core/frameSpectrum.js';
 import {
   getFrameBlackbodyTable,
   getFrameEmissionSpectrum,
@@ -52,8 +53,8 @@ import {
 // NOTE Shaders use the bottom-left pixel origin of GLSL (gl_FragCoord).
 // NOTE three.js nodes use the top-left origin of WebGPU. These helpers convert between them.
 
-const minComponent = (value) => min(value.x, min(value.y, value.z));
-const maxComponent = (value) => max(value.x, max(value.y, value.z));
+export const minComponent = (value) => min(value.x, min(value.y, value.z));
+export const maxComponent = (value) => max(value.x, max(value.y, value.z));
 
 export const frameFragCoord = (targetSize) =>
   vec2(screenCoordinate.x, targetSize.y.sub(screenCoordinate.y));
@@ -356,6 +357,137 @@ export const frameShadowedLight = (framePhase, octaves, rayDirection, lightDirec
   return light;
 };
 
+// NOTE Spectral mode (frameRenderer.settings.spectral). Values are vec3, one for each channel (red, green, blue).
+// NOTE Shadow depths are objects { x: extinction, y: effective extinction, z: reduced scattering } of vec3 values.
+// Shadow values are objects { x: direct, y: total } of vec3 values. frameShadowDepth and frameShadowMarchDepth accept them.
+
+export const frameMeanComponent = (value) => dot(value, vec3(1.0 / 3.0));
+
+// NOTE Shadow depths of one unit of extinction. spectrum: extinction scale of each channel.
+// Absorption is the part that the albedo of each channel does not scatter. The same as frameShadowStep for each channel.
+export const frameSpectralShadowUnit = (spectrum, albedo, multipleScattering) => {
+  const absorbed = vec3(spectrum).mul(float(1.0).sub(clamp(albedo, 0.0, 1.0))).toVar();
+  const reducedScattering = vec3(spectrum).sub(absorbed).mul(multipleScattering).toVar();
+
+  return {
+    x: vec3(spectrum),
+    y: sqrt(absorbed.mul(3.0).mul(absorbed.add(reducedScattering))).toVar(),
+    z: reducedScattering,
+  };
+};
+
+// NOTE Shadow depths of opticalDepth units. One volume has one spectrum, then all depths grow linearly.
+export const frameSpectralShadowDepths = (unit, opticalDepth) => ({
+  x: unit.x.mul(opticalDepth),
+  y: unit.y.mul(opticalDepth),
+  z: unit.z.mul(opticalDepth),
+});
+
+// NOTE Shadow depths of one march step for each channel of the grid, the same as frameShadowStep.
+// extinction and absorption are vec3. Volumes in a grid voxel can have other spectra, so the depths are summed for each channel.
+export const frameSpectralShadowStep = (extinction, absorption, multipleScattering) => {
+  const absorbed = min(absorption, extinction).toVar();
+  const reducedScattering = vec3(extinction).sub(absorbed).mul(multipleScattering).toVar();
+
+  return {
+    x: vec3(extinction),
+    y: sqrt(absorbed.mul(3.0).mul(absorbed.add(reducedScattering))),
+    z: reducedScattering,
+  };
+};
+
+// NOTE Single-scattering albedo of each channel of a grid voxel from (extinction, absorption). 1.0 with no extinction.
+export const frameSpectralGridAlbedo = (extinction, absorption) =>
+  select(
+    maxComponent(extinction).greaterThan(0.0),
+    clamp(vec3(1.0).sub(absorption.div(max(extinction, vec3(1e-8)))), 0.0, 1.0),
+    vec3(1.0),
+  );
+
+// NOTE Shadow values of each channel, the same as frameShadowTransmittance
+export const frameSpectralShadowTransmittance = (depths, multipleScattering, octaves) => ({
+  x: exp(depths.x.negate()),
+  y: select(
+    octaves.x.greaterThan(0.0),
+    vec3(1.0).div(depths.x.add(1.0)),
+    exp(frameShadowDepth(depths, multipleScattering).negate()),
+  ),
+});
+
+// NOTE Octave light of each channel, the same as frameOctaveLight. Octave n also gets albedo^n: each octave is one more scattering.
+// Call in a Fn body. framePhase null is isotropic (phase 1).
+const frameSpectralOctaveLight = (octaves, opticalDepth, albedo, framePhase, cosTheta) => {
+  const light = vec3(0.0).toVar();
+  const extinctionScale = float(1.0).toVar();
+  const contribution = float(1.0).toVar();
+  const gScale = float(1.0).toVar();
+  const albedoScale = vec3(1.0).toVar();
+  const octaveAlbedo = clamp(albedo, 0.0, 1.0).toVar();
+
+  Loop(frameMaxScatteringOctaves, ({ i }) => {
+    If(float(i.add(1)).greaterThan(octaves.x), () => {
+      Break();
+    });
+
+    extinctionScale.mulAssign(octaves.y);
+    contribution.mulAssign(octaves.z);
+    gScale.mulAssign(octaves.w);
+    albedoScale.mulAssign(octaveAlbedo);
+
+    const phase = framePhase ? framePhaseWeightScaled(framePhase, cosTheta, gScale) : float(1.0);
+
+    light.addAssign(
+      albedoScale.mul(contribution.mul(phase)).mul(exp(opticalDepth.mul(extinctionScale).negate())),
+    );
+  });
+
+  return light;
+};
+
+// NOTE Total transmittance of isotropic light of each channel, the same as frameShadowTotal. Call in a Fn body.
+export const frameSpectralShadowTotal = (shadowY, octaves, albedo) => {
+  const total = vec3(shadowY).toVar();
+
+  If(octaves.x.greaterThan(0.0), () => {
+    const opticalDepth = frameShadowOpticalDepth(total).toVar();
+
+    total.assign(
+      exp(opticalDepth.negate()).add(frameSpectralOctaveLight(octaves, opticalDepth, albedo, null, null)),
+    );
+  });
+
+  return total;
+};
+
+// NOTE Light of a shadowed light of each channel, the same as frameShadowedLight. Call in a Fn body.
+export const frameSpectralShadowedLight = (framePhase, octaves, rayDirection, lightDirection, shadow, albedo) => {
+  const light = vec3(shadow.x).mul(framePhaseWeight(framePhase, rayDirection, lightDirection)).toVar();
+
+  If(octaves.x.greaterThan(0.0), () => {
+    const opticalDepth = frameShadowOpticalDepth(vec3(shadow.y)).toVar();
+
+    light.addAssign(
+      frameSpectralOctaveLight(
+        octaves,
+        opticalDepth,
+        albedo,
+        framePhase,
+        dot(rayDirection, lightDirection).toVar(),
+      ),
+    );
+  }).Else(() => {
+    light.addAssign(vec3(shadow.y).sub(shadow.x));
+  });
+
+  return light;
+};
+
+// NOTE The two entries of a spectral transmittance group from its 3 targets (core/frameSpectrum.js)
+export const frameUnpackSpectralGroup = (map0, map1, map2) => ({
+  a: { x: map0.rgb, y: vec3(map0.a, map1.r, map1.g) },
+  b: { x: vec3(map1.b, map1.a, map2.r), y: map2.gba },
+});
+
 export const frameMaxLights = 16;
 export const frameMaxHemisphereLights = 4;
 
@@ -479,6 +611,8 @@ export const createVolumeUniforms = () => ({
   frameBaseColor: uniform(new Three.Color(0xffffff)),
   frameScatterColor: uniform(new Three.Color(0x000000)),
   frameExtinction: uniform(100.0),
+  // NOTE Extinction scale of each channel (core/frameSpectrum.js). Only spectral shaders read it.
+  frameExtinctionSpectrum: uniform(new Three.Vector3(1.0, 1.0, 1.0)),
   frameDensityScale: uniform(1.0),
   frameDensityCutoff: uniform(0.0),
   frameAbsorbance: uniform(1.0),
@@ -544,6 +678,7 @@ export const setVolumeUniforms = (uniforms, frameVolume, volume) => {
   uniforms.frameBaseColor.value.copy(frameVolume.baseColor);
   uniforms.frameScatterColor.value.copy(frameVolume.scatterColor);
   uniforms.frameExtinction.value = frameVolume.extinction;
+  getFrameExtinctionSpectrum(frameVolume, uniforms.frameExtinctionSpectrum.value);
   uniforms.frameDensityScale.value = frameVolume.densityScale;
   uniforms.frameDensityCutoff.value = frameVolume.densityCutoff;
   uniforms.frameAbsorbance.value = frameVolume.absorbance;

@@ -38,6 +38,7 @@ const params = {
   densityScale: 1.0,
   opacity: 1.0,
   extinction: 350.0,
+  angstromExponent: 'cloud',
   ...phaseParams,
   shadowSteps: 32,
   emissiveIntensity: 1.0,
@@ -66,6 +67,7 @@ const applyVolumeParams = () => {
   animation.densityScale = params.densityScale;
   animation.opacity = params.opacity;
   animation.extinction = params.extinction;
+  animation.angstromExponent = params.angstromExponent;
   applyPhaseParams(animation, params);
   animation.shadowSteps = params.shadowSteps;
   animation.emissiveIntensity = params.emissiveIntensity;
@@ -77,6 +79,7 @@ const applyVolumeParams = () => {
     copy.densityScale = params.densityScale;
     copy.opacity = params.opacity;
     copy.extinction = params.extinction;
+    copy.angstromExponent = params.angstromExponent;
     applyPhaseParams(copy, params);
     copy.shadowSteps = params.shadowSteps;
     copy.emissiveIntensity = params.emissiveIntensity;
@@ -853,6 +856,27 @@ export const exampleVDB = ({ scene }) => {
           min: 1000.0,
           max: 12000.0,
           onChange: setParam('temperatureMax'),
+        },
+      ],
+    },
+    {
+      folder: 'Spectral',
+      closed: true,
+      children: [
+        {
+          id: 'spectral',
+          name: 'Spectral',
+          defaultValue: OpenVDB.frameRenderer.settings.spectral,
+          onChange: (value) => {
+            OpenVDB.frameRenderer.settings.spectral = value;
+          },
+        },
+        {
+          id: 'angstromExponent',
+          name: 'Medium',
+          defaultValue: params.angstromExponent,
+          options: { Cloud: 'cloud', Dust: 'dust', Smoke: 'smoke', Air: 'air' },
+          onChange: setParam('angstromExponent'),
         },
       ],
     },

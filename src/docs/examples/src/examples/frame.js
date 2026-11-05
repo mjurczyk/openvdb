@@ -44,6 +44,12 @@ const explosion = {
 };
 const explosionSize = 100.0;
 
+// NOTE The Smoke source is scaled to this size, the same as the explosion
+const smokeSize = 100.0;
+
+// NOTE Measured savanna smoke (Dubovik et al. 2002): linear albedo red / green / blue and the Angstrom exponent
+const smokeMedium = { albedo: [0.84, 0.86, 0.88], angstromExponent: 'smoke' };
+
 const applyExplosionSpectrum = (spectrum) => {
   const values = explosion.spectra[spectrum] ?? explosion.spectra.approximate;
 
@@ -98,6 +104,7 @@ export const exampleFrame = ({ scene }) => {
     animateLights: true,
     mipmaps: true,
     castShadow: false,
+    angstromExponent: 'cloud',
   };
 
   let entries = [];
@@ -276,6 +283,7 @@ export const exampleFrame = ({ scene }) => {
     volume.densityScale = params.densityScale;
     volume.opacity = params.opacity;
     volume.extinction = params.extinction;
+    volume.angstromExponent = params.angstromExponent;
     applyPhaseParams(volume, params);
     volume.emissiveIntensity = params.emissiveIntensity;
     volume.emissionSpectrum = params.emissionSpectrum;
@@ -404,6 +412,20 @@ export const exampleFrame = ({ scene }) => {
       return;
     }
 
+    // NOTE The Smoke source: one volume, scaled to smokeSize
+    const addSmoke = (center, size, createSmoke) => {
+      const scale = smokeSize / Math.max(size.x, size.y, size.z);
+      const pivot = addVolume(createSmoke(), center);
+
+      pivot.position.set(0.0, 0.0, 0.0);
+      pivot.scale.setScalar(scale);
+      placeMeshes(size.y * scale, Math.max(size.x, size.z) * scale);
+      fitSunShadow();
+    };
+
+    const isSmoke = params.source === 'smoke';
+    const assetName = isSmoke ? 'smoke' : 'bunny_cloud';
+
     // NOTE One bunny, or two bunnies that overlap. createBunny() gives a new volume.
     const addBunnies = (center, size, createBunny) => {
       // NOTE Center the first bunny at the scene origin
@@ -464,7 +486,7 @@ export const exampleFrame = ({ scene }) => {
     // NOTE All bunnies use the same .wvdb data. Each LOD makes all of them sharper.
     if (params.format === 'wvdb') {
       const volumeData = new OpenVDB.WVDBLoader().load(
-        './assets/bunny_cloud.wvdb',
+        `./assets/${assetName}.wvdb`,
         () => {
           if (currentBuildId !== buildId) {
             return;
@@ -485,11 +507,18 @@ export const exampleFrame = ({ scene }) => {
             return;
           }
 
-          addBunnies(center, size, () =>
+          const createVolume = () =>
             volumeData.attach(
               new OpenVDB.FrameVolume(grid.data, { dimensions: grid.dimensions, bbox: grid.bbox }),
-            ),
-          );
+            );
+
+          if (isSmoke) {
+            addSmoke(center, size, createVolume);
+
+            return;
+          }
+
+          addBunnies(center, size, createVolume);
         },
         ({ done }) => {
           if (done) {
@@ -507,7 +536,7 @@ export const exampleFrame = ({ scene }) => {
       return;
     }
 
-    loadAndCacheVDB('bunny_cloud.vdb', './assets/bunny_cloud.vdb').then((vdb) => {
+    loadAndCacheVDB(`${assetName}.vdb`, `./assets/${assetName}.vdb`).then((vdb) => {
       if (currentBuildId !== buildId) {
         return;
       }
@@ -534,6 +563,14 @@ export const exampleFrame = ({ scene }) => {
 
           onBuilt();
         });
+
+        return;
+      }
+
+      if (isSmoke) {
+        addSmoke(center, size, () =>
+          new OpenVDB.FrameVolume(vdb, { resolution: 100, progressive: true }, onBuilt),
+        );
 
         return;
       }
@@ -580,6 +617,7 @@ export const exampleFrame = ({ scene }) => {
             'Two Bunnies': 'twoBunnies',
             '100 Bunnies (stress test)': 'bunnyGrid',
             'Explosion (Emissive)': 'explosion',
+            Smoke: 'smoke',
           },
           onChange: (value) => {
             params.source = value;
@@ -593,6 +631,14 @@ export const exampleFrame = ({ scene }) => {
               getController('extinction')?.setValue(explosion.extinction);
               applyExplosionSpectrum(params.emissionSpectrum);
               getController('castShadow')?.setValue(true);
+            }
+
+            // NOTE The smoke gets the measured smoke albedo and Angstrom exponent
+            if (value === 'smoke') {
+              const baseColor = new Three.Color().setRGB(...smokeMedium.albedo, Three.LinearSRGBColorSpace);
+
+              getController('fogColor')?.setValue(`#${baseColor.getHexString()}`);
+              getController('angstromExponent')?.setValue(smokeMedium.angstromExponent);
             }
 
             rebuild();
@@ -1063,6 +1109,27 @@ export const exampleFrame = ({ scene }) => {
           min: 0,
           max: 128,
           onChange: (value) => setParam('shadowSteps')(Math.round(value)),
+        },
+      ],
+    },
+    {
+      folder: 'Spectral',
+      closed: true,
+      children: [
+        {
+          id: 'spectral',
+          name: 'Spectral',
+          defaultValue: OpenVDB.frameRenderer.settings.spectral,
+          onChange: (value) => {
+            OpenVDB.frameRenderer.settings.spectral = value;
+          },
+        },
+        {
+          id: 'angstromExponent',
+          name: 'Medium',
+          defaultValue: params.angstromExponent,
+          options: { Cloud: 'cloud', Dust: 'dust', Smoke: 'smoke', Air: 'air' },
+          onChange: setParam('angstromExponent'),
         },
       ],
     },

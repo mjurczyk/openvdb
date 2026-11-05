@@ -23,6 +23,11 @@ import {
   frameShadowMarchDepth,
   frameShadowTransmittance,
   frameShadowTotal,
+  minComponent,
+  frameSpectralShadowStep,
+  frameSpectralShadowTransmittance,
+  frameSpectralShadowTotal,
+  frameSpectralGridAlbedo,
   frameIsotropicDiffusion,
 } from './frameShaderChunks.js';
 import { frameMaxEnvironmentLights } from '../core/frameEnvironment.js';
@@ -52,14 +57,37 @@ export class FrameEnvironmentGridMaterial extends Three.NodeMaterial {
     this.frameMultipleScattering = uniform(0.0);
     // NOTE Scattering octaves of frameRenderer.settings (core/framePhase.js). Count 0 is off.
     this.frameScatteringOctaves = uniform(new Three.Vector4());
+    // NOTE frameRenderer.settings.spectral: the absorption target of the grid. The march is done for each channel.
+    this.frameShadowAbsorptionMap = texture(new Three.Texture());
+    this.frameUniforms = { gridUniforms, environmentGridUniforms, lightUniforms };
+    this.spectral = false;
 
+    this.vertexNode = frameFullscreenVertex;
+    this.buildNodes();
+
+    this.side = Three.DoubleSide;
+    this.forceSinglePass = true;
+    this.depthTest = false;
+    this.depthWrite = false;
+    this.blending = Three.NoBlending;
+  }
+
+  setSpectral(spectral) {
+    if (spectral !== this.spectral) {
+      this.spectral = spectral;
+      this.buildNodes();
+      this.needsUpdate = true;
+    }
+  }
+
+  buildNodes() {
+    const { gridUniforms, environmentGridUniforms, lightUniforms } = this.frameUniforms;
+    const { spectral } = this;
     const grid = createGridNodes(gridUniforms);
     const { frameGridMin, frameGridSize, frameGridVoxel, frameGridResolution } = gridUniforms;
     const { frameEnvironmentGridCascade, frameEnvironmentGridColumns, frameEnvironmentGridAtlasSize } =
       environmentGridUniforms;
     const { frameEnvironmentUnshadowed } = lightUniforms;
-
-    this.vertexNode = frameFullscreenVertex;
 
     this.colorNode = Fn(() => {
       const cascade = frameEnvironmentGridCascade;
@@ -73,10 +101,17 @@ export class FrameEnvironmentGridMaterial extends Three.NodeMaterial {
       const gridSize = frameGridSize.element(cascade).toVar();
       const worldPosition = gridMin.add(gridUvw.mul(gridSize)).toVar();
       // NOTE Octaves: unshadowed light also gets the octaves
-      const result = vec4(frameEnvironmentUnshadowed.mul(frameShadowTotal(float(1.0), this.frameScatteringOctaves)), 1.0).toVar();
+      const unshadowedTotal = spectral
+        ? frameSpectralShadowTotal(vec3(1.0), this.frameScatteringOctaves, vec3(1.0))
+        : frameShadowTotal(float(1.0), this.frameScatteringOctaves);
+      const result = vec4(frameEnvironmentUnshadowed.mul(unshadowedTotal), 1.0).toVar();
 
-      const extinctionAt = (position) =>
-        grid.sampleGrid(this.frameShadowDensityMap, cascade, position.sub(gridMin).div(gridSize)).r;
+      // NOTE Spectral: extinction of all channels
+      const extinctionAt = (position) => {
+        const sample = grid.sampleGrid(this.frameShadowDensityMap, cascade, position.sub(gridMin).div(gridSize));
+
+        return spectral ? sample.r.add(sample.g).add(sample.b) : sample.r;
+      };
 
       // NOTE Skip voxels with no extinction near them. The density pass does not read them.
       let nearExtinction = float(0.0);
@@ -87,81 +122,162 @@ export class FrameEnvironmentGridMaterial extends Three.NodeMaterial {
         nearExtinction = nearExtinction.add(extinctionAt(worldPosition.add(corner.mul(voxel))));
       }
 
-      If(z.lessThan(resolution).and(nearExtinction.greaterThan(0.0)), () => {
-        const irradiance = vec3(0.0).toVar();
+      if (spectral) {
+        If(z.lessThan(resolution).and(nearExtinction.greaterThan(0.0)), () => {
+          // NOTE Octaves use the albedo of the medium at this voxel
+          const albedo = frameSpectralGridAlbedo(
+            grid.sampleGrid(this.frameShadowDensityMap, cascade, gridUvw).rgb,
+            grid.sampleGrid(this.frameShadowAbsorptionMap, cascade, gridUvw).rgb,
+          ).toVar();
+          const irradiance = vec3(0.0).toVar();
 
-        // NOTE (extinction, effective, reduced) depths of the march from worldPosition along direction
-        const marchDepths = (direction) => {
-          const voxelsPerUnit = abs(direction).div(voxel);
-          const stepLength = float(1.0)
-            .div(max(voxelsPerUnit.x, max(voxelsPerUnit.y, voxelsPerUnit.z)))
-            .toVar();
-          const step = direction.mul(stepLength).toVar();
-          const probe = worldPosition.add(step.mul(0.5)).toVar();
-          const depths = vec3(0.0).toVar();
+          // NOTE Depths of each channel { x: extinction, y: effective, z: reduced } of the march from worldPosition along direction
+          const marchDepths = (direction) => {
+            const voxelsPerUnit = abs(direction).div(voxel);
+            const stepLength = float(1.0)
+              .div(max(voxelsPerUnit.x, max(voxelsPerUnit.y, voxelsPerUnit.z)))
+              .toVar();
+            const probe = worldPosition.add(direction.mul(stepLength).mul(0.5)).toVar();
+            const depths = { x: vec3(0.0).toVar(), y: vec3(0.0).toVar(), z: vec3(0.0).toVar() };
 
-          Loop(maxSteps, () => {
-            const uvw = probe.sub(gridMin).div(gridSize);
+            Loop(maxSteps, () => {
+              const uvw = probe.sub(gridMin).div(gridSize);
 
-            If(
-              uvw.x
-                .lessThan(0.0)
-                .or(uvw.y.lessThan(0.0))
-                .or(uvw.z.lessThan(0.0))
-                .or(uvw.x.greaterThan(1.0))
-                .or(uvw.y.greaterThan(1.0))
-                .or(uvw.z.greaterThan(1.0))
-                .or(frameShadowMarchDepth(depths, this.frameMultipleScattering, this.frameScatteringOctaves).greaterThan(6.0)),
-              () => {
-                Break();
-              },
+              If(
+                uvw.x
+                  .lessThan(0.0)
+                  .or(uvw.y.lessThan(0.0))
+                  .or(uvw.z.lessThan(0.0))
+                  .or(uvw.x.greaterThan(1.0))
+                  .or(uvw.y.greaterThan(1.0))
+                  .or(uvw.z.greaterThan(1.0))
+                  .or(
+                    minComponent(
+                      frameShadowMarchDepth(depths, this.frameMultipleScattering, this.frameScatteringOctaves),
+                    ).greaterThan(6.0),
+                  ),
+                () => {
+                  Break();
+                },
+              );
+
+              const step = frameSpectralShadowStep(
+                grid.sampleGrid(this.frameShadowDensityMap, cascade, uvw).rgb,
+                grid.sampleGrid(this.frameShadowAbsorptionMap, cascade, uvw).rgb,
+                this.frameMultipleScattering,
+              );
+
+              depths.x.addAssign(step.x.mul(stepLength));
+              depths.y.addAssign(step.y.mul(stepLength));
+              depths.z.addAssign(step.z.mul(stepLength));
+              probe.addAssign(direction.mul(stepLength));
+            });
+
+            return depths;
+          };
+
+          Loop(this.frameLightCount, ({ i }) => {
+            const direction = this.frameLightDirections.element(i).toVar();
+            const depths = marchDepths(direction);
+
+            // NOTE Environment lights are isotropic: total transmittance, no phase
+            const shadow = frameSpectralShadowTransmittance(
+              depths,
+              this.frameMultipleScattering,
+              this.frameScatteringOctaves,
             );
 
-            const sample = grid.sampleGrid(this.frameShadowDensityMap, cascade, uvw).toVar();
+            // NOTE Diffusion: two-sided total of each channel (frameIsotropicDiffusion). It needs the opposite march too.
+            const diffusion = this.frameMultipleScattering.greaterThan(0.0);
+            const backReduced = vec3(0.0).toVar();
 
-            depths.addAssign(
-              frameShadowStep(sample.r, sample.g, this.frameMultipleScattering).mul(stepLength),
+            If(diffusion, () => {
+              backReduced.assign(marchDepths(direction.negate()).z);
+            });
+
+            const total = select(
+              diffusion,
+              frameIsotropicDiffusion(depths.z, backReduced, depths.y),
+              frameSpectralShadowTotal(shadow.y, this.frameScatteringOctaves, albedo),
             );
-            probe.addAssign(step);
+
+            irradiance.addAssign(this.frameLightColors.element(i).mul(total));
           });
 
-          return depths;
-        };
+          result.assign(vec4(max(irradiance, vec3(0.0)), 1.0));
+        });
+      } else {
+        If(z.lessThan(resolution).and(nearExtinction.greaterThan(0.0)), () => {
+          const irradiance = vec3(0.0).toVar();
 
-        Loop(this.frameLightCount, ({ i }) => {
-          const direction = this.frameLightDirections.element(i).toVar();
-          const depths = marchDepths(direction);
+          // NOTE (extinction, effective, reduced) depths of the march from worldPosition along direction
+          const marchDepths = (direction) => {
+            const voxelsPerUnit = abs(direction).div(voxel);
+            const stepLength = float(1.0)
+              .div(max(voxelsPerUnit.x, max(voxelsPerUnit.y, voxelsPerUnit.z)))
+              .toVar();
+            const step = direction.mul(stepLength).toVar();
+            const probe = worldPosition.add(step.mul(0.5)).toVar();
+            const depths = vec3(0.0).toVar();
 
-          // NOTE Environment lights are isotropic: total transmittance, no phase
-          const shadow = frameShadowTransmittance(depths, this.frameMultipleScattering, this.frameScatteringOctaves);
+            Loop(maxSteps, () => {
+              const uvw = probe.sub(gridMin).div(gridSize);
 
-          // NOTE Diffusion: two-sided total (frameIsotropicDiffusion). It needs the march in the opposite direction too.
-          const diffusion = this.frameMultipleScattering.greaterThan(0.0);
-          const backDepths = vec3(0.0).toVar();
+              If(
+                uvw.x
+                  .lessThan(0.0)
+                  .or(uvw.y.lessThan(0.0))
+                  .or(uvw.z.lessThan(0.0))
+                  .or(uvw.x.greaterThan(1.0))
+                  .or(uvw.y.greaterThan(1.0))
+                  .or(uvw.z.greaterThan(1.0))
+                  .or(frameShadowMarchDepth(depths, this.frameMultipleScattering, this.frameScatteringOctaves).greaterThan(6.0)),
+                () => {
+                  Break();
+                },
+              );
 
-          If(diffusion, () => {
-            backDepths.assign(marchDepths(direction.negate()));
+              const sample = grid.sampleGrid(this.frameShadowDensityMap, cascade, uvw).toVar();
+
+              depths.addAssign(
+                frameShadowStep(sample.r, sample.g, this.frameMultipleScattering).mul(stepLength),
+              );
+              probe.addAssign(step);
+            });
+
+            return depths;
+          };
+
+          Loop(this.frameLightCount, ({ i }) => {
+            const direction = this.frameLightDirections.element(i).toVar();
+            const depths = marchDepths(direction);
+
+            // NOTE Environment lights are isotropic: total transmittance, no phase
+            const shadow = frameShadowTransmittance(depths, this.frameMultipleScattering, this.frameScatteringOctaves);
+
+            // NOTE Diffusion: two-sided total (frameIsotropicDiffusion). It needs the march in the opposite direction too.
+            const diffusion = this.frameMultipleScattering.greaterThan(0.0);
+            const backDepths = vec3(0.0).toVar();
+
+            If(diffusion, () => {
+              backDepths.assign(marchDepths(direction.negate()));
+            });
+
+            const total = select(
+              diffusion,
+              frameIsotropicDiffusion(depths.z, backDepths.z, depths.y),
+              frameShadowTotal(shadow.y, this.frameScatteringOctaves),
+            );
+
+            irradiance.addAssign(this.frameLightColors.element(i).mul(total));
           });
 
-          const total = select(
-            diffusion,
-            frameIsotropicDiffusion(depths.z, backDepths.z, depths.y),
-            frameShadowTotal(shadow.y, this.frameScatteringOctaves),
-          );
-
-          irradiance.addAssign(this.frameLightColors.element(i).mul(total));
+          result.assign(vec4(max(irradiance, vec3(0.0)), 1.0));
         });
 
-        result.assign(vec4(max(irradiance, vec3(0.0)), 1.0));
-      });
+      }
 
       return result;
     })();
-
-    this.side = Three.DoubleSide;
-    this.forceSinglePass = true;
-    this.depthTest = false;
-    this.depthWrite = false;
-    this.blending = Three.NoBlending;
   }
 }

@@ -12,6 +12,8 @@ import {
   vec4,
   mat3,
   uniform,
+  property,
+  outputStruct,
   select,
   mix,
   exp,
@@ -36,6 +38,14 @@ import {
   frameShadowTotal,
   frameIsotropicDiffusion,
   frameShadowedLight,
+  frameMeanComponent,
+  minComponent,
+  maxComponent,
+  frameSpectralShadowUnit,
+  frameSpectralShadowDepths,
+  frameSpectralShadowTransmittance,
+  frameSpectralShadowTotal,
+  frameSpectralShadowedLight,
   createVolumeUniforms,
   createVolumeNodes,
 } from './frameShaderChunks.js';
@@ -60,9 +70,11 @@ export class FrameInjectMaterial extends FrameEnvironmentMaterial {
     this.frameScatteringOctaves = uniform(new Three.Vector4());
     this.frameCameraMatrixWorld = uniform(new Three.Matrix4());
     this.mipmaps = false;
+    // NOTE frameRenderer.settings.spectral: extinction and multiple scattering of each channel, two atlas targets
+    this.spectral = false;
 
     this.vertexNode = frameFullscreenVertex;
-    this.fragmentNode = this.createFragmentNode();
+    this.rebuildNodes();
 
     this.side = Three.DoubleSide;
     this.forceSinglePass = true;
@@ -84,12 +96,42 @@ export class FrameInjectMaterial extends FrameEnvironmentMaterial {
     if (mipmaps !== this.mipmaps) {
       this.mipmaps = mipmaps;
       this.environmentNodes = [];
-      this.fragmentNode = this.createFragmentNode();
+      this.rebuildNodes();
       this.needsUpdate = true;
     }
   }
 
-  createFragmentNode() {
+  setSpectral(spectral) {
+    if (spectral !== this.spectral) {
+      this.spectral = spectral;
+      this.environmentNodes = [];
+      this.rebuildNodes();
+      this.needsUpdate = true;
+    }
+  }
+
+  // NOTE Spectral: atlas target 0 is (color, green alpha), target 1 is (red alpha, blue alpha, 0, green alpha).
+  // NOTE Both targets blend with the green alpha (w of each output).
+  rebuildNodes() {
+    if (!this.spectral) {
+      this.colorNode = null;
+      this.outputNode = null;
+      this.fragmentNode = this.createFragmentNode();
+
+      return;
+    }
+
+    const injectColor = property('vec4');
+    const injectAlpha = property('vec4');
+
+    this.fragmentNode = null;
+    this.colorNode = this.createFragmentNode({ color: injectColor, alpha: injectAlpha });
+    this.outputNode = outputStruct(injectColor, injectAlpha);
+  }
+
+  // NOTE spectralOutputs: { color, alpha } property nodes of the spectral targets. null: one target.
+  createFragmentNode(spectralOutputs = null) {
+    const spectral = spectralOutputs !== null;
     const { froxelUniforms, lightUniforms, volumeUniforms } = this;
     const { froxelGrid, froxelSubSteps, froxelAtlasSize, frameJitter } = froxelUniforms;
     const {
@@ -115,6 +157,7 @@ export class FrameInjectMaterial extends FrameEnvironmentMaterial {
       frameAbsorbance,
       frameScatterColor,
       frameWorldScale,
+      frameExtinctionSpectrum,
     } = volumeUniforms;
     const volume = createVolumeNodes(volumeUniforms, this.mipmaps);
 
@@ -143,7 +186,8 @@ export class FrameInjectMaterial extends FrameEnvironmentMaterial {
       const lod = getFroxelLod(froxelUniforms, froxel, volume, subStepLength, frameWorldScale);
 
       // NOTE Pre-integrate the slice along the view ray. Light the visibility-weighted mean position, not the froxel center.
-      const transmittance = float(1.0).toVar();
+      // NOTE Spectral: transmittance of each channel. The visible position uses the mean of the channels.
+      const transmittance = (spectral ? vec3(1.0) : float(1.0)).toVar();
       const visibleWeight = float(0.0).toVar();
       const visibleTSum = float(0.0).toVar();
       const jitter = frameNoise(frameJitter, fragCoord).toVar();
@@ -156,8 +200,11 @@ export class FrameInjectMaterial extends FrameEnvironmentMaterial {
             .sampleExtinction(mix(localNear, localFar, t), lod)
             .mul(frameOpacity)
             .mul(subStepLength);
-          const stepTransmittance = exp(opticalDepth.negate()).toVar();
-          const weight = transmittance.mul(float(1.0).sub(stepTransmittance)).toVar();
+          const stepTransmittance = exp(
+            (spectral ? frameExtinctionSpectrum.mul(opticalDepth) : opticalDepth).negate(),
+          ).toVar();
+          const stepWeight = transmittance.mul(float(1.0).sub(stepTransmittance));
+          const weight = (spectral ? frameMeanComponent(stepWeight) : stepWeight).toVar();
 
           visibleWeight.addAssign(weight);
           visibleTSum.addAssign(weight.mul(t));
@@ -165,9 +212,9 @@ export class FrameInjectMaterial extends FrameEnvironmentMaterial {
         });
       });
 
-      const alpha = float(1.0).sub(transmittance).toVar();
+      const alpha = (spectral ? vec3(1.0) : float(1.0)).sub(transmittance).toVar();
 
-      If(visibleWeight.lessThanEqual(0.0).or(alpha.lessThanEqual(1e-5)), () => {
+      If(visibleWeight.lessThanEqual(0.0).or((spectral ? maxComponent(alpha) : alpha).lessThanEqual(1e-5)), () => {
         Discard();
       });
 
@@ -225,27 +272,97 @@ export class FrameInjectMaterial extends FrameEnvironmentMaterial {
         return result;
       };
 
+      // NOTE Spectral shadow march. One volume has one spectrum, so the march sums one optical depth.
+      // Then the depths of each channel are linear in it (frameSpectralShadowDepths).
+      // Returns { x: direct, y: total, z: reduced depth, w: effective depth }, vec3 values.
+      const shadowUnit = spectral
+        ? frameSpectralShadowUnit(frameExtinctionSpectrum, albedo, this.frameMultipleScattering)
+        : null;
+
+      const spectralVolumeTransmittance = (localDirection, maxLocalDistance) => {
+        const direct = vec3(1.0).toVar();
+        const total = vec3(1.0).toVar();
+        const reduced = vec3(0.0).toVar();
+        const effective = vec3(0.0).toVar();
+
+        If(frameAbsorbance.greaterThan(0.0).and(this.frameShadowSteps.greaterThan(0)), () => {
+          const direction = normalize(localDirection).toVar();
+          const marchDistance = min(volume.boxExit(localPosition, direction), maxLocalDistance).toVar();
+
+          If(marchDistance.greaterThan(0.0), () => {
+            const localStep = marchDistance.div(float(this.frameShadowSteps)).toVar();
+            const stepLod = max(lod, volume.getLod(localStep)).toVar();
+            const worldStep = localStep.mul(length(mat3(frameLocalToView).mul(direction)));
+            const stepScale = worldStep.mul(frameAbsorbance).toVar();
+            const opticalDepth = float(0.0).toVar();
+            const probe = localPosition.add(direction.mul(localStep).mul(shadowNoise)).toVar();
+
+            Loop(this.frameShadowSteps, () => {
+              opticalDepth.addAssign(volume.sampleExtinction(probe, stepLod).mul(stepScale));
+
+              // NOTE Stop when all channels are dark
+              If(
+                minComponent(
+                  frameShadowMarchDepth(
+                    frameSpectralShadowDepths(shadowUnit, opticalDepth),
+                    this.frameMultipleScattering,
+                    this.frameScatteringOctaves,
+                  ),
+                ).greaterThan(8.0),
+                () => {
+                  Break();
+                },
+              );
+
+              probe.addAssign(direction.mul(localStep));
+            });
+
+            const depths = frameSpectralShadowDepths(shadowUnit, opticalDepth);
+            const shadow = frameSpectralShadowTransmittance(
+              depths,
+              this.frameMultipleScattering,
+              this.frameScatteringOctaves,
+            );
+
+            direct.assign(shadow.x);
+            total.assign(shadow.y);
+            reduced.assign(depths.z);
+            effective.assign(depths.y);
+          });
+        });
+
+        return { x: direct, y: total, z: reduced, w: effective };
+      };
+
       // NOTE Isotropic light (no phase): total transmittance
       const totalTransmittance = (localDirection, maxLocalDistance) =>
-        frameShadowTotal(volumeTransmittance(localDirection, maxLocalDistance).y, this.frameScatteringOctaves);
+        spectral
+          ? frameSpectralShadowTotal(
+              spectralVolumeTransmittance(localDirection, maxLocalDistance).y,
+              this.frameScatteringOctaves,
+              albedo,
+            )
+          : frameShadowTotal(volumeTransmittance(localDirection, maxLocalDistance).y, this.frameScatteringOctaves);
 
-      // NOTE Diffusion: two-sided totals of isotropic light (frameIsotropicDiffusion) for (direction, opposite direction).
-      // It marches both directions. Call in the Fn body.
+      // NOTE Diffusion: two-sided totals of isotropic light (frameIsotropicDiffusion) for { x: direction, y: opposite direction }.
+      // It marches both directions. Spectral: vec3 values, one for each channel. Call in the Fn body.
       const diffusion = this.frameMultipleScattering.greaterThan(0.0);
+      const isotropicValue = () => (spectral ? vec3(1.0) : float(1.0)).toVar();
 
       const diffusionPair = (localDirection) => {
-        const front = volumeTransmittance(localDirection, float(1e6)).toVar();
-        const back = volumeTransmittance(localDirection.negate(), float(1e6)).toVar();
+        const march = spectral ? spectralVolumeTransmittance : volumeTransmittance;
+        const front = march(localDirection, float(1e6));
+        const back = march(localDirection.negate(), float(1e6));
 
-        return vec2(
-          frameIsotropicDiffusion(front.z, back.z, front.w),
-          frameIsotropicDiffusion(back.z, front.z, back.w),
-        );
+        return {
+          x: frameIsotropicDiffusion(front.z, back.z, front.w).toVar(),
+          y: frameIsotropicDiffusion(back.z, front.z, back.w).toVar(),
+        };
       };
 
       // NOTE Total transmittance of isotropic light from one direction. Diffusion: two-sided. Call in the Fn body.
       const isotropicTransmittance = (localDirection) => {
-        const result = float(1.0).toVar();
+        const result = isotropicValue();
 
         If(diffusion, () => {
           result.assign(diffusionPair(localDirection).x);
@@ -287,7 +404,7 @@ export class FrameInjectMaterial extends FrameEnvironmentMaterial {
 
             // NOTE Diffusion: the outward and the inward irradiance, each with its two-sided total. Uniform light then gives E.
             If(diffusion, () => {
-              const pair = diffusionPair(outwardDirection).toVar();
+              const pair = diffusionPair(outwardDirection);
 
               irradiance.addAssign(this.environmentIrradiance(outwardNormal).mul(pair.x.mul(0.5)));
               irradiance.addAssign(this.environmentIrradiance(outwardNormal.negate()).mul(pair.y.mul(0.5)));
@@ -303,17 +420,22 @@ export class FrameInjectMaterial extends FrameEnvironmentMaterial {
       If(useLights(frameLights.useHemisphereLights), () => {
         Loop(frameHemiCount, ({ i }) => {
           const upDirection = worldToLocalDirection.mul(frameHemiDirections.element(i)).toVar();
-          const sky = vec2(1.0).toVar();
+          const skyTotal = isotropicValue();
+          const groundTotal = isotropicValue();
 
           // NOTE Diffusion: sky and ground are an opposite pair, two-sided totals
           If(diffusion, () => {
-            sky.assign(diffusionPair(upDirection));
+            const pair = diffusionPair(upDirection);
+
+            skyTotal.assign(pair.x);
+            groundTotal.assign(pair.y);
           }).Else(() => {
-            sky.assign(vec2(totalTransmittance(upDirection, float(1e6)), totalTransmittance(upDirection.negate(), float(1e6))));
+            skyTotal.assign(totalTransmittance(upDirection, float(1e6)));
+            groundTotal.assign(totalTransmittance(upDirection.negate(), float(1e6)));
           });
 
-          irradiance.addAssign(frameHemiSkyColors.element(i).mul(0.5).mul(sky.x));
-          irradiance.addAssign(frameHemiGroundColors.element(i).mul(0.5).mul(sky.y));
+          irradiance.addAssign(frameHemiSkyColors.element(i).mul(0.5).mul(skyTotal));
+          irradiance.addAssign(frameHemiGroundColors.element(i).mul(0.5).mul(groundTotal));
         });
       });
 
@@ -351,13 +473,22 @@ export class FrameInjectMaterial extends FrameEnvironmentMaterial {
           );
           const maxDistance = select(isDirectional, float(1e6), length(toLight));
           const lightDirection = select(isDirectional, position.xyz, normalize(position.xyz.sub(worldPosition)));
-          const light = frameShadowedLight(
-            volumeUniforms.framePhase,
-            this.frameScatteringOctaves,
-            rayDirection,
-            lightDirection,
-            volumeTransmittance(localDirection, maxDistance).xy.toVar(),
-          );
+          const light = spectral
+            ? frameSpectralShadowedLight(
+                volumeUniforms.framePhase,
+                this.frameScatteringOctaves,
+                rayDirection,
+                lightDirection,
+                spectralVolumeTransmittance(localDirection, maxDistance),
+                albedo,
+              )
+            : frameShadowedLight(
+                volumeUniforms.framePhase,
+                this.frameScatteringOctaves,
+                rayDirection,
+                lightDirection,
+                volumeTransmittance(localDirection, maxDistance).xy.toVar(),
+              );
 
           irradiance.addAssign(color.rgb.mul(light).mul(spotAttenuation));
         });
@@ -368,6 +499,13 @@ export class FrameInjectMaterial extends FrameEnvironmentMaterial {
       );
 
       // NOTE Premultiplied slice color and alpha. Linear filtering of these values gives transparent edges.
+      if (spectral) {
+        spectralOutputs.color.assign(vec4(radiance.mul(alpha), alpha.y));
+        spectralOutputs.alpha.assign(vec4(alpha.x, alpha.z, 0.0, alpha.y));
+
+        return vec4(0.0);
+      }
+
       return vec4(radiance.mul(alpha), alpha);
     })();
   }

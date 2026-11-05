@@ -8,8 +8,10 @@ import {
   texture,
   cubeTexture,
   vec2,
+  vec3,
   vec4,
   select,
+  dot,
   exp,
   clamp,
   max,
@@ -299,13 +301,23 @@ class FrameVolumeShadowNode extends Three.Node {
     this.updateBeforeType = Three.NodeUpdateType.RENDER;
   }
 
+  // NOTE Spectral maps: transmittance of each channel. ShadowMaterial has one shadow mask, so it gets the mean.
+  isSpectral(builder) {
+    return this.entry.spectralMap !== null && builder.material?.isShadowNodeMaterial !== true;
+  }
+
+  getNodeType(builder) {
+    return this.isSpectral(builder) ? 'vec3' : 'float';
+  }
+
   updateBefore(frame) {
     this.shadows.render(frame.renderer, frame.scene, frame.camera, frame.renderId, this.entry);
   }
 
-  setup() {
+  setup(builder) {
     const { entry } = this;
-    const { map, isPoint, receiver } = entry;
+    const { map, spectralMap, isPoint, receiver } = entry;
+    const spectral = this.isSpectral(builder);
     let { uv } = this;
     let { rayUniforms } = receiver;
     let inside = receiver.enabled.equal(1);
@@ -325,7 +337,7 @@ class FrameVolumeShadowNode extends Three.Node {
     }
 
     return Fn(() => {
-      const result = float(1.0).toVar();
+      const result = (spectral ? vec3(1.0) : float(1.0)).toVar();
 
       If(inside, () => {
         const texel = map.sample(uv).level(0).toVar();
@@ -340,7 +352,14 @@ class FrameVolumeShadowNode extends Three.Node {
           // NOTE Beer shadow map: optical depth grows linearly from the first to the last density
           const along = clamp(depth.sub(first).div(max(last.sub(first), 1e-4)), 0.0, 1.0);
 
-          result.assign(exp(opticalDepth.mul(along).negate()));
+          if (spectral) {
+            result.assign(exp(spectralMap.sample(uv).level(0).rgb.mul(along).negate()));
+          } else if (spectralMap) {
+            // NOTE ShadowMaterial with spectral maps: mean transmittance of the channels
+            result.assign(dot(exp(spectralMap.sample(uv).level(0).rgb.mul(along).negate()), vec3(1.0 / 3.0)));
+          } else {
+            result.assign(exp(opticalDepth.mul(along).negate()));
+          }
         });
       });
 
@@ -404,6 +423,10 @@ export class FrameVolumeShadows {
     return settings.castShadowCoarse ? coarseMapSize : Math.max(1, Math.round(settings.castShadowMapSize));
   }
 
+  isSpectral() {
+    return this.frameRenderer.settings.spectral === true;
+  }
+
   getSteps() {
     const { settings } = this.frameRenderer;
 
@@ -418,13 +441,23 @@ export class FrameVolumeShadows {
     if (!entry) {
       const isPoint = light.isPointLight === true;
       const size = this.getMapSize();
+      const spectral = this.isSpectral();
       const target = initTarget(renderer, createTarget(size, light), isPoint);
+      const spectralTarget = spectral ? initTarget(renderer, createTarget(size, light), isPoint) : null;
 
       entry = {
         light,
         isPoint,
         target,
         size,
+        // NOTE frameRenderer.settings.spectral: a second map with the optical depth of each channel
+        spectral,
+        spectralTarget,
+        spectralMap: spectralTarget
+          ? isPoint
+            ? cubeTexture(spectralTarget.texture)
+            : texture(spectralTarget.texture)
+          : null,
         renderId: -1,
         cubeCamera: isPoint ? new Three.CubeCamera(0.5, 500.0, target) : null,
         map: isPoint ? cubeTexture(target.texture) : texture(target.texture),
@@ -463,14 +496,29 @@ export class FrameVolumeShadows {
     return entry;
   }
 
-  // NOTE A new map for a new size: a new texture, texture node and shadow node (shadow nodes keep texture bindings).
+  // NOTE A new map for a new size or a spectral change: a new texture, texture node and shadow node
+  // (shadow nodes keep texture bindings).
   // NOTE The old map stays until dispose(), so receivers that still use it keep a valid texture.
-  resizeMap(renderer, entry, size) {
+  resizeMap(renderer, entry, size, spectral) {
     this.retired.push(entry.target);
+
+    if (entry.spectralTarget) {
+      this.retired.push(entry.spectralTarget);
+    }
 
     entry.target = initTarget(renderer, createTarget(size, entry.light), entry.isPoint);
     entry.size = size;
     entry.map = entry.isPoint ? cubeTexture(entry.target.texture) : texture(entry.target.texture);
+    entry.spectral = spectral;
+    entry.spectralTarget = spectral ? initTarget(renderer, createTarget(size, entry.light), entry.isPoint) : null;
+    entry.spectralMap = null;
+
+    if (entry.spectralTarget) {
+      entry.spectralMap = entry.isPoint
+        ? cubeTexture(entry.spectralTarget.texture)
+        : texture(entry.spectralTarget.texture);
+    }
+
     entry.item.signature.length = 0;
     entry.cascades?.forEach((cascade) => (cascade.signature.length = 0));
     entry.drawn.cascadeCount = 0;
@@ -493,10 +541,11 @@ export class FrameVolumeShadows {
     }
 
     const size = this.getMapSize();
+    const spectral = this.isSpectral();
 
     this.entries.forEach((entry) => {
-      if (entry.size !== size) {
-        this.resizeMap(renderer, entry, size);
+      if (entry.size !== size || entry.spectral !== spectral) {
+        this.resizeMap(renderer, entry, size, spectral);
       }
     });
 
@@ -720,12 +769,24 @@ export class FrameVolumeShadows {
     renderer.setScissorTest(false);
     this.mesh.layers.mask = camera.layers.mask;
 
+    // NOTE Spectral: the second draw writes the optical depth of each channel into the second map
+    const targets = entry.spectralTarget ? [entry.target, entry.spectralTarget] : [entry.target];
+
+    targets.forEach((target, output) => {
+      this.material.frameShadowOutput.value = output;
+
+      if (entry.isPoint) {
+        entry.cubeCamera.renderTarget = target;
+        entry.cubeCamera.update(renderer, this.scene);
+      } else {
+        target.viewport.copy(viewport);
+        renderer.setRenderTarget(target);
+        renderer.render(this.scene, camera);
+      }
+    });
+
     if (entry.isPoint) {
-      entry.cubeCamera.update(renderer, this.scene);
-    } else {
-      entry.target.viewport.copy(viewport);
-      renderer.setRenderTarget(entry.target);
-      renderer.render(this.scene, camera);
+      entry.cubeCamera.renderTarget = entry.target;
     }
 
     renderer.setScissorTest(currentScissorTest);
@@ -859,7 +920,8 @@ export class FrameVolumeShadows {
       return;
     }
 
-    this.material.frameShadowDensityMap.value = frameRenderer.shadowDensityTarget.texture;
+    this.material.setSpectral(this.isSpectral());
+    this.material.frameShadowDensityMap.value = frameRenderer.shadowDensityTarget.textures[0];
     this.material.frameShadowSteps.value = this.getSteps();
 
     const work = [];
@@ -903,7 +965,10 @@ export class FrameVolumeShadows {
   }
 
   dispose() {
-    this.entries.forEach((entry) => entry.target.dispose());
+    this.entries.forEach((entry) => {
+      entry.target.dispose();
+      entry.spectralTarget?.dispose();
+    });
     this.entries.clear();
 
     this.retired.forEach((resource) => resource.dispose());
