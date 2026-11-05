@@ -69,6 +69,16 @@ let shownSkybox = null;
 // NOTE Only the last environment load changes the scene
 let environmentLoadId = 0;
 
+// NOTE Resolves when the first environment is set. The first example loads its volume after this.
+let resolveFirstEnvironment;
+export const firstEnvironment = new Promise((resolve) => {
+  resolveFirstEnvironment = resolve;
+});
+
+// NOTE Two animation frames make sure that the renderer rendered one frame between the steps
+const nextRenderedFrame = () =>
+  new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
 // NOTE Near the nadir the skybox UVs change fast, so mipmaps blur the ground center into a pinch.
 // The skybox map is a copy of the environment, without mipmaps. The copy uses the same image data.
 const createSkyboxMap = (env) => {
@@ -115,14 +125,12 @@ export const loadEnvironment = (scene, name) => {
   const useUltraHdrBackground = ultraHdrBackgrounds.includes(name);
 
   // NOTE The current environment stays until the new one loads
-  loaders.ultraHdr.load(`./assets/${name}-HDR.jpg`, (env) => {
+  loaders.ultraHdr.load(`./assets/${name}-HDR.jpg`, async (env) => {
     if (loadId !== environmentLoadId) {
       return;
     }
 
     env.mapping = Three.EquirectangularReflectionMapping;
-    scene.environment = env;
-    scene.environmentIntensity = ultraHdrIntensity;
 
     if (useUltraHdrBackground) {
       scene.background = env;
@@ -134,6 +142,22 @@ export const loadEnvironment = (scene, name) => {
     } else {
       hideGroundedSkybox(scene);
     }
+
+    // NOTE Phones crash when the background, the environment and the volume load in the same frame. They load one after the other.
+    await nextRenderedFrame();
+
+    if (loadId !== environmentLoadId) {
+      return;
+    }
+
+    scene.environment = env;
+    scene.environmentIntensity = ultraHdrIntensity;
+
+    await nextRenderedFrame();
+    resolveFirstEnvironment();
+  }, undefined, (error) => {
+    console.error('Could not load the environment.', { name, error });
+    resolveFirstEnvironment();
   });
 
   if (!useUltraHdrBackground) {
