@@ -15,6 +15,8 @@ const sharedParams = [
   'opacity',
   'emissiveIntensity',
   'temperatureRange',
+  'emissionSpectrum',
+  'sootExponent',
   'wrap3D',
   'lights',
   'shadowSteps',

@@ -163,6 +163,8 @@ export class FrameEmissionLightBase extends Three.Light {
           object.emissiveIntensity,
           object.temperatureRange.x,
           object.temperatureRange.y,
+          object.emissionSpectrum,
+          object.sootExponent,
           object.offset3D.x,
           object.offset3D.y,
           object.offset3D.z,
