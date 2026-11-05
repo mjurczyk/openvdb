@@ -4,7 +4,7 @@ import { gui, setGuiFields, activeDemo } from '../utils/gui';
 import { setLoading } from '../utils/loading';
 import { renderer } from '../main';
 import { isPhone } from '../utils/device';
-import { firstEnvironment } from '../utils/resources';
+import { firstEnvironment, setEnvironmentLights } from '../utils/resources';
 
 // NOTE Longest side of each volume in scene units
 const displaySize = 100.0;
@@ -57,7 +57,8 @@ export const exampleWVDB = ({ scene }) => {
   const sun = new Three.DirectionalLight(0xffffff, 1.0);
   sun.position.set(100.0, 200.0, 100.0);
   scene.add(sun);
-  scene.add(new Three.HemisphereLight(0x88aaff, 0x443322, 0.5));
+  const hemiLight = new Three.HemisphereLight(0x88aaff, 0x443322, 0.5);
+  scene.add(hemiLight);
 
   let lastTime = performance.now();
 
@@ -324,6 +325,26 @@ export const exampleWVDB = ({ scene }) => {
           id: 'textures',
           name: 'Textures',
           defaultValue: '',
+        },
+      ],
+    },
+    {
+      folder: 'Scene',
+      children: [
+        {
+          id: 'lightSetup',
+          name: 'Lights',
+          defaultValue: 'environment',
+          // NOTE environment: the lights of the environment map (utils/resources.js)
+          options: {
+            Environment: 'environment',
+            'Sun + Hemisphere': 'sunHemi',
+          },
+          onChange: (value) => {
+            setEnvironmentLights(scene, value === 'environment');
+            sun.visible = value === 'sunHemi';
+            hemiLight.visible = value === 'sunHemi';
+          },
         },
       ],
     },
