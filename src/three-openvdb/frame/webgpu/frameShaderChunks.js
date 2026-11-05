@@ -40,6 +40,15 @@ import { getFramePhase, frameMieAsymmetry, frameMaxScatteringOctaves } from '../
 import { frameMieTable, frameMieTableSize } from '../core/frameMieTable.js';
 import { frameMaxEnvironmentLights } from '../core/frameEnvironment.js';
 import { getFrameExtinctionSpectrum } from '../core/frameSpectrum.js';
+import {
+  getFrameBlackbodyTable,
+  getFrameEmissionSpectrum,
+  frameBlackbodyTableSize,
+  frameBlackbodyTableRows,
+  frameBlackbodyMinTemperature,
+  frameBlackbodyMaxTemperature,
+  frameMaxSootExponent,
+} from '../core/frameBlackbody.js';
 
 // NOTE Shaders use the bottom-left pixel origin of GLSL (gl_FragCoord).
 // NOTE three.js nodes use the top-left origin of WebGPU. These helpers convert between them.
@@ -150,6 +159,44 @@ frameMieTexture.magFilter = Three.NearestFilter;
 frameMieTexture.needsUpdate = true;
 
 const frameMieMap = texture(frameMieTexture);
+
+// NOTE Emission color table, see core/frameBlackbody.js. Float values, read with load and a bilinear blend.
+const frameBlackbodyTexture = new Three.DataTexture(
+  getFrameBlackbodyTable(),
+  frameBlackbodyTableSize,
+  frameBlackbodyTableRows,
+  Three.RGBAFormat,
+  Three.FloatType,
+);
+
+frameBlackbodyTexture.minFilter = Three.NearestFilter;
+frameBlackbodyTexture.magFilter = Three.NearestFilter;
+frameBlackbodyTexture.needsUpdate = true;
+
+const frameBlackbodyMap = texture(frameBlackbodyTexture);
+
+// NOTE Emission color of the table, temperature in Kelvin. Texel x is on a log temperature scale, texel y is the soot exponent.
+const frameBlackbodyColor = (temperature, exponent) => {
+  const temperatureScale = Math.log(frameBlackbodyMaxTemperature / frameBlackbodyMinTemperature);
+  const logTemperature = log(max(temperature, 1e-3).div(frameBlackbodyMinTemperature));
+  const x = clamp(logTemperature.div(temperatureScale), 0.0, 1.0)
+    .mul(frameBlackbodyTableSize - 1)
+    .toVar();
+  const y = clamp(exponent.div(frameMaxSootExponent), 0.0, 1.0)
+    .mul(frameBlackbodyTableRows - 1)
+    .toVar();
+  const column = min(int(x), int(frameBlackbodyTableSize - 2)).toVar();
+  const row = min(int(y), int(frameBlackbodyTableRows - 2)).toVar();
+  const blendX = x.sub(float(column)).toVar();
+  const texel = (offsetX, offsetY) =>
+    frameBlackbodyMap.load(ivec2(column.add(offsetX), row.add(offsetY))).rgb;
+
+  return mix(
+    mix(texel(0, 0), texel(1, 0), blendX),
+    mix(texel(0, 1), texel(1, 1), blendX),
+    y.sub(float(row)),
+  );
+};
 
 // NOTE Table texel u is at the scattering angle PI * u^2
 const frameMiePhase = (cosTheta) => {
@@ -559,6 +606,8 @@ export const createVolumeUniforms = () => ({
   frameOpacity: uniform(1.0),
   frameEmissiveIntensity: uniform(1.0),
   frameTemperatureRange: uniform(new Three.Vector2(0.0, 6500.0)),
+  // NOTE Emission spectrum: (table weight, soot exponent), see core/frameBlackbody.js. Table weight 0 is the approximate blackbody.
+  frameEmissionSpectrum: uniform(new Three.Vector2()),
   frameOffset3D: uniform(new Three.Vector3()),
   frameWrap3D: uniform(Three.ClampToEdgeWrapping, 'int'),
   // NOTE Phase of this volume for 'volume' lighting: (forward g, back g, back weight, Lorenz-Mie weight)
@@ -623,6 +672,7 @@ export const setVolumeUniforms = (uniforms, frameVolume, volume) => {
   uniforms.frameOpacity.value = frameVolume.opacity;
   uniforms.frameEmissiveIntensity.value = frameVolume.emissiveIntensity;
   uniforms.frameTemperatureRange.value.copy(frameVolume.temperatureRange);
+  getFrameEmissionSpectrum(frameVolume, uniforms.frameEmissionSpectrum.value);
   uniforms.frameOffset3D.value.copy(frameVolume.offset3D);
   uniforms.frameWrap3D.value = frameVolume.wrap3D;
   getFramePhase(frameVolume, uniforms.framePhase.value);
@@ -795,10 +845,16 @@ export const createVolumeNodes = (volume, useMipmaps = false) => {
 
     // NOTE Emitted power increases with temperature^4 (Stefan-Boltzmann). Range top gives 1.0.
     const power = pow(temperature.div(max(range.y, 1.0)), 4.0);
+    const spectrum = volume.frameEmissionSpectrum;
+    const color = select(
+      spectrum.x.greaterThan(0.0),
+      select(temperature.greaterThan(0.0), frameBlackbodyColor(temperature, spectrum.y), vec3(0.0)),
+      blackBody(temperature),
+    );
 
     return select(
       volume.frameUseEmissiveMap.equal(1),
-      blackBody(temperature).mul(power).mul(volume.frameEmissiveIntensity),
+      color.mul(power).mul(volume.frameEmissiveIntensity),
       vec3(0.0),
     );
   };

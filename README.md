@@ -225,6 +225,11 @@ Converts the given `OpenVDBReader` to a volumetric `Three.Object3D`. `onConverte
 * `scatterColor: Three.Color | string | number` - (default: `0x000000`) lowest color of the lit volume.
 * `offset3D: Three.Vector3`, `wrap3D` - UV offset and wrapping (`Three.ClampToEdgeWrapping`, `Three.RepeatWrapping`, `Three.MirroredRepeatWrapping`) of the 3D textures.
 * `emissiveGrid` - VDB emission grid. `emissiveIntensity` (default: `1.0`) scales the emission.
+* `emissionSpectrum: string` - (default: `'approximate'`) color of the emission for each temperature (`temperatureRange`). Only the color changes. The brightness (temperature⁴, `emissiveIntensity`) stays the same.
+  * `'approximate'` - Planck's law at 3 wavelengths (757, 505 and 379 nm). Flames look red.
+  * `'planck'` (experimental) - Planck's law integrated with the CIE 1931 colour matching functions, converted to linear sRGB. A blackbody at 2000 K is orange, at 6500 K white. A table, made one time on the CPU.
+  * `'soot'` (experimental) - `'planck'` with the emissivity of soot, `λ^-sootExponent`. Soot emits more blue than a blackbody, so flames look whiter and hotter.
+* `sootExponent: number` - (default: `1.39`, `0.0` to `3.0`) emissivity exponent of `'soot'` (Hottel & Broughton 1932). `0.0` is the same as `'planck'`.
 * `baseColorGrid` - VDB grid equivalent of `baseColor`.
 * `maskGrid` - static VDB grid mask applied to each voxel. Not affected by UV offset.
 * `lights` - bitmask of light types (`frameLights.useAmbientLights | frameLights.useDirectionalLights | frameLights.usePointLights | frameLights.useSpotLights | frameLights.useHemisphereLights | frameLights.useEnvironment`). Default: all light types.

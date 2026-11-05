@@ -103,6 +103,8 @@ const getProps = (frameVolume) => ({
   emissiveIntensity: frameVolume.emissiveIntensity,
   emissiveScale: frameVolume.emissiveScale,
   temperatureRange: frameVolume.temperatureRange.toArray(),
+  emissionSpectrum: frameVolume.emissionSpectrum,
+  sootExponent: frameVolume.sootExponent,
   offset3D: frameVolume.offset3D,
   wrap3D: frameVolume.wrap3D,
   lights: frameVolume.lights,
@@ -156,6 +158,9 @@ export class FrameVolume extends Three.Group {
       emissiveScale = 1.0,
       // NOTE Kelvin values for emissive values 0.0 and emissiveScale
       temperatureRange = [0.0, 6500.0],
+      // NOTE Emission color: 'approximate', 'planck' (CIE 1931 table) or 'soot' (Planck * lambda^-sootExponent). See core/frameBlackbody.js.
+      emissionSpectrum = 'approximate',
+      sootExponent = 1.39,
       offset3D = new Three.Vector3(),
       wrap3D = Three.ClampToEdgeWrapping,
       lights = allLights,
@@ -184,6 +189,8 @@ export class FrameVolume extends Three.Group {
     this.emissiveIntensity = emissiveIntensity;
     this.emissiveScale = emissiveScale;
     this.temperatureRange = new Three.Vector2().fromArray(temperatureRange);
+    this.emissionSpectrum = emissionSpectrum;
+    this.sootExponent = sootExponent;
     this.offset3D = new Three.Vector3().copy(offset3D);
     this.wrap3D = wrap3D;
     this.lights = lights;

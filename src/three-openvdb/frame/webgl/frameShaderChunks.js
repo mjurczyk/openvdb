@@ -1,6 +1,15 @@
 import * as Three from 'three';
 import { getFramePhase, frameMieAsymmetry, frameMaxScatteringOctaves } from '../core/framePhase.js';
 import { frameMieTable, frameMieTableSize } from '../core/frameMieTable.js';
+import {
+  getFrameBlackbodyTable,
+  getFrameEmissionSpectrum,
+  frameBlackbodyTableSize,
+  frameBlackbodyTableRows,
+  frameBlackbodyMinTemperature,
+  frameBlackbodyMaxTemperature,
+  frameMaxSootExponent,
+} from '../core/frameBlackbody.js';
 import { frameMaxEnvironmentLights } from '../core/frameEnvironment.js';
 import { getFrameExtinctionSpectrum } from '../core/frameSpectrum.js';
 
@@ -57,6 +66,25 @@ export const frameMieTexture = new Three.DataTexture(
 frameMieTexture.minFilter = Three.NearestFilter;
 frameMieTexture.magFilter = Three.NearestFilter;
 frameMieTexture.needsUpdate = true;
+
+// NOTE Emission color table, see core/frameBlackbody.js. Float values, read with texelFetch and a bilinear blend.
+const frameBlackbodyTexture = new Three.DataTexture(
+  getFrameBlackbodyTable(),
+  frameBlackbodyTableSize,
+  frameBlackbodyTableRows,
+  Three.RGBAFormat,
+  Three.FloatType,
+);
+
+frameBlackbodyTexture.minFilter = Three.NearestFilter;
+frameBlackbodyTexture.magFilter = Three.NearestFilter;
+frameBlackbodyTexture.needsUpdate = true;
+
+const blackbodyTemperatureScale = Math.log(
+  frameBlackbodyMaxTemperature / frameBlackbodyMinTemperature,
+);
+const blackbodyColumns = (frameBlackbodyTableSize - 1).toFixed(1);
+const blackbodyRows = (frameBlackbodyTableRows - 1).toFixed(1);
 
 // NOTE Phase function of direct lights. framePhase is (forward g, back g, back weight, Lorenz-Mie weight).
 // See core/framePhase.js.
@@ -429,6 +457,9 @@ export const volumePars = `
   uniform float frameOpacity;
   uniform float frameEmissiveIntensity;
   uniform vec2 frameTemperatureRange;
+  // NOTE Emission spectrum: (table weight, soot exponent), see core/frameBlackbody.js. Table weight 0 is the approximate blackbody.
+  uniform vec2 frameEmissionSpectrum;
+  uniform highp sampler2D frameBlackbodyMap;
   uniform vec3 frameOffset3D;
   uniform int frameWrap3D;
 
@@ -527,6 +558,29 @@ export const volumePars = `
     return peak > 0.0 ? radiation / peak : vec3(0.0);
   }
 
+  // NOTE Emission color of the table, temperature in Kelvin. Texel x is on a log temperature scale, texel y is the soot exponent.
+  vec3 frameBlackbodyColor(float temperature, float exponent) {
+    float logTemperature = log(max(temperature, 1e-3) / ${frameBlackbodyMinTemperature.toFixed(1)});
+    float x = clamp(logTemperature / ${blackbodyTemperatureScale}, 0.0, 1.0) * ${blackbodyColumns};
+    float y = clamp(exponent / ${frameMaxSootExponent.toFixed(1)}, 0.0, 1.0) * ${blackbodyRows};
+    int column = min(int(x), ${frameBlackbodyTableSize - 2});
+    int row = min(int(y), ${frameBlackbodyTableRows - 2});
+    float blendX = x - float(column);
+
+    vec3 low = mix(
+      texelFetch(frameBlackbodyMap, ivec2(column, row), 0).rgb,
+      texelFetch(frameBlackbodyMap, ivec2(column + 1, row), 0).rgb,
+      blendX
+    );
+    vec3 high = mix(
+      texelFetch(frameBlackbodyMap, ivec2(column, row + 1), 0).rgb,
+      texelFetch(frameBlackbodyMap, ivec2(column + 1, row + 1), 0).rgb,
+      blendX
+    );
+
+    return mix(low, high, y - float(row));
+  }
+
   vec3 frameSampleEmission(vec3 localPosition, float lod) {
     if (!frameUseEmissiveMap) {
       return vec3(0.0);
@@ -538,7 +592,11 @@ export const volumePars = `
     // NOTE Emitted power increases with temperature^4 (Stefan-Boltzmann). Range top gives 1.0.
     float power = pow(temperature / max(frameTemperatureRange.y, 1.0), 4.0);
 
-    return frameBlackBody(temperature) * power * frameEmissiveIntensity;
+    vec3 color = frameEmissionSpectrum.x > 0.0
+      ? (temperature > 0.0 ? frameBlackbodyColor(temperature, frameEmissionSpectrum.y) : vec3(0.0))
+      : frameBlackBody(temperature);
+
+    return color * power * frameEmissiveIntensity;
   }
 `;
 
@@ -754,6 +812,8 @@ export const createVolumeUniforms = () => ({
   frameOpacity: { value: 1.0 },
   frameEmissiveIntensity: { value: 1.0 },
   frameTemperatureRange: { value: new Three.Vector2(0.0, 6500.0) },
+  frameEmissionSpectrum: { value: new Three.Vector2() },
+  frameBlackbodyMap: { value: frameBlackbodyTexture },
   frameOffset3D: { value: new Three.Vector3() },
   frameWrap3D: { value: Three.ClampToEdgeWrapping },
   framePhase: { value: new Three.Vector4() },
@@ -782,6 +842,7 @@ export const setVolumeUniforms = (uniforms, frameVolume, volume) => {
   uniforms.frameOpacity.value = frameVolume.opacity;
   uniforms.frameEmissiveIntensity.value = frameVolume.emissiveIntensity;
   uniforms.frameTemperatureRange.value.copy(frameVolume.temperatureRange);
+  getFrameEmissionSpectrum(frameVolume, uniforms.frameEmissionSpectrum.value);
   uniforms.frameOffset3D.value.copy(frameVolume.offset3D);
   uniforms.frameWrap3D.value = frameVolume.wrap3D;
   getFramePhase(frameVolume, uniforms.framePhase.value);

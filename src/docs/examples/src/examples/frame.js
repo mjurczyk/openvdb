@@ -28,7 +28,13 @@ const explosion = {
   emissiveScale: 6.0,
   baseColor: '#555555',
   extinction: 350.0,
-  emissiveIntensity: 25.0,
+  // NOTE Emissive values for each emission spectrum. Physical spectra need flame temperatures.
+  // Minimum 0 K: grid value 0 (smoke) gives no emission.
+  spectra: {
+    approximate: { temperatureMin: 600.0, temperatureMax: 7000.0, emissiveIntensity: 25.0 },
+    planck: { temperatureMin: 0.0, temperatureMax: 3000.0, emissiveIntensity: 15.0 },
+    soot: { temperatureMin: 0.0, temperatureMax: 3000.0, emissiveIntensity: 13.0 },
+  },
   // NOTE Emission light settings for the explosion
   lightIntensity: 25.0,
   probes: 32,
@@ -43,6 +49,14 @@ const smokeSize = 100.0;
 
 // NOTE Measured savanna smoke (Dubovik et al. 2002): linear albedo red / green / blue and the Angstrom exponent
 const smokeMedium = { albedo: [0.84, 0.86, 0.88], angstromExponent: 'smoke' };
+
+const applyExplosionSpectrum = (spectrum) => {
+  const values = explosion.spectra[spectrum] ?? explosion.spectra.approximate;
+
+  getController('temperatureMin')?.setValue(values.temperatureMin);
+  getController('temperatureMax')?.setValue(values.temperatureMax);
+  getController('emissiveIntensity')?.setValue(values.emissiveIntensity);
+};
 
 const getController = (id) =>
   gui.controllersRecursive().find((controller) => controller.property === id);
@@ -83,6 +97,8 @@ export const exampleFrame = ({ scene }) => {
     emissiveIntensity: 1.0,
     temperatureMin: 600.0,
     temperatureMax: 7000.0,
+    emissionSpectrum: 'approximate',
+    sootExponent: 1.39,
     shadowSteps: 32,
     lighting: 'frame',
     animateLights: true,
@@ -268,6 +284,8 @@ export const exampleFrame = ({ scene }) => {
     volume.angstromExponent = params.angstromExponent;
     applyPhaseParams(volume, params);
     volume.emissiveIntensity = params.emissiveIntensity;
+    volume.emissionSpectrum = params.emissionSpectrum;
+    volume.sootExponent = params.sootExponent;
     volume.shadowSteps = params.shadowSteps;
     volume.mipmaps = params.mipmaps;
   };
@@ -609,7 +627,7 @@ export const exampleFrame = ({ scene }) => {
               getController('emissionResolution')?.setValue(explosion.probes);
               getController('fogColor')?.setValue(explosion.baseColor);
               getController('extinction')?.setValue(explosion.extinction);
-              getController('emissiveIntensity')?.setValue(explosion.emissiveIntensity);
+              applyExplosionSpectrum(params.emissionSpectrum);
               getController('castShadow')?.setValue(true);
             }
 
@@ -1052,6 +1070,31 @@ export const exampleFrame = ({ scene }) => {
               min: 1000.0,
               max: 12000.0,
               onChange: setParam('temperatureMax'),
+            },
+            {
+              id: 'emissionSpectrum',
+              name: 'Emission Spectrum',
+              defaultValue: params.emissionSpectrum,
+              options: {
+                Approximate: 'approximate',
+                'Planck (Experimental)': 'planck',
+                'Soot (Experimental)': 'soot',
+              },
+              onChange: (value) => {
+                setParam('emissionSpectrum')(value);
+
+                if (params.source === 'explosion') {
+                  applyExplosionSpectrum(value);
+                }
+              },
+            },
+            {
+              id: 'sootExponent',
+              name: 'Soot Exponent',
+              defaultValue: params.sootExponent,
+              min: 0.0,
+              max: 3.0,
+              onChange: setParam('sootExponent'),
             },
           ],
         },
