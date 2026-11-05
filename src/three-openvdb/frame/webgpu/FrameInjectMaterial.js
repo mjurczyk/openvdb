@@ -34,6 +34,7 @@ import {
   frameShadowMarchDepth,
   frameShadowTransmittance,
   frameShadowTotal,
+  frameIsotropicDiffusion,
   frameShadowedLight,
   createVolumeUniforms,
   createVolumeNodes,
@@ -181,9 +182,9 @@ export class FrameInjectMaterial extends FrameEnvironmentMaterial {
       const albedo = volume.sampleAlbedo(localPosition, lod).toVar();
 
       // NOTE Shadow march inside this volume only. Call in the Fn body.
-      // NOTE Returns shadow values (frameShadowTransmittance). The absorption uses the albedo at the lit position.
+      // NOTE Returns (direct, total, reduced depth, effective depth). The absorption uses the albedo at the lit position.
       const volumeTransmittance = (localDirection, maxLocalDistance) => {
-        const result = vec2(1.0).toVar();
+        const result = vec4(1.0, 1.0, 0.0, 0.0).toVar();
 
         If(frameAbsorbance.greaterThan(0.0).and(this.frameShadowSteps.greaterThan(0)), () => {
           const direction = normalize(localDirection).toVar();
@@ -215,7 +216,9 @@ export class FrameInjectMaterial extends FrameEnvironmentMaterial {
               probe.addAssign(direction.mul(localStep));
             });
 
-            result.assign(frameShadowTransmittance(depths, this.frameMultipleScattering, this.frameScatteringOctaves));
+            const transmittance = frameShadowTransmittance(depths, this.frameMultipleScattering, this.frameScatteringOctaves);
+
+            result.assign(vec4(transmittance.x, transmittance.y, depths.z, depths.y));
           });
         });
 
@@ -225,6 +228,33 @@ export class FrameInjectMaterial extends FrameEnvironmentMaterial {
       // NOTE Isotropic light (no phase): total transmittance
       const totalTransmittance = (localDirection, maxLocalDistance) =>
         frameShadowTotal(volumeTransmittance(localDirection, maxLocalDistance).y, this.frameScatteringOctaves);
+
+      // NOTE Diffusion: two-sided totals of isotropic light (frameIsotropicDiffusion) for (direction, opposite direction).
+      // It marches both directions. Call in the Fn body.
+      const diffusion = this.frameMultipleScattering.greaterThan(0.0);
+
+      const diffusionPair = (localDirection) => {
+        const front = volumeTransmittance(localDirection, float(1e6)).toVar();
+        const back = volumeTransmittance(localDirection.negate(), float(1e6)).toVar();
+
+        return vec2(
+          frameIsotropicDiffusion(front.z, back.z, front.w),
+          frameIsotropicDiffusion(back.z, front.z, back.w),
+        );
+      };
+
+      // NOTE Total transmittance of isotropic light from one direction. Diffusion: two-sided. Call in the Fn body.
+      const isotropicTransmittance = (localDirection) => {
+        const result = float(1.0).toVar();
+
+        If(diffusion, () => {
+          result.assign(diffusionPair(localDirection).x);
+        }).Else(() => {
+          result.assign(totalTransmittance(localDirection, float(1e6)));
+        });
+
+        return result;
+      };
 
       const outwardNormal = select(
         length(localPosition).greaterThan(1e-4),
@@ -247,19 +277,25 @@ export class FrameInjectMaterial extends FrameEnvironmentMaterial {
           Loop(frameEnvironmentCount, ({ i }) => {
             const direction = worldToLocalDirection.mul(frameEnvironmentDirections.element(i)).toVar();
 
-            environment.addAssign(
-              frameEnvironmentColors.element(i).mul(totalTransmittance(direction, float(1e6))),
-            );
+            environment.addAssign(frameEnvironmentColors.element(i).mul(isotropicTransmittance(direction)));
           });
 
           irradiance.addAssign(max(environment, vec3(0.0)));
         }).Else(() => {
           if (this.environment) {
-            irradiance.addAssign(
-              this.environmentIrradiance(outwardNormal).mul(
-                totalTransmittance(worldToLocalDirection.mul(outwardNormal), float(1e6)),
-              ),
-            );
+            const outwardDirection = worldToLocalDirection.mul(outwardNormal).toVar();
+
+            // NOTE Diffusion: the outward and the inward irradiance, each with its two-sided total. Uniform light then gives E.
+            If(diffusion, () => {
+              const pair = diffusionPair(outwardDirection).toVar();
+
+              irradiance.addAssign(this.environmentIrradiance(outwardNormal).mul(pair.x.mul(0.5)));
+              irradiance.addAssign(this.environmentIrradiance(outwardNormal.negate()).mul(pair.y.mul(0.5)));
+            }).Else(() => {
+              irradiance.addAssign(
+                this.environmentIrradiance(outwardNormal).mul(totalTransmittance(outwardDirection, float(1e6))),
+              );
+            });
           }
         });
       });
@@ -267,19 +303,17 @@ export class FrameInjectMaterial extends FrameEnvironmentMaterial {
       If(useLights(frameLights.useHemisphereLights), () => {
         Loop(frameHemiCount, ({ i }) => {
           const upDirection = worldToLocalDirection.mul(frameHemiDirections.element(i)).toVar();
+          const sky = vec2(1.0).toVar();
 
-          irradiance.addAssign(
-            frameHemiSkyColors
-              .element(i)
-              .mul(0.5)
-              .mul(totalTransmittance(upDirection, float(1e6))),
-          );
-          irradiance.addAssign(
-            frameHemiGroundColors
-              .element(i)
-              .mul(0.5)
-              .mul(totalTransmittance(upDirection.negate(), float(1e6))),
-          );
+          // NOTE Diffusion: sky and ground are an opposite pair, two-sided totals
+          If(diffusion, () => {
+            sky.assign(diffusionPair(upDirection));
+          }).Else(() => {
+            sky.assign(vec2(totalTransmittance(upDirection, float(1e6)), totalTransmittance(upDirection.negate(), float(1e6))));
+          });
+
+          irradiance.addAssign(frameHemiSkyColors.element(i).mul(0.5).mul(sky.x));
+          irradiance.addAssign(frameHemiGroundColors.element(i).mul(0.5).mul(sky.y));
         });
       });
 
@@ -322,7 +356,7 @@ export class FrameInjectMaterial extends FrameEnvironmentMaterial {
             this.frameScatteringOctaves,
             rayDirection,
             lightDirection,
-            volumeTransmittance(localDirection, maxDistance).toVar(),
+            volumeTransmittance(localDirection, maxDistance).xy.toVar(),
           );
 
           irradiance.addAssign(color.rgb.mul(light).mul(spotAttenuation));

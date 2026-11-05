@@ -310,6 +310,19 @@ const frameOctaveLight = (octaves, opticalDepth, framePhase, cosTheta) => {
   return light;
 };
 
+// NOTE Total transmittance of isotropic light (environment, sky) with diffusion multiple scattering.
+// Two-sided slab diffusion: 2 * (back + z0) / (front + back + 2 z0) of the reduced depths, z0 = 2/3, times exp(-effective front).
+// Light that is scattered and not absorbed is not lost: opposite directions sum to 2. In a white volume, a uniform
+// environment then gives the same light inside and outside (white furnace test). Front is toward the light.
+const frameDiffusionExtrapolation = 2.0 / 3.0;
+
+export const frameIsotropicDiffusion = (frontReduced, backReduced, frontEffective) =>
+  backReduced
+    .add(frameDiffusionExtrapolation)
+    .mul(2.0)
+    .div(frontReduced.add(backReduced).add(2.0 * frameDiffusionExtrapolation))
+    .mul(exp(frontEffective.negate()));
+
 // NOTE Total transmittance of isotropic light (no phase) from the y shadow value. Call in a Fn body.
 // Octaves: sum of b^n * exp(-a^n * optical depth), n 0 (direct) to N.
 export const frameShadowTotal = (shadowY, octaves) => {

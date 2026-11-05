@@ -50,6 +50,8 @@ const fragmentShader = `
   uniform int frameShadowSceneLightCount;
   uniform sampler2D frameEnvironmentGridMap;
   uniform int frameEnvironmentMode;
+  // NOTE 1 with diffusion multiple scattering. Then sky up and down have two-sided totals (frameIsotropicDiffusion).
+  uniform int frameDiffusion;
   uniform bool frameUseShadows;
   uniform mat4 frameCameraMatrixWorld;
   uniform vec3 frameSkyDirection;
@@ -173,10 +175,21 @@ const fragmentShader = `
         vec3 outwardDirection = length(visiblePosition) > 1e-4
           ? normalize(mat3(frameCameraMatrixWorld) * (mat3(frameLocalToView) * visiblePosition))
           : skyDirection;
-        float environmentShadow = mix(shadow0.y, shadow0.x, dot(outwardDirection, skyDirection) * 0.5 + 0.5);
-
+        float skyBlend = dot(outwardDirection, skyDirection) * 0.5 + 0.5;
+        float environmentShadow = mix(shadow0.y, shadow0.x, skyBlend);
         // NOTE getIBLIrradiance takes a view-space normal
-        emission += albedo * getIBLIrradiance(normalize(mat3(viewMatrix) * outwardDirection)) * environmentShadow * RECIPROCAL_PI;
+        vec3 viewOutward = normalize(mat3(viewMatrix) * outwardDirection);
+
+        if (frameDiffusion == 1) {
+          // NOTE Diffusion: the outward and the inward irradiance, each with its two-sided total. Uniform light then gives E.
+          float inwardShadow = mix(shadow0.x, shadow0.y, skyBlend);
+
+          emission += albedo * 0.5 * (
+            getIBLIrradiance(viewOutward) * environmentShadow + getIBLIrradiance(-viewOutward) * inwardShadow
+          ) * RECIPROCAL_PI;
+        } else {
+          emission += albedo * getIBLIrradiance(viewOutward) * environmentShadow * RECIPROCAL_PI;
+        }
       }
     #endif
 
@@ -218,6 +231,7 @@ export class FrameDensityMaterial extends Three.MeshStandardMaterial {
       frameSliceStart: { value: 0.0 },
       // NOTE Scattering octaves of frameRenderer.settings (core/framePhase.js). Count 0 is off.
       frameScatteringOctaves: { value: new Three.Vector4() },
+      frameDiffusion: { value: 0 },
     };
 
     this.glslVersion = Three.GLSL3;

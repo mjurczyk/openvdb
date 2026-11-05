@@ -15,7 +15,12 @@ import {
   createEnvironmentUniforms,
   createEnvironmentGridUniforms,
 } from './frameShaderChunks.js';
-import { getFramePhase, getFrameMultipleScattering, getFrameScatteringOctaves } from '../core/framePhase.js';
+import {
+  getFramePhase,
+  getFrameMultipleScattering,
+  getFrameScatteringOctaves,
+  isFrameDiffusion,
+} from '../core/framePhase.js';
 import {
   FrameEnvironmentLights,
   frameEnvironmentModes,
@@ -970,6 +975,7 @@ export class FrameRenderer {
         // NOTE 'frame' lighting: the light slots get one phase for all volumes, from frameRenderer.settings
         getFramePhase(this.settings, entry.material.frameUniforms.framePhase.value);
         getFrameScatteringOctaves(this.settings, entry.material.frameUniforms.frameScatteringOctaves.value);
+        entry.material.frameUniforms.frameDiffusion.value = isFrameDiffusion(this.settings.multipleScattering) ? 1 : 0;
         entry.material.frameUniforms.frameRect.value.copy(rect);
         entry.material.frameUniforms.frameSliceStart.value = first;
         entry.geometry.instanceCount = count;
@@ -1424,7 +1430,9 @@ export class FrameRenderer {
     const environmentLightCount =
       frameLighting &&
       environment.mode === frameEnvironmentModes.directional &&
-      sceneShadowLights.length < frameShadowLightSlots
+      sceneShadowLights.length < frameShadowLightSlots &&
+      // NOTE Diffusion: all environment lights use the environment grid. Then both lights of an opposite pair get the same march.
+      !isFrameDiffusion(this.settings.multipleScattering)
         ? 1
         : 0;
     const environmentGridLights = [];

@@ -46,8 +46,8 @@ const fragmentShader = `
 
   // NOTE Each step moves one voxel of the finest cascade at the probe, on the fastest axis of the direction.
   // The march goes to coarser cascades when it leaves a fine cascade.
-  // NOTE Returns (direct, total) transmittance
-  vec2 frameMarch(vec3 origin, vec3 direction, float maxDistance, float jitter) {
+  // NOTE Returns (direct, total, reduced depth, effective depth). Sky up and down use z and w for the diffusion total.
+  vec4 frameMarch(vec3 origin, vec3 direction, float maxDistance, float jitter) {
     vec3 depths = vec3(0.0);
     float traveled = 0.0;
     vec3 probe = origin;
@@ -71,7 +71,16 @@ const fragmentShader = `
       traveled += stepLength;
     }
 
-    return frameShadowTransmittance(depths);
+    return vec4(frameShadowTransmittance(depths), depths.z, depths.y);
+  }
+
+  // NOTE Sky up and down are isotropic, and opposite. Diffusion: two-sided total (frameIsotropicDiffusion).
+  float frameSkyTotal(vec4 front, vec4 back) {
+    if (frameMultipleScattering > 0.0) {
+      return frameIsotropicDiffusion(front.z, back.z, front.w);
+    }
+
+    return front.y;
   }
 
   vec2 frameLightTransmittance(int slot, vec3 worldPosition, float jitter) {
@@ -83,12 +92,12 @@ const fragmentShader = `
 
     // NOTE w is 1.0 for a light direction, 2.0 for a light position
     if (light.w < 1.5) {
-      return frameMarch(worldPosition, normalize(light.xyz), 1e20, jitter);
+      return frameMarch(worldPosition, normalize(light.xyz), 1e20, jitter).xy;
     }
 
     vec3 toLight = light.xyz - worldPosition;
 
-    return frameMarch(worldPosition, normalize(toLight), length(toLight), jitter);
+    return frameMarch(worldPosition, normalize(toLight), length(toLight), jitter).xy;
   }
 
   void main() {
@@ -133,12 +142,10 @@ const fragmentShader = `
     vec2 light4 = frameLightTransmittance(4, worldPosition, jitter);
     vec2 light5 = frameLightTransmittance(5, worldPosition, jitter);
 
-    frameTransmittance0 = vec4(
-      frameMarch(worldPosition, frameSkyDirection, 1e20, jitter).y,
-      frameMarch(worldPosition, -frameSkyDirection, 1e20, jitter).y,
-      light0.y,
-      light1.y
-    );
+    vec4 skyUp = frameMarch(worldPosition, frameSkyDirection, 1e20, jitter);
+    vec4 skyDown = frameMarch(worldPosition, -frameSkyDirection, 1e20, jitter);
+
+    frameTransmittance0 = vec4(frameSkyTotal(skyUp, skyDown), frameSkyTotal(skyDown, skyUp), light0.y, light1.y);
     frameTransmittance1 = vec4(light2.y, light3.y, light4.y, light5.y);
     frameTransmittance2 = vec4(light0.x, light1.x, light2.x, light3.x);
     frameTransmittance3 = vec4(light4.x, light5.x, 1.0, 1.0);

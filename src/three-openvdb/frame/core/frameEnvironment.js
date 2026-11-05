@@ -4,6 +4,8 @@
 
 export const frameMaxEnvironmentLights = 12;
 export const frameMaxEnvironmentSamples = 8;
+import { isFrameDiffusion } from './framePhase.js';
+
 export const frameEnvironmentMapWidth = 64;
 export const frameEnvironmentMapHeight = 32;
 
@@ -136,12 +138,14 @@ export class FrameEnvironmentLights {
       return null;
     }
 
-    const lightsKey = `${mode}:${settings.environmentSamples}:${settings.environmentShOrder}:${this.texelsVersion}`;
+    // NOTE Diffusion multiple scattering needs the directions in opposite pairs (getDirectionalLights)
+    const pairs = isFrameDiffusion(settings.multipleScattering);
+    const lightsKey = `${mode}:${settings.environmentSamples}:${settings.environmentShOrder}:${this.texelsVersion}:${pairs}`;
 
     if (lightsKey !== this.lightsKey) {
       this.lights =
         mode === frameEnvironmentModes.directional
-          ? this.getDirectionalLights(settings.environmentSamples)
+          ? this.getDirectionalLights(settings.environmentSamples, pairs)
           : this.getShLights(settings.environmentShOrder);
       this.lightsKey = lightsKey;
     }
@@ -227,18 +231,30 @@ export class FrameEnvironmentLights {
   // NOTE Dominant direction (brightest texel) and fixed sky directions: zenith, nadir, then a horizon ring.
   // NOTE Each texel goes to the nearest direction. A light is at the energy centroid of its texels, with their energy.
   // NOTE Color is energy / 4. Then a uniform environment gives the same light as the 'outward' path.
-  getDirectionalLights(samples) {
+  // NOTE pairs: the seeds are in opposite pairs (dominant and its opposite, zenith and nadir, an even horizon ring).
+  // NOTE Opposite cells then have the same solid angle. The diffusion weights of a pair sum to 2 (frameIsotropicDiffusion).
+  getDirectionalLights(samples, pairs = false) {
     const count = Math.min(frameMaxEnvironmentSamples, Math.max(1, Math.round(samples) || 1));
     const peak = this.texels.reduce((best, texel) => (texel.luminance > best.luminance ? texel : best));
     const seeds = [peak.direction];
-    const ringCount = count - 3;
+    const ringCount = pairs ? Math.max(0, count - 4) - (Math.max(0, count - 4) % 2) : count - 3;
 
-    if (count >= 2) {
-      seeds.push([0.0, 1.0, 0.0]);
-    }
+    if (pairs) {
+      if (count >= 2) {
+        seeds.push(peak.direction.map((value) => -value));
+      }
 
-    if (count >= 3) {
-      seeds.push([0.0, -1.0, 0.0]);
+      if (count >= 4) {
+        seeds.push([0.0, 1.0, 0.0], [0.0, -1.0, 0.0]);
+      }
+    } else {
+      if (count >= 2) {
+        seeds.push([0.0, 1.0, 0.0]);
+      }
+
+      if (count >= 3) {
+        seeds.push([0.0, -1.0, 0.0]);
+      }
     }
 
     // NOTE The horizon ring starts opposite the dominant direction

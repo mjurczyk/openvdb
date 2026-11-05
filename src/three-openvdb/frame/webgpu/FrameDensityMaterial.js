@@ -48,6 +48,8 @@ export const createDensityShadowUniforms = () => ({
   framePhase: uniform(new Three.Vector4()),
   // NOTE Scattering octaves of frameRenderer.settings (core/framePhase.js). Count 0 is off.
   frameScatteringOctaves: uniform(new Three.Vector4()),
+  // NOTE 1 with diffusion multiple scattering. Then sky up and down have two-sided totals (frameIsotropicDiffusion).
+  frameDiffusion: uniform(0, 'int'),
   frameUseShadows: uniform(0, 'int'),
   frameCameraMatrixWorld: uniform(new Three.Matrix4()),
   // NOTE Environment light of the last cascade voxels (FrameEnvironmentGridMaterial)
@@ -271,18 +273,31 @@ export class FrameDensityMaterial extends FrameEnvironmentMaterial {
             normalize(mat3(frameCameraMatrixWorld).mul(mat3(frameLocalToView).mul(visiblePosition))),
             skyDirection,
           ).toVar();
-          const environmentShadow = mix(
-            shadow0.y,
-            shadow0.x,
-            dot(outwardDirection, skyDirection).mul(0.5).add(0.5),
-          );
+          const skyBlend = dot(outwardDirection, skyDirection).mul(0.5).add(0.5).toVar();
+          const environmentShadow = mix(shadow0.y, shadow0.x, skyBlend);
 
-          emission.addAssign(
-            albedo
-              .mul(this.environmentIrradiance(outwardDirection))
-              .mul(environmentShadow)
-              .mul(1.0 / Math.PI),
-          );
+          // NOTE Diffusion: the outward and the inward irradiance, each with its two-sided total. Uniform light then gives E.
+          If(densityShadowUniforms.frameDiffusion.equal(1), () => {
+            const inwardShadow = mix(shadow0.x, shadow0.y, skyBlend);
+
+            emission.addAssign(
+              albedo
+                .mul(
+                  this.environmentIrradiance(outwardDirection)
+                    .mul(environmentShadow)
+                    .add(this.environmentIrradiance(outwardDirection.negate()).mul(inwardShadow))
+                    .mul(0.5),
+                )
+                .mul(1.0 / Math.PI),
+            );
+          }).Else(() => {
+            emission.addAssign(
+              albedo
+                .mul(this.environmentIrradiance(outwardDirection))
+                .mul(environmentShadow)
+                .mul(1.0 / Math.PI),
+            );
+          });
         });
       }
 
