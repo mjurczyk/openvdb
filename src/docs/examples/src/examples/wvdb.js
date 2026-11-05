@@ -1,9 +1,10 @@
 import * as Three from 'three';
 import * as OpenVDB from 'three-openvdb';
-import { gui, setGuiFields } from '../utils/gui';
+import { gui, setGuiFields, activeDemo } from '../utils/gui';
 import { setLoading } from '../utils/loading';
 import { renderer } from '../main';
 import { isPhone } from '../utils/device';
+import { firstEnvironment } from '../utils/resources';
 
 // NOTE Longest side of each volume in scene units
 const displaySize = 100.0;
@@ -331,6 +332,16 @@ export const exampleWVDB = ({ scene }) => {
   getController('status')?.disable();
   getController('textures')?.disable();
 
-  ready = true;
-  rebuild();
+  setLoading('wvdb', true);
+
+  firstEnvironment.then(() => {
+    // NOTE The user can change the demo before the first environment is set
+    if (activeDemo !== 'wvdb') {
+      setLoading('wvdb', false);
+      return;
+    }
+
+    ready = true;
+    rebuild();
+  });
 };
