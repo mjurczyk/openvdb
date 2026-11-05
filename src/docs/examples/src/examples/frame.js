@@ -1,7 +1,7 @@
 import * as Three from 'three';
 import * as OpenVDB from 'three-openvdb';
 import { gui, setGuiFields } from '../utils/gui';
-import { loadAndCacheVDB, loadEnvironment } from '../utils/resources';
+import { loadAndCacheVDB } from '../utils/resources';
 import { setLoading } from '../utils/loading';
 import { createEmissionDemo } from '../utils/emission';
 import {
@@ -11,6 +11,7 @@ import {
   applyPhaseParams,
 } from '../utils/phase';
 import { createToneMappingField } from '../utils/toneMapping';
+import { createMultipleScatteringFields } from '../utils/scattering';
 import { isPhone } from '../utils/device';
 
 // NOTE Stress test: one bunny is converted one time, in a cube box.
@@ -25,7 +26,9 @@ const explosion = {
   emissiveGrid: 'flames',
   // NOTE Approximately the 99th percentile of the flames grid
   emissiveScale: 6.0,
-  emissiveIntensity: 3.0,
+  baseColor: '#555555',
+  extinction: 350.0,
+  emissiveIntensity: 25.0,
   // NOTE Emission light settings for the explosion
   lightIntensity: 25.0,
   probes: 32,
@@ -69,9 +72,9 @@ export const exampleFrame = ({ scene }) => {
     absorbance: 1.0,
     densityScale: 1.0,
     opacity: 1.0,
-    extinction: 200.0,
+    extinction: 350.0,
     ...phaseParams,
-    emissiveIntensity: 3.0,
+    emissiveIntensity: 1.0,
     temperatureMin: 600.0,
     temperatureMax: 7000.0,
     shadowSteps: 32,
@@ -438,7 +441,7 @@ export const exampleFrame = ({ scene }) => {
 
           if (params.source === 'bunnyGrid') {
             addBunnyGrid(Math.max(size.x, size.y, size.z), () => {
-              const volume = new OpenVDB.FrameVolume(grid.data, { resolution: grid.resolution });
+              const volume = new OpenVDB.FrameVolume(grid.data, { dimensions: grid.dimensions });
               volume.scale.copy(size);
 
               return volumeData.attach(volume);
@@ -449,7 +452,7 @@ export const exampleFrame = ({ scene }) => {
 
           addBunnies(center, size, () =>
             volumeData.attach(
-              new OpenVDB.FrameVolume(grid.data, { resolution: grid.resolution, bbox: grid.bbox }),
+              new OpenVDB.FrameVolume(grid.data, { dimensions: grid.dimensions, bbox: grid.bbox }),
             ),
           );
         },
@@ -544,13 +547,13 @@ export const exampleFrame = ({ scene }) => {
           onChange: (value) => {
             params.source = value;
 
-            // NOTE The explosion lights the ground at night
+            // NOTE The explosion turns on its emission light. The floor stays as it is.
             if (value === 'explosion') {
               getController('emissionLight')?.setValue(true);
               getController('emissionIntensity')?.setValue(explosion.lightIntensity);
               getController('emissionResolution')?.setValue(explosion.probes);
-              getController('sceneMeshes')?.setValue(true);
-              getController('environment')?.setValue('night');
+              getController('fogColor')?.setValue(explosion.baseColor);
+              getController('extinction')?.setValue(explosion.extinction);
               getController('emissiveIntensity')?.setValue(explosion.emissiveIntensity);
               getController('castShadow')?.setValue(true);
             }
@@ -564,20 +567,6 @@ export const exampleFrame = ({ scene }) => {
       folder: 'Scene',
       closed: true,
       children: [
-        {
-          id: 'environment',
-          name: 'EnvMap',
-          defaultValue: 'uv-1',
-          options: {
-            'Night Realistic': 'night',
-            'Fiery Sky': 'fiery-sky-1',
-            'Magic Forest': 'magic-forest-5',
-            UV: 'uv-1',
-          },
-          onChange: (value) => {
-            loadEnvironment(scene, value);
-          },
-        },
         {
           id: 'lightSetup',
           name: 'Lights',
@@ -663,6 +652,7 @@ export const exampleFrame = ({ scene }) => {
             debugObstacle.visible = value;
           },
         },
+        { ...emission.meshesField, name: 'Show Floor' },
       ],
     },
     {
@@ -727,7 +717,7 @@ export const exampleFrame = ({ scene }) => {
             OpenVDB.frameRenderer.settings.lighting = value;
           },
         },
-        // NOTE Environment light with self-shadowing. Use with an environment that has a sun, for example Night Realistic.
+        // NOTE Environment light with self-shadowing. Use with an environment that has a sun, for example Sky Midday.
         {
           id: 'environmentLighting',
           name: 'Environment Light',
@@ -748,6 +738,7 @@ export const exampleFrame = ({ scene }) => {
           max: 8,
           onChange: setFrameSetting('environmentSamples'),
         },
+        ...createMultipleScatteringFields(),
         ...createFramePhaseFields(),
         createToneMappingField(),
         // NOTE WebGPURenderer only. WebGLRenderer always blends on the sRGB canvas.
@@ -828,7 +819,7 @@ export const exampleFrame = ({ scene }) => {
     {
       folder: 'Light Emission',
       closed: true,
-      children: [...emission.lightFields, emission.meshesField],
+      children: emission.lightFields,
     },
     {
       folder: 'Shadow Casting',

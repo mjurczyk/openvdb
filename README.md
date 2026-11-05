@@ -46,7 +46,7 @@ const scene = new Three.Scene();
 new OpenVDB.WVDBLoader().load('./assets/bunny_cloud.wvdb', (volumeData) => {
   const grid = volumeData.grids.density;
   const volume = new OpenVDB.FrameVolume(grid.data, {
-    resolution: grid.resolution,
+    dimensions: grid.dimensions,
     bbox: grid.bbox,
     absorbance: 1.0,
     baseColor: 0xff00ff,
@@ -108,7 +108,7 @@ export const VDBComponent = () => {
 
       volume = loaded.attach(
         new OpenVDB.FrameVolume(grid.data, {
-          resolution: grid.resolution,
+          dimensions: grid.dimensions,
           bbox: grid.bbox,
           absorbance: 1.0,
           baseColor: 0xff00ff,
@@ -173,7 +173,7 @@ Loads VDB model. onLoad is called when VDB is loaded and parsed. onError is call
 
 Loads a `.wvdb` file (see [WVDB files](#wvdb-files)) as a stream. `onLoad( volumeData )` is called when all grids show LOD 0. Each next LOD replaces the previous one while the download continues. Each LOD has its own texture size (for example 32³, 64³, 128³). `onProgress({ lod, lods, lodComplete, done, bytesLoaded, bytesTotal })` is called after each update. With `setMaxLod( lod )`, the download stops after that LOD.
 
-`volumeData.grids[name]` has `data: Uint8Array` (`resolution`³ texels of the newest LOD: density, or RGBA when `isColor`), `resolution`, `bbox: Three.Box3`, `isLevelSet` and `isColor`. Use `data` as raw data of `FrameVolume`, also for `emissiveGrid` and `baseColorGrid`. With `setGridScales({ flames: 6.0 })`, grid values divide by the scale before they become density. Use the `emissiveScale` of the volume for emission grids. Call `volumeData.attach( volume )`, so the textures of the volume update (and resize) when a new LOD arrives. `volumeData.dispose()` stops the download.
+`volumeData.grids[name]` has `data: Uint8Array` (texels of the newest LOD: density, or RGBA when `isColor`), `dimensions: [x, y, z]` (texels of the newest LOD), `resolution` (texels on the longest side), `bbox: Three.Box3`, `isLevelSet` and `isColor`. Use `data` as raw data of `FrameVolume` with `dimensions`, also for `emissiveGrid` and `baseColorGrid`. With `setGridScales({ flames: 6.0 })`, grid values divide by the scale before they become density. Use the `emissiveScale` of the volume for emission grids. Call `volumeData.attach( volume )`, so the textures of the volume update (and resize) when a new LOD arrives. `volumeData.dispose()` stops the download.
 
 - `WVDBAnimationLoader( manager ).setOptions( props ).load( urls, onLoad, onProgress, onError ): FrameVolumeAnimation`
 
@@ -182,7 +182,7 @@ Loads a `.wvdb` sequence (one file per frame) as a `FrameVolumeAnimation`. LOD 0
 ```js
 new OpenVDB.WVDBLoader().load('./assets/bunny_cloud.wvdb', (volumeData) => {
   const grid = volumeData.grids.density;
-  const volume = new OpenVDB.FrameVolume(grid.data, { resolution: grid.resolution, bbox: grid.bbox });
+  const volume = new OpenVDB.FrameVolume(grid.data, { dimensions: grid.dimensions, bbox: grid.bbox });
 
   volumeData.attach(volume);
   scene.add(volume);
@@ -200,8 +200,9 @@ new OpenVDB.WVDBLoader().load('./assets/bunny_cloud.wvdb', (volumeData) => {
 Converts the given `OpenVDBReader` to a volumetric `Three.Object3D`. `onConverted` and `onProgress` are called as the VDB is converted. For each frame, all visible `FrameVolume` objects are written into one frustum-aligned voxel grid (froxels). Then one fullscreen pass marches that grid. Overlapping volumes mix correctly. It works with a normal `renderer.render(scene, camera)` call of `WebGPURenderer`. The march stops at the depth buffer of that render, so a render target must have a depth buffer.
 
 * `resolution: number` - (default: `100`) resolution of the 3D texture of each grid.
+* `dimensions: [x, y, z]` - raw data only: texels of the 3D texture on each axis, for example `grid.dimensions` of `.wvdb` data. Default: `resolution` on each axis.
 * `progressive: boolean` - set to `true` to render the volume while it is converted.
-* `extinction: number` - (default: `100.0`) extinction of density `1.0` for each unit of the volume box (the largest side).
+* `extinction: number` - (default: `350.0`) extinction of density `1.0` for each unit of the volume box (the largest side).
 * `phase: string` - (default: `'henyey-greenstein'`) phase function of directional, point and spot lights. It changes the light with the angle between the view ray and the light. Ambient, hemisphere, light probe and environment light stay isotropic. Used by `'volume'` lighting. `'frame'` lighting lights all volumes with one phase, from `frameRenderer.settings.phase`:
   * `'isotropic'` - the same light in all directions.
   * `'henyey-greenstein'` - one Henyey-Greenstein lobe with `phaseG`. Positive values scatter forward: a volume in front of the light gets bright edges (silver lining).
@@ -235,7 +236,7 @@ An instance shows the same volume or sequence at another place, with no new 3D t
 
 An animation instance plays the frames of the source animation with its own `frame`, `fps`, `loop`, `play()`, `pause()`, `stop()` and `update( delta )`. Volume props (for example `extinction` or `baseColor`) apply only to the instance. It renders one `FrameVolume` instance, which shows the textures of the current frame. Call `animation.createInstance()` in `onLoad`, when the animation has frames. Frames that load later are used too.
 
-Props that build the textures stay the same as the source: `resolution`, `bbox`, `emissiveGrid`, `baseColorGrid`, `maskGrid`, and `emissiveScale` of `.wvdb` and converted data. For other voxel data, load the volume again.
+Props that build the textures stay the same as the source: `resolution`, `dimensions`, `bbox`, `emissiveGrid`, `baseColorGrid`, `maskGrid`, and `emissiveScale` of `.wvdb` and converted data. For other voxel data, load the volume again.
 
 `instance.dispose()` frees only the instance. Dispose the source after its instances. The source does not have to be in the scene.
 
@@ -244,7 +245,7 @@ new OpenVDB.WVDBAnimationLoader()
   .setOptions({ emissiveGrid: 'flames' })
   .load(urls, (animation) => {
     for (let i = 0; i < 8; i++) {
-      const explosion = animation.createInstance({ extinction: 300.0 });
+      const explosion = animation.createInstance({ extinction: 350.0 });
 
       explosion.position.x = i * 10.0;
       explosion.frame = i * 10;
@@ -301,6 +302,12 @@ Froxel grid settings are global, in `frameRenderer.settings`:
   * `'spherical-harmonics'` - the environment as spherical harmonics (`environmentShOrder` `1` or `2`), with SH-projected transmittance (§7). The transmittance is marched along 6 (L1) or 12 (L2) fixed directions, projected to SH and multiplied with the environment SH. Soft light, no sharp sun shadow, no shadow slot. SH can ring: with a strong sun, a voxel that is shadowed from the side opposite the sun can get a bit more light than an unshadowed voxel.
 * `environmentSamples` - (default: `8`, `1` to `8`) directional lights of `'directional'`.
 * `environmentShOrder` - (default: `1`) SH order of `'spherical-harmonics'`: `1` (4 coefficients, 6 directions) or `2` (9 coefficients, 12 directions).
+* `multipleScattering` - (default: `true`) multiple scattering in the shadows of all lights (scene lights, hemisphere lights, light probes and the environment), with `'frame'` and `'volume'` lighting. Light that scatters again inside the volume goes deep into it, so white volumes (for example clouds) are white inside, not grey. Diffusion approximation: the total transmittance is `exp(-effective) / (1 + 0.75 * reduced)`, never less than the direct transmittance `exp(-opticalDepth)`. `reduced` is the scattering optical depth multiplied by `1 - g` (asymmetry `g` of the phase function: `'frame'` lighting `frameRenderer.settings`, `'volume'` lighting each `FrameVolume`, Lorenz-Mie `g = 0.8526`). `effective` comes from the absorption `1 - albedo` (linear luminance of `baseColor` and `baseColorGrid`). Dark volumes (for example smoke) absorb the scattered light, so they keep sharp shadows. Only the direct light gets the phase function. The scattered light is isotropic. `false` is single scattering (the earlier look).
+  * `'octaves'` (experimental) - direct and indirect light are separate. The direct light is the same as `false`: `phase * exp(-opticalDepth)`. The indirect light is `scatteringOctaves` octaves. Octave `n` (`1` to `N`) has the extinction multiplied by `a^n`, the light multiplied by `b^n` and the phase `g` multiplied by `c^n` (Lorenz-Mie: Henyey-Greenstein with `g = 0.8526 * c^n`). Higher orders of scattering are smooth, so a flatter phase and less extinction are a good approximation. Light goes deep into dense volumes, and back-lit volumes keep the silver lining of the direct light. Isotropic lights (hemisphere lights, light probes, the environment) get `exp(-opticalDepth)` and the octaves with no phase. Octaves use the optical depth of the shadow march, there is no march for each octave. But the march stops later (when `opticalDepth * a^N` is more than the limit), so more octaves and a smaller `a` cost more. Volumes with no shadow also get the octave light, `1 + b + ... + b^N` of the light. Absorption (`baseColor`) does not change the octaves.
+* `scatteringOctaves` - (default: `4`, `1` to `8`) number `N` of indirect light octaves of `multipleScattering: 'octaves'`.
+* `scatteringOctaveExtinction` - (default: `0.5`, `0` to `1`) extinction multiplier `a` of each octave.
+* `scatteringOctaveContribution` - (default: `0.5`, `0` to `1`) light multiplier `b` of each octave.
+* `scatteringOctavePhase` - (default: `0.5`, `0` to `1`) phase `g` multiplier `c` of each octave. `0` makes the octaves isotropic.
 * `srgbBlending` - (default: `true`) blends the volumes over the scene in sRGB, the same as `WebGLRenderer` did. `false` blends in linear space, the default of `WebGPURenderer`. Linear blending makes thin fog brighter.
 * `castShadows` - (default: `false`) volumes cast shadows on meshes, for directional, point and spot lights with `castShadow` (see Volume shadows).
 * `castShadowMapSize` - (default: `512`) texels on each side of a volume shadow map (of each cascade tile and cube face).
@@ -357,7 +364,7 @@ wvdb ./explosion_VDB        # folder of .vdb files -> ./explosion_VDB_wvdb/
 wvdb ./explosion_VDB.zip    # ZIP of .vdb files -> ./explosion_VDB_wvdb/
 ```
 
-Options: `--output`, `--grids <a,b>`, `--resolution` (default `128`, texels per side of the finest LOD), `--lods` (default `3`), `--bits` (`8` or `16`, default `8`), `--layout` (`sparse` or `dense`, default `sparse`), `--page-bricks` (default `1024`), `--jobs` (files converted at the same time, default: CPU core count).
+Options: `--output`, `--grids <a,b>`, `--resolution` (default `128`, texels on the longest box side of the finest LOD, texels are cubes), `--lods` (default `3`), `--bits` (`8` or `16`, default `8`), `--layout` (`sparse` or `dense`, default `sparse`), `--page-bricks` (default `1024`), `--jobs` (files converted at the same time, default: CPU core count).
 
 Each `.vdb` file gives one `.wvdb` file, also empty frames. All grids of a file use one box. All frames of a folder or ZIP use one box, so voxels do not move between frames.
 

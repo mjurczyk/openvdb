@@ -27,7 +27,7 @@ import {
   createLightUniforms,
   frameFullscreenVertex,
 } from './frameShaderChunks.js';
-import { getFramePhase } from '../core/framePhase.js';
+import { getFramePhase, getFrameMultipleScattering, getFrameScatteringOctaves } from '../core/framePhase.js';
 import {
   FrameEnvironmentLights,
   frameEnvironmentModes,
@@ -150,6 +150,13 @@ export class FrameRenderer {
     environmentLighting: 'directional',
     environmentSamples: 8,
     environmentShOrder: 1,
+    // NOTE Multiple scattering in the shadows of all lights (core/framePhase.js). true: diffusion approximation.
+    // 'octaves': indirect light octaves (experimental). false: single scattering.
+    multipleScattering: true,
+    scatteringOctaves: 4,
+    scatteringOctaveExtinction: 0.5,
+    scatteringOctaveContribution: 0.5,
+    scatteringOctavePhase: 0.5,
   };
 
   // NOTE TSL uniform nodes. Passes share them, the CPU writes .value.
@@ -220,6 +227,7 @@ export class FrameRenderer {
   environmentGridTarget = null;
   environmentGridSignature = [];
   nextEnvironmentGridSignature = [];
+  scatteringOctaves = new Three.Vector4();
 
   atlasTarget = null;
   densityTarget = null;
@@ -343,7 +351,7 @@ export class FrameRenderer {
   }
 
   // NOTE Environment grid of the last cascade. It is drawn again only when its signature changes.
-  // NOTE Signature: the grid lights, the last cascade, and the caster data that the shadow density pass reads.
+  // NOTE Signature: the grid lights, the last cascade, and the caster data that the shadow density pass reads (also the albedo).
   renderEnvironmentGrid(renderer, camera, casters, gridLights) {
     const { frameGridMin, frameGridSize, frameGridCount, frameGridResolution } = this.gridUniforms;
     const cascade = frameGridCount.value - 1;
@@ -352,10 +360,15 @@ export class FrameRenderer {
 
     this.environmentGridUniforms.frameEnvironmentGridCascade.value = cascade;
 
+    const multipleScattering = getFrameMultipleScattering(this.settings.multipleScattering, this.settings);
+    const scatteringOctaves = getFrameScatteringOctaves(this.settings, this.scatteringOctaves);
+
     signature.length = 0;
     signature.push(
       frameGridResolution.value,
       cascade,
+      multipleScattering,
+      ...scatteringOctaves.toArray(),
       ...frameGridMin.array[cascade].toArray(),
       ...frameGridSize.array[cascade].toArray(),
     );
@@ -368,8 +381,10 @@ export class FrameRenderer {
       [
         volume.densityMap3D,
         volume.maskMap3D,
+        volume.baseColorMap3D,
         mipMaps?.densityMap3D?.texture,
         mipMaps?.maskMap3D?.texture,
+        mipMaps?.baseColorMap3D?.texture,
       ].forEach((map) => signature.push(map, map ? map.version : -1));
 
       signature.push(
@@ -377,6 +392,7 @@ export class FrameRenderer {
         frameVolume.densityScale,
         frameVolume.densityCutoff,
         frameVolume.absorbance,
+        ...frameVolume.baseColor.toArray(),
         frameVolume.wrap3D,
         ...frameVolume.offset3D.toArray(),
         ...volume.matrixWorld.elements,
@@ -397,6 +413,8 @@ export class FrameRenderer {
 
     material.frameShadowDensityMap.value = this.shadowDensityTarget.texture;
     material.frameLightCount.value = gridLights.length;
+    material.frameMultipleScattering.value = multipleScattering;
+    material.frameScatteringOctaves.value.copy(scatteringOctaves);
 
     gridLights.forEach(({ direction, color }, index) => {
       material.frameLightDirections.array[index].fromArray(direction);
@@ -637,11 +655,13 @@ export class FrameRenderer {
         this.transmittanceTarget.dispose();
       }
 
+      // NOTE Extinction and absorption
       this.shadowDensityTarget = createRenderTarget(gridAtlas.width, gridAtlas.height, {
-        format: Three.RedFormat,
+        format: Three.RGFormat,
       });
+      // NOTE Total transmittance (2 targets), then direct transmittance of the light slots (2 targets)
       this.transmittanceTarget = createRenderTarget(gridAtlas.width, gridAtlas.height, {
-        count: 2,
+        count: 4,
       });
     }
 
@@ -796,6 +816,11 @@ export class FrameRenderer {
       setVolumeUniforms(injectMaterial.volumeUniforms, frameVolume, volume);
       injectMaterial.frameLights.value = frameVolume.lights;
       injectMaterial.frameShadowSteps.value = frameVolume.shadowSteps;
+      injectMaterial.frameMultipleScattering.value = getFrameMultipleScattering(
+        this.settings.multipleScattering,
+        frameVolume,
+      );
+      getFrameScatteringOctaves(this.settings, injectMaterial.frameScatteringOctaves.value);
 
       // NOTE Draw only the atlas rows that contain the slices of this volume.
       // Scissor y starts at the top of the target.
@@ -838,6 +863,11 @@ export class FrameRenderer {
     if (useShadows) {
       this.transmittanceMaterial.frameShadowDensityMap.value = this.shadowDensityTarget.texture;
       this.transmittanceMaterial.frameShadowLightCount.value = lights.shadowLightCount;
+      this.transmittanceMaterial.frameMultipleScattering.value = getFrameMultipleScattering(
+        this.settings.multipleScattering,
+        this.settings,
+      );
+      getFrameScatteringOctaves(this.settings, this.transmittanceMaterial.frameScatteringOctaves.value);
       this.transmittanceMesh.layers.mask = camera.layers.mask;
 
       renderer.setRenderTarget(this.transmittanceTarget);
@@ -853,6 +883,11 @@ export class FrameRenderer {
     densityShadowUniforms.frameUseShadows.value = useShadows ? 1 : 0;
     densityShadowUniforms.frameTransmittanceMap0.value = this.transmittanceTarget.textures[0];
     densityShadowUniforms.frameTransmittanceMap1.value = this.transmittanceTarget.textures[1];
+    densityShadowUniforms.frameTransmittanceMap2.value = this.transmittanceTarget.textures[2];
+    densityShadowUniforms.frameTransmittanceMap3.value = this.transmittanceTarget.textures[3];
+    densityShadowUniforms.frameShadowSceneLightCount.value = lights.environmentShadowSlot;
+    getFramePhase(this.settings, densityShadowUniforms.framePhase.value);
+    getFrameScatteringOctaves(this.settings, densityShadowUniforms.frameScatteringOctaves.value);
     densityShadowUniforms.frameEnvironmentGridMap.value = this.environmentGridTarget.texture;
     densityShadowUniforms.frameEnvironmentMode.value = useEnvironmentGrid
       ? frameDensityEnvironment.grid
@@ -908,6 +943,7 @@ export class FrameRenderer {
     lightingMaterial.frameEnvironmentShadowSlot.value = lights.environmentShadowSlot;
     lightingMaterial.frameCameraMatrixWorld.value.copy(camera.matrixWorld);
     getFramePhase(this.settings, lightingMaterial.framePhase.value);
+    getFrameScatteringOctaves(this.settings, lightingMaterial.frameScatteringOctaves.value);
 
     renderer.setRenderTarget(this.atlasTarget);
     renderer.clear(true, false, false);

@@ -29,7 +29,12 @@ import {
   getFroxelLod,
   frameNoise,
   frameFullscreenVertex,
-  framePhaseWeight,
+  frameShadowAbsorption,
+  frameShadowStep,
+  frameShadowMarchDepth,
+  frameShadowTransmittance,
+  frameShadowTotal,
+  frameShadowedLight,
   createVolumeUniforms,
   createVolumeNodes,
 } from './frameShaderChunks.js';
@@ -48,6 +53,10 @@ export class FrameInjectMaterial extends FrameEnvironmentMaterial {
     this.volumeUniforms = createVolumeUniforms();
     this.frameLights = uniform(0, 'int');
     this.frameShadowSteps = uniform(32, 'int');
+    // NOTE Multiple scattering of this volume (core/framePhase.js). 0.0 is single scattering.
+    this.frameMultipleScattering = uniform(0.0);
+    // NOTE Scattering octaves of frameRenderer.settings (core/framePhase.js). Count 0 is off.
+    this.frameScatteringOctaves = uniform(new Three.Vector4());
     this.frameCameraMatrixWorld = uniform(new Three.Matrix4());
     this.mipmaps = false;
 
@@ -169,10 +178,12 @@ export class FrameInjectMaterial extends FrameEnvironmentMaterial {
         mat3(this.frameCameraMatrixWorld).mul(viewFar.sub(viewNear)),
       ).toVar();
       const shadowNoise = frameNoise(frameJitter, fragCoord.add(vec2(17.0, 31.0))).toVar();
+      const albedo = volume.sampleAlbedo(localPosition, lod).toVar();
 
       // NOTE Shadow march inside this volume only. Call in the Fn body.
+      // NOTE Returns shadow values (frameShadowTransmittance). The absorption uses the albedo at the lit position.
       const volumeTransmittance = (localDirection, maxLocalDistance) => {
-        const result = float(1.0).toVar();
+        const result = vec2(1.0).toVar();
 
         If(frameAbsorbance.greaterThan(0.0).and(this.frameShadowSteps.greaterThan(0)), () => {
           const direction = normalize(localDirection).toVar();
@@ -183,25 +194,37 @@ export class FrameInjectMaterial extends FrameEnvironmentMaterial {
             const stepLod = max(lod, volume.getLod(localStep)).toVar();
             const worldStep = localStep.mul(length(mat3(frameLocalToView).mul(direction)));
             const stepScale = worldStep.mul(frameAbsorbance).toVar();
-            const opticalDepth = float(0.0).toVar();
+            const depths = vec3(0.0).toVar();
             const probe = localPosition.add(direction.mul(localStep).mul(shadowNoise)).toVar();
 
             Loop(this.frameShadowSteps, () => {
-              opticalDepth.addAssign(volume.sampleExtinction(probe, stepLod).mul(stepScale));
+              const extinction = volume.sampleExtinction(probe, stepLod).mul(stepScale).toVar();
 
-              If(opticalDepth.greaterThan(8.0), () => {
+              depths.addAssign(
+                frameShadowStep(
+                  extinction,
+                  frameShadowAbsorption(extinction, albedo),
+                  this.frameMultipleScattering,
+                ),
+              );
+
+              If(frameShadowMarchDepth(depths, this.frameMultipleScattering, this.frameScatteringOctaves).greaterThan(8.0), () => {
                 Break();
               });
 
               probe.addAssign(direction.mul(localStep));
             });
 
-            result.assign(exp(opticalDepth.negate()));
+            result.assign(frameShadowTransmittance(depths, this.frameMultipleScattering, this.frameScatteringOctaves));
           });
         });
 
         return result;
       };
+
+      // NOTE Isotropic light (no phase): total transmittance
+      const totalTransmittance = (localDirection, maxLocalDistance) =>
+        frameShadowTotal(volumeTransmittance(localDirection, maxLocalDistance).y, this.frameScatteringOctaves);
 
       const outwardNormal = select(
         length(localPosition).greaterThan(1e-4),
@@ -225,7 +248,7 @@ export class FrameInjectMaterial extends FrameEnvironmentMaterial {
             const direction = worldToLocalDirection.mul(frameEnvironmentDirections.element(i)).toVar();
 
             environment.addAssign(
-              frameEnvironmentColors.element(i).mul(volumeTransmittance(direction, float(1e6))),
+              frameEnvironmentColors.element(i).mul(totalTransmittance(direction, float(1e6))),
             );
           });
 
@@ -234,7 +257,7 @@ export class FrameInjectMaterial extends FrameEnvironmentMaterial {
           if (this.environment) {
             irradiance.addAssign(
               this.environmentIrradiance(outwardNormal).mul(
-                volumeTransmittance(worldToLocalDirection.mul(outwardNormal), float(1e6)),
+                totalTransmittance(worldToLocalDirection.mul(outwardNormal), float(1e6)),
               ),
             );
           }
@@ -249,13 +272,13 @@ export class FrameInjectMaterial extends FrameEnvironmentMaterial {
             frameHemiSkyColors
               .element(i)
               .mul(0.5)
-              .mul(volumeTransmittance(upDirection, float(1e6))),
+              .mul(totalTransmittance(upDirection, float(1e6))),
           );
           irradiance.addAssign(
             frameHemiGroundColors
               .element(i)
               .mul(0.5)
-              .mul(volumeTransmittance(upDirection.negate(), float(1e6))),
+              .mul(totalTransmittance(upDirection.negate(), float(1e6))),
           );
         });
       });
@@ -293,22 +316,19 @@ export class FrameInjectMaterial extends FrameEnvironmentMaterial {
             toLight,
           );
           const maxDistance = select(isDirectional, float(1e6), length(toLight));
-          const phase = framePhaseWeight(
+          const lightDirection = select(isDirectional, position.xyz, normalize(position.xyz.sub(worldPosition)));
+          const light = frameShadowedLight(
             volumeUniforms.framePhase,
+            this.frameScatteringOctaves,
             rayDirection,
-            select(isDirectional, position.xyz, normalize(position.xyz.sub(worldPosition))),
+            lightDirection,
+            volumeTransmittance(localDirection, maxDistance).toVar(),
           );
 
-          irradiance.addAssign(
-            color.rgb
-              .mul(phase)
-              .mul(spotAttenuation)
-              .mul(volumeTransmittance(localDirection, maxDistance)),
-          );
+          irradiance.addAssign(color.rgb.mul(light).mul(spotAttenuation));
         });
       });
 
-      const albedo = volume.sampleAlbedo(localPosition, lod);
       const radiance = max(frameScatterColor, albedo.mul(irradiance).mul(1.0 / Math.PI)).add(
         volume.sampleEmission(localPosition, lod),
       );

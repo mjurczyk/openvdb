@@ -1,7 +1,7 @@
 import * as Three from 'three';
 import * as OpenVDB from 'three-openvdb';
 import { gui, setGuiFields } from '../utils/gui';
-import { loadEnvironment, loaders } from '../utils/resources';
+import { loaders } from '../utils/resources';
 import { setLoading } from '../utils/loading';
 
 // NOTE Longest side of the mesh and of the volume in scene units
@@ -89,8 +89,6 @@ export const exampleMesh = ({ scene }) => {
   scene.add(sun);
   scene.add(new Three.HemisphereLight(0x88aaff, 0x443322, 0.5));
 
-  loadEnvironment(scene, 'uv-1');
-
   const setStatus = (text) => {
     getController('status')?.setValue(text);
   };
@@ -154,7 +152,7 @@ export const exampleMesh = ({ scene }) => {
         // NOTE The volume box is the MeshVolume sampler box: size and center in model space
         const volume = new OpenVDB.FrameVolume(
           meshVolume,
-          { resolution: params.resolution, progressive: true, extinction: 200.0 },
+          { resolution: params.resolution, progressive: true, extinction: 350.0 },
           () => {
             stopLoading();
 

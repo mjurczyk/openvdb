@@ -1,7 +1,6 @@
 import * as Three from 'three';
 import * as OpenVDB from 'three-openvdb';
 import { gui, setGuiFields } from '../utils/gui';
-import { loadEnvironment } from '../utils/resources';
 import { setLoading } from '../utils/loading';
 import { renderer } from '../main';
 import { isPhone } from '../utils/device';
@@ -21,7 +20,11 @@ const sequences = {
     emissiveGrid: 'flames',
     // NOTE Approximately the 99th percentile of the flames grid
     emissiveScale: 6.0,
-    baseColor: '#333333',
+    // NOTE Same volume values as the Rendering Frame explosion
+    baseColor: '#555555',
+    extinction: 350.0,
+    emissiveIntensity: 25.0,
+    temperatureRange: [600.0, 7000.0],
     fps: 60,
   },
 };
@@ -29,7 +32,7 @@ const sequences = {
 // NOTE On phones sequences stop at LOD 1 (64³). All frames at the finest LOD use approximately 1 GB of GPU memory.
 const sequenceMaxLod = isPhone ? 1 : Infinity;
 
-const defaultExtinction = 200.0;
+const defaultExtinction = 350.0;
 
 const getExtinction = (asset) => sequences[asset]?.extinction ?? defaultExtinction;
 
@@ -54,8 +57,6 @@ export const exampleWVDB = ({ scene }) => {
   sun.position.set(100.0, 200.0, 100.0);
   scene.add(sun);
   scene.add(new Three.HemisphereLight(0x88aaff, 0x443322, 0.5));
-
-  loadEnvironment(scene, 'uv-1');
 
   let lastTime = performance.now();
 
@@ -204,6 +205,8 @@ export const exampleWVDB = ({ scene }) => {
 
         // NOTE New frames get these values too
         animation.baseColor = sequence.baseColor;
+        animation.emissiveIntensity = sequence.emissiveIntensity;
+        animation.temperatureRange = sequence.temperatureRange;
         animation.fps = sequence.fps;
 
         // NOTE The animation is in entry before it shows, so removeVolume stops its downloads
@@ -224,7 +227,7 @@ export const exampleWVDB = ({ scene }) => {
 
         const grid = Object.values(volumeData.grids)[0];
         const volume = new OpenVDB.FrameVolume(grid.data, {
-          resolution: grid.resolution,
+          dimensions: grid.dimensions,
           bbox: grid.bbox,
         });
 

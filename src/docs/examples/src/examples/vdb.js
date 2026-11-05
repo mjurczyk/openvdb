@@ -1,7 +1,6 @@
 import * as Three from 'three';
 import * as OpenVDB from 'three-openvdb';
 import { gui, setGuiFields, dropTarget } from '../utils/gui';
-import { loadEnvironment } from '../utils/resources';
 import { SimpleDropzone } from 'simple-dropzone';
 import zip from 'zip-js-esm';
 import { setLoading } from '../utils/loading';
@@ -13,6 +12,8 @@ import {
   applyPhaseParams,
 } from '../utils/phase';
 import { createToneMappingField } from '../utils/toneMapping';
+import { createMultipleScatteringFields } from '../utils/scattering';
+import { groundLevel } from '../utils/resources';
 
 let animation, volumePivot, targetScene;
 // NOTE Instances of the animation, for the Copies field. Disposed before the animation.
@@ -36,10 +37,10 @@ const params = {
   absorbance: 1.0,
   densityScale: 1.0,
   opacity: 1.0,
-  extinction: 200.0,
+  extinction: 350.0,
   ...phaseParams,
   shadowSteps: 32,
-  emissiveIntensity: 3.0,
+  emissiveIntensity: 1.0,
   temperatureMin: 0.0,
   temperatureMax: 6500.0,
   upAxis: 'y',
@@ -158,7 +159,7 @@ const createAnimation = (urls) => {
 
   const loadingAnimation = new OpenVDB.VDBAnimationLoader()
     .setOptions({
-      resolution: 100,
+      resolution: 200,
       progressive: true,
       ...(emissivePresets[params.emissiveGrid] && {
         emissiveGrid: params.emissiveGrid,
@@ -452,15 +453,19 @@ export const exampleVDB = ({ scene }) => {
     };
   };
 
-  const placeSceneMeshes = () => {
+  // NOTE The volume stands on the ground of the environments. The scene meshes stand there too.
+  const placeOnGround = () => {
     if (!animation || animation.bbox.isEmpty()) {
       return;
     }
 
     const { height, width } = getGroundSize();
 
+    volumePivot.position.y = groundLevel + height / 2.0;
+
     // NOTE The ground covers the copies, which are 1.5 box widths apart
     emission.placeMeshes(height, width, Math.max(1.0, (Math.ceil(Math.sqrt(params.copies)) * 1.5 + 4.0) / 8.0));
+    emission.meshes.position.y = groundLevel;
   };
 
   // NOTE Copies stand on a square grid around the animation, 1.5 box widths apart. Each one starts at another frame.
@@ -563,7 +568,7 @@ export const exampleVDB = ({ scene }) => {
     const now = performance.now();
 
     updateCopies((now - lastTime) / 1000.0);
-    placeSceneMeshes();
+    placeOnGround();
 
     if (animation) {
       const previousFrame = animation.frame;
@@ -592,20 +597,6 @@ export const exampleVDB = ({ scene }) => {
     {
       folder: 'Scene',
       children: [
-        {
-          id: 'environment',
-          name: 'EnvMap',
-          defaultValue: 'uv-1',
-          options: {
-            'Night Realistic': 'night',
-            'Fiery Sky': 'fiery-sky-1',
-            'Magic Forest': 'magic-forest-5',
-            UV: 'uv-1',
-          },
-          onChange: (value) => {
-            loadEnvironment(scene, value);
-          },
-        },
         {
           id: 'lightSetup',
           name: 'Lights',
@@ -680,7 +671,10 @@ export const exampleVDB = ({ scene }) => {
     },
     {
       folder: 'Rendering',
-      children: [createToneMappingField()],
+      children: [
+        ...createMultipleScatteringFields(),
+        createToneMappingField(),
+      ],
     },
     {
       folder: 'Light Emission',

@@ -126,13 +126,15 @@ export class FrameVolume extends Three.Group {
     const {
       // NOTE Texels on the longest box side
       resolution = 100,
+      // NOTE Raw data only: [x, y, z] texels. Default: resolution on each axis.
+      dimensions: rawDimensions,
       progressive = false,
       emissiveGrid,
       baseColorGrid,
       maskGrid,
       baseColor = 0xffffff,
       scatterColor = 0x000000,
-      extinction = 100.0,
+      extinction = 350.0,
       // NOTE Phase of direct lights: 'isotropic', 'henyey-greenstein', 'dual-lobe' or 'lorenz-mie'
       phase = 'henyey-greenstein',
       phaseG = 0.8,
@@ -251,11 +253,11 @@ export class FrameVolume extends Three.Group {
 
       volume.matrix.compose(center, new Three.Quaternion(), size);
 
-      // NOTE Raw data is a resolution^3 cube. Other grids get cube-shaped texels.
+      // NOTE Raw data has its dimensions, or a resolution^3 cube. Other grids get cube-shaped texels.
       // The longest box side has resolution texels.
       const dimensions =
         grid instanceof Uint8Array || hasRawAuxGrids
-          ? new Three.Vector3(resolution, resolution, resolution)
+          ? new Three.Vector3(...(rawDimensions || [resolution, resolution, resolution]))
           : size
               .clone()
               .multiplyScalar(resolution / Math.max(size.x, size.y, size.z))

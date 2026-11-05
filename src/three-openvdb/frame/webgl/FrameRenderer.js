@@ -15,7 +15,7 @@ import {
   createEnvironmentUniforms,
   createEnvironmentGridUniforms,
 } from './frameShaderChunks.js';
-import { getFramePhase } from '../core/framePhase.js';
+import { getFramePhase, getFrameMultipleScattering, getFrameScatteringOctaves } from '../core/framePhase.js';
 import {
   FrameEnvironmentLights,
   frameEnvironmentModes,
@@ -128,6 +128,13 @@ export class FrameRenderer {
     environmentLighting: 'directional',
     environmentSamples: 8,
     environmentShOrder: 1,
+    // NOTE Multiple scattering in the shadows of all lights (core/framePhase.js). true: diffusion approximation.
+    // 'octaves': indirect light octaves (experimental). false: single scattering.
+    multipleScattering: true,
+    scatteringOctaves: 4,
+    scatteringOctaveExtinction: 0.5,
+    scatteringOctaveContribution: 0.5,
+    scatteringOctavePhase: 0.5,
   };
 
   froxelUniforms = {
@@ -172,6 +179,12 @@ export class FrameRenderer {
   densityShadowUniforms = {
     frameTransmittanceMap0: { value: null },
     frameTransmittanceMap1: { value: null },
+    // NOTE Direct transmittance of the 6 light slots
+    frameTransmittanceMap2: { value: null },
+    frameTransmittanceMap3: { value: null },
+    // NOTE Scene lights with a shadow slot get the phase in the density pass
+    frameShadowLights: { value: Array.from({ length: frameShadowLightSlots }, () => new Three.Vector4()) },
+    frameShadowSceneLightCount: { value: 0 },
     frameUseShadows: { value: false },
     frameCameraMatrixWorld: { value: new Three.Matrix4() },
     frameSkyDirection: { value: new Three.Vector3(0.0, 1.0, 0.0) },
@@ -245,6 +258,7 @@ export class FrameRenderer {
   environmentGridTarget = null;
   environmentGridSignature = [];
   nextEnvironmentGridSignature = [];
+  scatteringOctaves = new Three.Vector4();
 
   atlasTarget = null;
   densityTarget = null;
@@ -363,7 +377,7 @@ export class FrameRenderer {
   }
 
   // NOTE Environment grid of the last cascade. It is drawn again only when its signature changes.
-  // NOTE Signature: the grid lights, the last cascade, and the caster data that the shadow density pass reads.
+  // NOTE Signature: the grid lights, the last cascade, and the caster data that the shadow density pass reads (also the albedo).
   renderEnvironmentGrid(renderer, camera, casters, gridLights) {
     const { frameGridMin, frameGridSize, frameGridCount, frameGridResolution } = this.gridUniforms;
     const cascade = frameGridCount.value - 1;
@@ -372,10 +386,15 @@ export class FrameRenderer {
 
     this.environmentGridUniforms.frameEnvironmentGridCascade.value = cascade;
 
+    const multipleScattering = getFrameMultipleScattering(this.settings.multipleScattering, this.settings);
+    const scatteringOctaves = getFrameScatteringOctaves(this.settings, this.scatteringOctaves);
+
     signature.length = 0;
     signature.push(
       frameGridResolution.value,
       cascade,
+      multipleScattering,
+      ...scatteringOctaves.toArray(),
       ...frameGridMin.value[cascade].toArray(),
       ...frameGridSize.value[cascade].toArray(),
     );
@@ -383,7 +402,7 @@ export class FrameRenderer {
     gridLights.forEach(({ direction, color }) => signature.push(...direction, ...color));
 
     casters.forEach(({ frameVolume, volume }) => {
-      [volume.densityMap3D, volume.maskMap3D].forEach((map) =>
+      [volume.densityMap3D, volume.maskMap3D, volume.baseColorMap3D].forEach((map) =>
         signature.push(map, map ? map.version : -1),
       );
 
@@ -392,6 +411,7 @@ export class FrameRenderer {
         frameVolume.densityScale,
         frameVolume.densityCutoff,
         frameVolume.absorbance,
+        ...frameVolume.baseColor.toArray(),
         frameVolume.wrap3D,
         frameVolume.mipmaps,
         ...frameVolume.offset3D.toArray(),
@@ -413,6 +433,8 @@ export class FrameRenderer {
 
     uniforms.frameShadowDensityMap.value = this.shadowDensityTarget.texture;
     uniforms.frameLightCount.value = gridLights.length;
+    uniforms.frameMultipleScattering.value = multipleScattering;
+    uniforms.frameScatteringOctaves.value.copy(scatteringOctaves);
 
     gridLights.forEach(({ direction, color }, index) => {
       uniforms.frameLightDirections.value[index].fromArray(direction);
@@ -640,11 +662,13 @@ export class FrameRenderer {
         this.transmittanceTarget.dispose();
       }
 
+      // NOTE Extinction and absorption
       this.shadowDensityTarget = createRenderTarget(gridAtlas.width, gridAtlas.height, {
-        format: Three.RedFormat,
+        format: Three.RGFormat,
       });
+      // NOTE Total transmittance (2 targets), then direct transmittance of the light slots (2 targets)
       this.transmittanceTarget = createRenderTarget(gridAtlas.width, gridAtlas.height, {
-        count: 2,
+        count: 4,
       });
       this.castSignature = [];
     }
@@ -836,6 +860,11 @@ export class FrameRenderer {
       setVolumeUniforms(uniforms, frameVolume, volume);
       uniforms.frameLights.value = frameVolume.lights;
       uniforms.frameShadowSteps.value = frameVolume.shadowSteps;
+      uniforms.frameMultipleScattering.value = getFrameMultipleScattering(
+        this.settings.multipleScattering,
+        frameVolume,
+      );
+      getFrameScatteringOctaves(this.settings, uniforms.frameScatteringOctaves.value);
 
       // NOTE Draw only the atlas rows that contain the slices of this volume
       const { first, count } = this.getSliceRange(volume);
@@ -877,6 +906,11 @@ export class FrameRenderer {
       transmittanceUniforms.frameShadowDensityMap.value = this.shadowDensityTarget.texture;
       transmittanceUniforms.frameSkyDirection.value.copy(lights.skyDirection);
       transmittanceUniforms.frameShadowLightCount.value = lights.shadowLights.length;
+      transmittanceUniforms.frameMultipleScattering.value = getFrameMultipleScattering(
+        this.settings.multipleScattering,
+        this.settings,
+      );
+      getFrameScatteringOctaves(this.settings, transmittanceUniforms.frameScatteringOctaves.value);
 
       lights.shadowLights.forEach((light, index) => {
         transmittanceUniforms.frameShadowLights.value[index].copy(light);
@@ -897,6 +931,12 @@ export class FrameRenderer {
     densityShadowUniforms.frameUseShadows.value = useShadows;
     densityShadowUniforms.frameTransmittanceMap0.value = this.transmittanceTarget.textures[0];
     densityShadowUniforms.frameTransmittanceMap1.value = this.transmittanceTarget.textures[1];
+    densityShadowUniforms.frameTransmittanceMap2.value = this.transmittanceTarget.textures[2];
+    densityShadowUniforms.frameTransmittanceMap3.value = this.transmittanceTarget.textures[3];
+    densityShadowUniforms.frameShadowSceneLightCount.value = lights.environmentShadowSlot;
+    lights.shadowLights.forEach((light, index) => {
+      densityShadowUniforms.frameShadowLights.value[index].copy(light);
+    });
     densityShadowUniforms.frameCameraMatrixWorld.value.copy(camera.matrixWorld);
     densityShadowUniforms.frameSkyDirection.value.copy(lights.skyDirection);
     densityShadowUniforms.frameEnvironmentGridMap.value = this.environmentGridTarget.texture;
@@ -927,6 +967,9 @@ export class FrameRenderer {
         const { first, count } = this.getSliceRange(volume);
 
         setVolumeUniforms(entry.material.frameUniforms, frameVolume, volume);
+        // NOTE 'frame' lighting: the light slots get one phase for all volumes, from frameRenderer.settings
+        getFramePhase(this.settings, entry.material.frameUniforms.framePhase.value);
+        getFrameScatteringOctaves(this.settings, entry.material.frameUniforms.frameScatteringOctaves.value);
         entry.material.frameUniforms.frameRect.value.copy(rect);
         entry.material.frameUniforms.frameSliceStart.value = first;
         entry.geometry.instanceCount = count;
@@ -962,6 +1005,7 @@ export class FrameRenderer {
     lightingUniforms.frameEnvironmentLightCount.value = useShadows ? lights.environmentLightCount : 0;
     lightingUniforms.frameEnvironmentShadowSlot.value = lights.environmentShadowSlot;
     getFramePhase(this.settings, lightingUniforms.framePhase.value);
+    getFrameScatteringOctaves(this.settings, lightingUniforms.frameScatteringOctaves.value);
 
     renderer.setRenderTarget(this.atlasTarget);
     renderer.clear(true, false, false);
