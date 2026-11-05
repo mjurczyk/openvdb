@@ -23,6 +23,9 @@ document.querySelector('.package-version').innerHTML = `v${packageInfo.version}`
 const stats = new Stats();
 document.body.appendChild(stats.dom);
 
+// NOTE Made in init. Grounded environments limit it (utils/resources.js).
+export let controls = null;
+
 const init = () => {
   // NOTE 39 units above the ground of the environments (y = -50)
   camera.position.set(-100.0, -11.0, 80.0);
@@ -33,7 +36,7 @@ const init = () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.shadowMap.enabled = true;
 
-  new OrbitControls(camera, renderer.domElement);
+  controls = new OrbitControls(camera, renderer.domElement);
   document.body.appendChild(renderer.domElement);
 
   window.addEventListener('resize', () => {

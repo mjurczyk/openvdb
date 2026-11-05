@@ -1,12 +1,15 @@
 import * as OpenVDB from 'three-openvdb';
 
-// NOTE FrameVolume phase props for the demos. The defaults are the FrameVolume defaults.
+// NOTE FrameVolume phase props for the demos. The defaults are the FrameVolume defaults, but the phase function is 2HG.
 export const phaseParams = {
-  phase: 'henyey-greenstein',
+  phase: 'dual-lobe',
   phaseG: 0.8,
   phaseBackG: -0.3,
   phaseBackWeight: 0.2,
 };
+
+// NOTE All demos start with 2HG for 'frame' (Combined) lighting too
+OpenVDB.frameRenderer.settings.phase = 'dual-lobe';
 
 // NOTE Phase fields. idPrefix and namePrefix keep the field ids unique.
 const createFields = (values, setValue, idPrefix = '', namePrefix = '') => [
@@ -49,7 +52,7 @@ const createFields = (values, setValue, idPrefix = '', namePrefix = '') => [
 ];
 
 // NOTE Volume folder fields: the phase of each FrameVolume, used by 'volume' (Per-volume) lighting.
-// No Phase Function field: the demo volumes keep the default phase function (HG).
+// No Phase Function field: the demo volumes keep the phase function of phaseParams (2HG).
 // setParam applies the value to the volumes of the demo.
 export const createPhaseFields = (params, setParam) =>
   createFields(params, setParam).filter((field) => field.id !== 'phase');
