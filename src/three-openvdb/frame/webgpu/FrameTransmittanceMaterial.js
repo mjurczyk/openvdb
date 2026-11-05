@@ -34,6 +34,7 @@ import {
   minComponent,
   frameSpectralShadowStep,
   frameSpectralShadowTransmittance,
+  frameIsotropicDiffusion,
 } from './frameShaderChunks.js';
 
 // NOTE Light slots: sky up, sky down, then 6 lights. Targets 0 and 1: total transmittance of all slots.
@@ -145,12 +146,23 @@ export class FrameTransmittanceMaterial extends Three.NodeMaterial {
         traveled.addAssign(stepLength);
       });
 
-      return frameShadowTransmittance(depths, this.frameMultipleScattering, this.frameScatteringOctaves);
+      const transmittance = frameShadowTransmittance(depths, this.frameMultipleScattering, this.frameScatteringOctaves);
+
+      // NOTE (direct, total, reduced depth, effective depth). Sky up and down use z and w for the diffusion total.
+      return vec4(transmittance.x, transmittance.y, depths.z, depths.y);
     };
+
+    // NOTE Sky up and down are isotropic, and opposite. Diffusion: two-sided total (frameIsotropicDiffusion).
+    const skyTotal = (front, back) =>
+      select(
+        this.frameMultipleScattering.greaterThan(0.0),
+        frameIsotropicDiffusion(front.z, back.z, front.w),
+        front.y,
+      );
 
     // NOTE Light w is 1.0 for a light direction, 2.0 or more for a light position
     const lightTransmittance = (slot, worldPosition, jitter) => {
-      const result = vec2(1.0).toVar();
+      const result = vec4(1.0, 1.0, 0.0, 0.0).toVar();
 
       If(int(slot).lessThan(this.frameShadowLightCount), () => {
         const light = this.frameShadowLights.element(slot).toVar();
@@ -206,14 +218,10 @@ export class FrameTransmittanceMaterial extends Three.NodeMaterial {
             lightTransmittance(slot, worldPosition, jitter).toVar(),
           );
 
-          transmittance0.assign(
-            vec4(
-              march(worldPosition, skyDirection, float(1e20), jitter).y,
-              march(worldPosition, skyDirection.negate(), float(1e20), jitter).y,
-              lights[0].y,
-              lights[1].y,
-            ),
-          );
+          const skyUp = march(worldPosition, skyDirection, float(1e20), jitter).toVar();
+          const skyDown = march(worldPosition, skyDirection.negate(), float(1e20), jitter).toVar();
+
+          transmittance0.assign(vec4(skyTotal(skyUp, skyDown), skyTotal(skyDown, skyUp), lights[0].y, lights[1].y));
           transmittance1.assign(vec4(lights[2].y, lights[3].y, lights[4].y, lights[5].y));
           transmittance2.assign(vec4(lights[0].x, lights[1].x, lights[2].x, lights[3].x));
           transmittance3.assign(vec4(lights[4].x, lights[5].x, 1.0, 1.0));
@@ -252,10 +260,12 @@ export class FrameTransmittanceMaterial extends Three.NodeMaterial {
     };
 
     // NOTE The same march as the grey pass, with the depths of each channel. Stops when all channels are dark.
-    // Returns { x: direct, y: total }. enabled false: no march, 1.0.
+    // Returns { x: direct, y: total, z: reduced depth, w: effective depth }. enabled false: no march, 1.0 and depths 0.0.
     const march = (enabled, origin, direction, maxDistance, jitter) => {
       const direct = vec3(1.0).toVar();
       const total = vec3(1.0).toVar();
+      const reduced = vec3(0.0).toVar();
+      const effective = vec3(0.0).toVar();
 
       If(enabled, () => {
         const depths = { x: vec3(0.0).toVar(), y: vec3(0.0).toVar(), z: vec3(0.0).toVar() };
@@ -303,10 +313,20 @@ export class FrameTransmittanceMaterial extends Three.NodeMaterial {
 
         direct.assign(shadow.x);
         total.assign(shadow.y);
+        reduced.assign(depths.z);
+        effective.assign(depths.y);
       });
 
-      return { x: direct, y: total };
+      return { x: direct, y: total, z: reduced, w: effective };
     };
+
+    // NOTE Sky up and down are isotropic, and opposite. Diffusion: two-sided total of each channel (frameIsotropicDiffusion).
+    const skyTotal = (front, back) =>
+      select(
+        this.frameMultipleScattering.greaterThan(0.0),
+        frameIsotropicDiffusion(front.z, back.z, front.w),
+        front.y,
+      );
 
     // NOTE March of a light slot. Light w is 1.0 for a light direction, 2.0 or more for a light position.
     const marchSlot = (enabled, slot, worldPosition, jitter) => {
@@ -376,8 +396,8 @@ export class FrameTransmittanceMaterial extends Three.NodeMaterial {
           const slotSecond = marchSlot(bool(true), select(isSkyGroup, int(0), slotA.add(1)), worldPosition, jitter);
 
           const a = {
-            x: select(isSkyGroup, first.y, slotFirst.y).toVar(),
-            y: select(isSkyGroup, second.y, slotFirst.x).toVar(),
+            x: select(isSkyGroup, skyTotal(first, second), slotFirst.y).toVar(),
+            y: select(isSkyGroup, skyTotal(second, first), slotFirst.x).toVar(),
           };
           const b = { x: slotSecond.y, y: slotSecond.x };
 

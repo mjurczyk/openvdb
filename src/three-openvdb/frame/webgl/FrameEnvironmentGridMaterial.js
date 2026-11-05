@@ -49,6 +49,62 @@ const fragmentShader = `
     #endif
   }
 
+  #ifdef FRAME_SPECTRAL
+    // NOTE Depths of each channel of the march from worldPosition along direction, in the grid cascade
+    FrameSpectralDepths frameSpectralMarchDepths(vec3 worldPosition, vec3 direction, vec3 voxel, vec3 gridMin, vec3 gridSize) {
+      vec3 voxelsPerUnit = abs(direction) / voxel;
+      float stepLength = 1.0 / max(voxelsPerUnit.x, max(voxelsPerUnit.y, voxelsPerUnit.z));
+      vec3 marchStep = direction * stepLength;
+      vec3 probe = worldPosition + marchStep * 0.5;
+      FrameSpectralDepths depths = FrameSpectralDepths(vec3(0.0), vec3(0.0), vec3(0.0));
+
+      for (int j = 0; j < FRAME_MAX_STEPS; j++) {
+        vec3 uvw = (probe - gridMin) / gridSize;
+
+        if (any(lessThan(uvw, vec3(0.0))) || any(greaterThan(uvw, vec3(1.0))) ||
+          frameMinComponent(frameSpectralShadowMarchDepth(depths)) > 6.0) {
+          break;
+        }
+
+        FrameSpectralDepths marchDepths = frameSpectralShadowStep(
+          frameSampleGrid(frameShadowDensityMap, frameEnvironmentGridCascade, uvw).rgb,
+          frameSampleGrid(frameShadowAbsorptionMap, frameEnvironmentGridCascade, uvw).rgb
+        );
+
+        depths.extinction += marchDepths.extinction * stepLength;
+        depths.effective += marchDepths.effective * stepLength;
+        depths.reduced += marchDepths.reduced * stepLength;
+        probe += marchStep;
+      }
+
+      return depths;
+    }
+  #else
+    // NOTE (extinction, effective, reduced) depths of the march from worldPosition along direction, in the grid cascade
+    vec3 frameMarchDepths(vec3 worldPosition, vec3 direction, vec3 voxel, vec3 gridMin, vec3 gridSize) {
+      vec3 voxelsPerUnit = abs(direction) / voxel;
+      float stepLength = 1.0 / max(voxelsPerUnit.x, max(voxelsPerUnit.y, voxelsPerUnit.z));
+      vec3 marchStep = direction * stepLength;
+      vec3 probe = worldPosition + marchStep * 0.5;
+      vec3 depths = vec3(0.0);
+
+      for (int j = 0; j < FRAME_MAX_STEPS; j++) {
+        vec3 uvw = (probe - gridMin) / gridSize;
+
+        if (any(lessThan(uvw, vec3(0.0))) || any(greaterThan(uvw, vec3(1.0))) || frameShadowMarchDepth(depths) > 6.0) {
+          break;
+        }
+
+        vec2 extinction = frameExtinctionAt(uvw);
+
+        depths += frameShadowStep(extinction.x, extinction.y) * stepLength;
+        probe += marchStep;
+      }
+
+      return depths;
+    }
+  #endif
+
   void main() {
     int cascade = frameEnvironmentGridCascade;
     float resolution = frameGridResolution;
@@ -100,54 +156,34 @@ const fragmentShader = `
       }
 
       vec3 direction = frameLightDirections[i];
-      vec3 voxelsPerUnit = abs(direction) / voxel;
-      float stepLength = 1.0 / max(voxelsPerUnit.x, max(voxelsPerUnit.y, voxelsPerUnit.z));
-      vec3 marchStep = direction * stepLength;
-      vec3 probe = worldPosition + marchStep * 0.5;
 
+      // NOTE Environment lights are isotropic: total transmittance, no phase.
+      // Diffusion: two-sided total (frameIsotropicDiffusion). It needs the march in the opposite direction too.
       #ifdef FRAME_SPECTRAL
-        FrameSpectralDepths depths = FrameSpectralDepths(vec3(0.0), vec3(0.0), vec3(0.0));
+        FrameSpectralDepths depths = frameSpectralMarchDepths(worldPosition, direction, voxel, gridMin, gridSize);
+        vec3 total;
 
-        for (int j = 0; j < FRAME_MAX_STEPS; j++) {
-          vec3 uvw = (probe - gridMin) / gridSize;
+        if (frameMultipleScattering > 0.0) {
+          FrameSpectralDepths backDepths = frameSpectralMarchDepths(worldPosition, -direction, voxel, gridMin, gridSize);
 
-          if (any(lessThan(uvw, vec3(0.0))) || any(greaterThan(uvw, vec3(1.0))) ||
-            frameMinComponent(frameSpectralShadowMarchDepth(depths)) > 6.0) {
-            break;
-          }
-
-          FrameSpectralDepths marchDepths = frameSpectralShadowStep(
-            frameSampleGrid(frameShadowDensityMap, cascade, uvw).rgb,
-            frameSampleGrid(frameShadowAbsorptionMap, cascade, uvw).rgb
-          );
-
-          depths.extinction += marchDepths.extinction * stepLength;
-          depths.effective += marchDepths.effective * stepLength;
-          depths.reduced += marchDepths.reduced * stepLength;
-          probe += marchStep;
+          total = frameIsotropicDiffusion(depths.reduced, backDepths.reduced, depths.effective);
+        } else {
+          total = frameSpectralShadowTotal(frameSpectralShadowTransmittance(depths).total, albedo);
         }
-
-        // NOTE Environment lights are isotropic: total transmittance, no phase
-        irradiance += frameLightColors[i] * frameSpectralShadowTotal(frameSpectralShadowTransmittance(depths).total, albedo);
       #else
-      vec3 depths = vec3(0.0);
+        vec3 depths = frameMarchDepths(worldPosition, direction, voxel, gridMin, gridSize);
+        float total;
 
-      for (int j = 0; j < FRAME_MAX_STEPS; j++) {
-        vec3 uvw = (probe - gridMin) / gridSize;
+        if (frameMultipleScattering > 0.0) {
+          vec3 backDepths = frameMarchDepths(worldPosition, -direction, voxel, gridMin, gridSize);
 
-        if (any(lessThan(uvw, vec3(0.0))) || any(greaterThan(uvw, vec3(1.0))) || frameShadowMarchDepth(depths) > 6.0) {
-          break;
+          total = frameIsotropicDiffusion(depths.z, backDepths.z, depths.y);
+        } else {
+          total = frameShadowTotal(frameShadowTransmittance(depths).y);
         }
-
-        vec2 extinction = frameExtinctionAt(uvw);
-
-        depths += frameShadowStep(extinction.x, extinction.y) * stepLength;
-        probe += marchStep;
-      }
-
-      // NOTE Environment lights are isotropic: total transmittance, no phase
-      irradiance += frameLightColors[i] * frameShadowTotal(frameShadowTransmittance(depths).y);
       #endif
+
+      irradiance += frameLightColors[i] * total;
     }
 
     gl_FragColor = vec4(max(irradiance, vec3(0.0)), 1.0);

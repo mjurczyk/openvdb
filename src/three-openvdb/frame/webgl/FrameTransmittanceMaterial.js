@@ -51,8 +51,8 @@ const fragmentShader = `
 
   // NOTE Each step moves one voxel of the finest cascade at the probe, on the fastest axis of the direction.
   // The march goes to coarser cascades when it leaves a fine cascade.
-  // NOTE Returns (direct, total) transmittance
-  vec2 frameMarch(vec3 origin, vec3 direction, float maxDistance, float jitter) {
+  // NOTE Returns (direct, total, reduced depth, effective depth). Sky up and down use z and w for the diffusion total.
+  vec4 frameMarch(vec3 origin, vec3 direction, float maxDistance, float jitter) {
     vec3 depths = vec3(0.0);
     float traveled = 0.0;
     vec3 probe = origin;
@@ -76,7 +76,16 @@ const fragmentShader = `
       traveled += stepLength;
     }
 
-    return frameShadowTransmittance(depths);
+    return vec4(frameShadowTransmittance(depths), depths.z, depths.y);
+  }
+
+  // NOTE Sky up and down are isotropic, and opposite. Diffusion: two-sided total (frameIsotropicDiffusion).
+  float frameSkyTotal(vec4 front, vec4 back) {
+    if (frameMultipleScattering > 0.0) {
+      return frameIsotropicDiffusion(front.z, back.z, front.w);
+    }
+
+    return front.y;
   }
 
   vec2 frameLightTransmittance(int slot, vec3 worldPosition, float jitter) {
@@ -88,12 +97,12 @@ const fragmentShader = `
 
     // NOTE w is 1.0 for a light direction, 2.0 for a light position
     if (light.w < 1.5) {
-      return frameMarch(worldPosition, normalize(light.xyz), 1e20, jitter);
+      return frameMarch(worldPosition, normalize(light.xyz), 1e20, jitter).xy;
     }
 
     vec3 toLight = light.xyz - worldPosition;
 
-    return frameMarch(worldPosition, normalize(toLight), length(toLight), jitter);
+    return frameMarch(worldPosition, normalize(toLight), length(toLight), jitter).xy;
   }
 
   #ifdef FRAME_SPECTRAL
@@ -103,13 +112,7 @@ const fragmentShader = `
     uniform int frameSpectralGroup;
 
     // NOTE The same march as frameMarch, with the depths of each channel. Stops when all channels are dark.
-    FrameSpectralShadow frameSpectralMarch(bool enabled, vec3 origin, vec3 direction, float maxDistance, float jitter) {
-      FrameSpectralShadow unshadowed = FrameSpectralShadow(vec3(1.0), vec3(1.0));
-
-      if (!enabled) {
-        return unshadowed;
-      }
-
+    FrameSpectralDepths frameSpectralMarchDepths(vec3 origin, vec3 direction, float maxDistance, float jitter) {
       FrameSpectralDepths depths = FrameSpectralDepths(vec3(0.0), vec3(0.0), vec3(0.0));
       float traveled = 0.0;
       vec3 probe = origin;
@@ -145,7 +148,24 @@ const fragmentShader = `
         traveled += stepLength;
       }
 
-      return frameSpectralShadowTransmittance(depths);
+      return depths;
+    }
+
+    FrameSpectralShadow frameSpectralMarch(bool enabled, vec3 origin, vec3 direction, float maxDistance, float jitter) {
+      if (!enabled) {
+        return FrameSpectralShadow(vec3(1.0), vec3(1.0));
+      }
+
+      return frameSpectralShadowTransmittance(frameSpectralMarchDepths(origin, direction, maxDistance, jitter));
+    }
+
+    // NOTE Sky up and down are isotropic, and opposite. Diffusion: two-sided total of each channel (frameIsotropicDiffusion).
+    vec3 frameSpectralSkyTotal(FrameSpectralDepths front, FrameSpectralDepths back) {
+      if (frameMultipleScattering > 0.0) {
+        return frameIsotropicDiffusion(front.reduced, back.reduced, front.effective);
+      }
+
+      return frameSpectralShadowTransmittance(front).total;
     }
 
     // NOTE March of a light slot. Slot 6 (group 3) is off.
@@ -202,14 +222,23 @@ const fragmentShader = `
       int slotA = frameSpectralGroup * 2 - 1;
 
       // NOTE Group 0: sky up, sky down, slot 0. Other groups: slots 2g - 1 and 2g.
-      FrameSpectralShadow skyUp = frameSpectralMarch(isSkyGroup, worldPosition, frameSkyDirection, 1e20, jitter);
-      FrameSpectralShadow skyDown = frameSpectralMarch(isSkyGroup, worldPosition, -frameSkyDirection, 1e20, jitter);
+      vec3 skyUpTotal = vec3(1.0);
+      vec3 skyDownTotal = vec3(1.0);
+
+      if (isSkyGroup) {
+        FrameSpectralDepths skyUp = frameSpectralMarchDepths(worldPosition, frameSkyDirection, 1e20, jitter);
+        FrameSpectralDepths skyDown = frameSpectralMarchDepths(worldPosition, -frameSkyDirection, 1e20, jitter);
+
+        skyUpTotal = frameSpectralSkyTotal(skyUp, skyDown);
+        skyDownTotal = frameSpectralSkyTotal(skyDown, skyUp);
+      }
+
       FrameSpectralShadow first = frameSpectralLightMarch(!isSkyGroup, max(slotA, 0), worldPosition, jitter);
       FrameSpectralShadow second = frameSpectralLightMarch(true, isSkyGroup ? 0 : slotA + 1, worldPosition, jitter);
 
       // NOTE Entries (x, y): sky (up, down) or a slot (total, direct)
-      vec3 ax = isSkyGroup ? skyUp.total : first.total;
-      vec3 ay = isSkyGroup ? skyDown.total : first.direct;
+      vec3 ax = isSkyGroup ? skyUpTotal : first.total;
+      vec3 ay = isSkyGroup ? skyDownTotal : first.direct;
       vec3 bx = second.total;
       vec3 by = second.direct;
 
@@ -260,12 +289,10 @@ const fragmentShader = `
       vec2 light4 = frameLightTransmittance(4, worldPosition, jitter);
       vec2 light5 = frameLightTransmittance(5, worldPosition, jitter);
 
-      frameTransmittance0 = vec4(
-        frameMarch(worldPosition, frameSkyDirection, 1e20, jitter).y,
-        frameMarch(worldPosition, -frameSkyDirection, 1e20, jitter).y,
-        light0.y,
-        light1.y
-      );
+      vec4 skyUp = frameMarch(worldPosition, frameSkyDirection, 1e20, jitter);
+      vec4 skyDown = frameMarch(worldPosition, -frameSkyDirection, 1e20, jitter);
+
+      frameTransmittance0 = vec4(frameSkyTotal(skyUp, skyDown), frameSkyTotal(skyDown, skyUp), light0.y, light1.y);
       frameTransmittance1 = vec4(light2.y, light3.y, light4.y, light5.y);
       frameTransmittance2 = vec4(light0.x, light1.x, light2.x, light3.x);
       frameTransmittance3 = vec4(light4.x, light5.x, 1.0, 1.0);

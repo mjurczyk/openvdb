@@ -169,6 +169,23 @@ export const shadowPars = `
 
     return total;
   }
+
+  // NOTE Total transmittance of isotropic light (environment, sky) with diffusion multiple scattering.
+  // Two-sided slab diffusion: 2 * (back + z0) / (front + back + 2 z0) of the reduced depths, z0 = 2/3, times exp(-effective front).
+  // Light that is scattered and not absorbed is not lost: opposite directions sum to 2. In a white volume, a uniform
+  // environment then gives the same light inside and outside (white furnace test). Front is toward the light.
+  float frameIsotropicDiffusion(float frontReduced, float backReduced, float frontEffective) {
+    const float z0 = 2.0 / 3.0;
+
+    return 2.0 * (backReduced + z0) / (frontReduced + backReduced + 2.0 * z0) * exp(-frontEffective);
+  }
+
+  // NOTE Spectral: the same for each channel
+  vec3 frameIsotropicDiffusion(vec3 frontReduced, vec3 backReduced, vec3 frontEffective) {
+    const float z0 = 2.0 / 3.0;
+
+    return 2.0 * (backReduced + z0) / (frontReduced + backReduced + 2.0 * z0) * exp(-frontEffective);
+  }
 `;
 
 export const phasePars = `

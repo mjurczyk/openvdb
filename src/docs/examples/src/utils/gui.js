@@ -10,7 +10,7 @@ import { loadEnvironment } from "./resources";
 export let gui = new GUI();
 export const dropTarget = document.querySelector('#dropzone');
 
-let activeDemo = 'vdb';
+export let activeDemo = 'vdb';
 
 // NOTE All demos share the environment. A demo change keeps it.
 let activeEnvironment = 'desert';
@@ -80,6 +80,8 @@ const guiBaseFields = () => [
           'Sky Midday': 'sky-midday',
           'Sky Night': 'sky-night',
           UV: 'uv-1',
+          // NOTE White furnace test (utils/furnace.js)
+          'Furnace (test)': 'furnace',
         },
         defaultValue: activeEnvironment,
         onChange: (value) => {

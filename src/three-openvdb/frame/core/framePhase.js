@@ -48,10 +48,13 @@ const getFramePhaseAsymmetry = (source) => {
   return 0.0;
 };
 
+// NOTE Mode true of multipleScattering: the diffusion approximation
+export const isFrameDiffusion = (mode) => !!mode && mode !== 'octaves';
+
 // NOTE Multiple scattering value of the shadow marches: 1 - g, the reduced scattering of each unit of scattering.
 // Only mode true (diffusion approximation). 'octaves' and false give 0.0. See frameShadowDepth in the shader chunks.
 export const getFrameMultipleScattering = (mode, source) =>
-  mode && mode !== 'octaves' ? 1.0 - getFramePhaseAsymmetry(source) : 0.0;
+  isFrameDiffusion(mode) ? 1.0 - getFramePhaseAsymmetry(source) : 0.0;
 
 export const frameMaxScatteringOctaves = 8;
 

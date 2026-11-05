@@ -27,7 +27,12 @@ import {
   createLightUniforms,
   frameFullscreenVertex,
 } from './frameShaderChunks.js';
-import { getFramePhase, getFrameMultipleScattering, getFrameScatteringOctaves } from '../core/framePhase.js';
+import {
+  getFramePhase,
+  getFrameMultipleScattering,
+  getFrameScatteringOctaves,
+  isFrameDiffusion,
+} from '../core/framePhase.js';
 import {
   getFrameExtinctionSpectrum,
   getFrameSpectralGroups,
@@ -990,6 +995,7 @@ export class FrameRenderer {
     densityShadowUniforms.frameShadowSceneLightCount.value = lights.environmentShadowSlot;
     getFramePhase(this.settings, densityShadowUniforms.framePhase.value);
     getFrameScatteringOctaves(this.settings, densityShadowUniforms.frameScatteringOctaves.value);
+    densityShadowUniforms.frameDiffusion.value = isFrameDiffusion(this.settings.multipleScattering) ? 1 : 0;
     densityShadowUniforms.frameEnvironmentGridMap.value = this.environmentGridTarget.texture;
     densityShadowUniforms.frameEnvironmentMode.value = useEnvironmentGrid
       ? frameDensityEnvironment.grid
@@ -1561,7 +1567,9 @@ export class FrameRenderer {
     const environmentLightCount =
       frameLighting &&
       environment.mode === frameEnvironmentModes.directional &&
-      sceneShadowCount < frameShadowLightSlots
+      sceneShadowCount < frameShadowLightSlots &&
+      // NOTE Diffusion: all environment lights use the environment grid. Then both lights of an opposite pair get the same march.
+      !isFrameDiffusion(this.settings.multipleScattering)
         ? 1
         : 0;
     const environmentGridLights = [];

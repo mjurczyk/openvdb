@@ -1,7 +1,7 @@
 import * as Three from 'three';
 import * as OpenVDB from 'three-openvdb';
 import { gui, setGuiFields } from '../utils/gui';
-import { loadAndCacheVDB, groundLevel } from '../utils/resources';
+import { loadAndCacheVDB, groundLevel, setEnvironmentLights } from '../utils/resources';
 import { setLoading } from '../utils/loading';
 import { createEmissionDemo } from '../utils/emission';
 import {
@@ -188,7 +188,9 @@ export const exampleFrame = ({ scene }) => {
   const orbitSpotPivot = addPivotLight(orbitSpotLight, 50.0, 80.0, 0.0);
   addPivotLight(topSpotLight, 0.0, 80.0, 0.0);
 
+  // NOTE environment: the lights of the environment map (utils/resources.js)
   const lightSetups = {
+    environment: [],
     sunHemi: [sun, hemiLight],
     dir: [sun],
     hemi: [hemiLight],
@@ -651,8 +653,9 @@ export const exampleFrame = ({ scene }) => {
         {
           id: 'lightSetup',
           name: 'Lights',
-          defaultValue: 'sunHemi',
+          defaultValue: 'environment',
           options: {
+            Environment: 'environment',
             'Sun + Hemisphere': 'sunHemi',
             Directional: 'dir',
             Hemisphere: 'hemi',
@@ -665,6 +668,8 @@ export const exampleFrame = ({ scene }) => {
           },
           onChange: (value) => {
             const visibleLights = lightSetups[value];
+
+            setEnvironmentLights(scene, value === 'environment');
 
             [...lightSetups.all, insidePointLight].forEach((light) => {
               light.visible = visibleLights.includes(light);
@@ -948,9 +953,8 @@ export const exampleFrame = ({ scene }) => {
               }),
             );
 
-            if (value) {
-              getController('sceneMeshes')?.setValue(true);
-            }
+            // NOTE The floor is only for the shadows. Cast Shadows shows it, and hides it again.
+            getController('sceneMeshes')?.setValue(value);
           },
         },
         {

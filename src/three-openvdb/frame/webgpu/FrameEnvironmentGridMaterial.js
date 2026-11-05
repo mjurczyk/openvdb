@@ -13,6 +13,7 @@ import {
   floor,
   abs,
   max,
+  select,
 } from 'three/tsl';
 import {
   frameFragCoord,
@@ -27,6 +28,7 @@ import {
   frameSpectralShadowTransmittance,
   frameSpectralShadowTotal,
   frameSpectralGridAlbedo,
+  frameIsotropicDiffusion,
 } from './frameShaderChunks.js';
 import { frameMaxEnvironmentLights } from '../core/frameEnvironment.js';
 
@@ -129,14 +131,13 @@ export class FrameEnvironmentGridMaterial extends Three.NodeMaterial {
           ).toVar();
           const irradiance = vec3(0.0).toVar();
 
-          Loop(this.frameLightCount, ({ i }) => {
-            const direction = this.frameLightDirections.element(i).toVar();
+          // NOTE Depths of each channel { x: extinction, y: effective, z: reduced } of the march from worldPosition along direction
+          const marchDepths = (direction) => {
             const voxelsPerUnit = abs(direction).div(voxel);
             const stepLength = float(1.0)
               .div(max(voxelsPerUnit.x, max(voxelsPerUnit.y, voxelsPerUnit.z)))
               .toVar();
-            const step = direction.mul(stepLength).toVar();
-            const probe = worldPosition.add(step.mul(0.5)).toVar();
+            const probe = worldPosition.add(direction.mul(stepLength).mul(0.5)).toVar();
             const depths = { x: vec3(0.0).toVar(), y: vec3(0.0).toVar(), z: vec3(0.0).toVar() };
 
             Loop(maxSteps, () => {
@@ -172,6 +173,13 @@ export class FrameEnvironmentGridMaterial extends Three.NodeMaterial {
               probe.addAssign(direction.mul(stepLength));
             });
 
+            return depths;
+          };
+
+          Loop(this.frameLightCount, ({ i }) => {
+            const direction = this.frameLightDirections.element(i).toVar();
+            const depths = marchDepths(direction);
+
             // NOTE Environment lights are isotropic: total transmittance, no phase
             const shadow = frameSpectralShadowTransmittance(
               depths,
@@ -179,11 +187,21 @@ export class FrameEnvironmentGridMaterial extends Three.NodeMaterial {
               this.frameScatteringOctaves,
             );
 
-            irradiance.addAssign(
-              this.frameLightColors
-                .element(i)
-                .mul(frameSpectralShadowTotal(shadow.y, this.frameScatteringOctaves, albedo)),
+            // NOTE Diffusion: two-sided total of each channel (frameIsotropicDiffusion). It needs the opposite march too.
+            const diffusion = this.frameMultipleScattering.greaterThan(0.0);
+            const backReduced = vec3(0.0).toVar();
+
+            If(diffusion, () => {
+              backReduced.assign(marchDepths(direction.negate()).z);
+            });
+
+            const total = select(
+              diffusion,
+              frameIsotropicDiffusion(depths.z, backReduced, depths.y),
+              frameSpectralShadowTotal(shadow.y, this.frameScatteringOctaves, albedo),
             );
+
+            irradiance.addAssign(this.frameLightColors.element(i).mul(total));
           });
 
           result.assign(vec4(max(irradiance, vec3(0.0)), 1.0));
@@ -192,8 +210,8 @@ export class FrameEnvironmentGridMaterial extends Three.NodeMaterial {
         If(z.lessThan(resolution).and(nearExtinction.greaterThan(0.0)), () => {
           const irradiance = vec3(0.0).toVar();
 
-          Loop(this.frameLightCount, ({ i }) => {
-            const direction = this.frameLightDirections.element(i).toVar();
+          // NOTE (extinction, effective, reduced) depths of the march from worldPosition along direction
+          const marchDepths = (direction) => {
             const voxelsPerUnit = abs(direction).div(voxel);
             const stepLength = float(1.0)
               .div(max(voxelsPerUnit.x, max(voxelsPerUnit.y, voxelsPerUnit.z)))
@@ -227,12 +245,31 @@ export class FrameEnvironmentGridMaterial extends Three.NodeMaterial {
               probe.addAssign(step);
             });
 
+            return depths;
+          };
+
+          Loop(this.frameLightCount, ({ i }) => {
+            const direction = this.frameLightDirections.element(i).toVar();
+            const depths = marchDepths(direction);
+
             // NOTE Environment lights are isotropic: total transmittance, no phase
             const shadow = frameShadowTransmittance(depths, this.frameMultipleScattering, this.frameScatteringOctaves);
 
-            irradiance.addAssign(
-              this.frameLightColors.element(i).mul(frameShadowTotal(shadow.y, this.frameScatteringOctaves)),
+            // NOTE Diffusion: two-sided total (frameIsotropicDiffusion). It needs the march in the opposite direction too.
+            const diffusion = this.frameMultipleScattering.greaterThan(0.0);
+            const backDepths = vec3(0.0).toVar();
+
+            If(diffusion, () => {
+              backDepths.assign(marchDepths(direction.negate()));
+            });
+
+            const total = select(
+              diffusion,
+              frameIsotropicDiffusion(depths.z, backDepths.z, depths.y),
+              frameShadowTotal(shadow.y, this.frameScatteringOctaves),
             );
+
+            irradiance.addAssign(this.frameLightColors.element(i).mul(total));
           });
 
           result.assign(vec4(max(irradiance, vec3(0.0)), 1.0));

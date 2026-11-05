@@ -13,7 +13,7 @@ import {
 } from '../utils/phase';
 import { createToneMappingField } from '../utils/toneMapping';
 import { createMultipleScatteringFields } from '../utils/scattering';
-import { groundLevel } from '../utils/resources';
+import { groundLevel, setEnvironmentLights } from '../utils/resources';
 
 let animation, volumePivot, targetScene;
 // NOTE Instances of the animation, for the Copies field. Disposed before the animation.
@@ -529,7 +529,9 @@ export const exampleVDB = ({ scene }) => {
     });
   };
 
+  // NOTE environment: the lights of the environment map (utils/resources.js)
   const lightSetups = {
+    environment: [],
     sunHemi: [sun, hemiLight],
     dir: [sun],
     hemi: [hemiLight],
@@ -603,8 +605,9 @@ export const exampleVDB = ({ scene }) => {
         {
           id: 'lightSetup',
           name: 'Lights',
-          defaultValue: 'sunHemi',
+          defaultValue: 'environment',
           options: {
+            Environment: 'environment',
             'Sun + Hemisphere': 'sunHemi',
             Directional: 'dir',
             Hemisphere: 'hemi',
@@ -617,6 +620,8 @@ export const exampleVDB = ({ scene }) => {
           },
           onChange: (value) => {
             const visibleLights = lightSetups[value];
+
+            setEnvironmentLights(scene, value === 'environment');
 
             [...lightSetups.all, insidePointLight].forEach((light) => {
               light.visible = visibleLights.includes(light);

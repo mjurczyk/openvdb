@@ -36,6 +36,7 @@ import {
   frameShadowMarchDepth,
   frameShadowTransmittance,
   frameShadowTotal,
+  frameIsotropicDiffusion,
   frameShadowedLight,
   frameMeanComponent,
   minComponent,
@@ -228,9 +229,9 @@ export class FrameInjectMaterial extends FrameEnvironmentMaterial {
       const albedo = volume.sampleAlbedo(localPosition, lod).toVar();
 
       // NOTE Shadow march inside this volume only. Call in the Fn body.
-      // NOTE Returns shadow values (frameShadowTransmittance). The absorption uses the albedo at the lit position.
+      // NOTE Returns (direct, total, reduced depth, effective depth). The absorption uses the albedo at the lit position.
       const volumeTransmittance = (localDirection, maxLocalDistance) => {
-        const result = vec2(1.0).toVar();
+        const result = vec4(1.0, 1.0, 0.0, 0.0).toVar();
 
         If(frameAbsorbance.greaterThan(0.0).and(this.frameShadowSteps.greaterThan(0)), () => {
           const direction = normalize(localDirection).toVar();
@@ -262,7 +263,9 @@ export class FrameInjectMaterial extends FrameEnvironmentMaterial {
               probe.addAssign(direction.mul(localStep));
             });
 
-            result.assign(frameShadowTransmittance(depths, this.frameMultipleScattering, this.frameScatteringOctaves));
+            const transmittance = frameShadowTransmittance(depths, this.frameMultipleScattering, this.frameScatteringOctaves);
+
+            result.assign(vec4(transmittance.x, transmittance.y, depths.z, depths.y));
           });
         });
 
@@ -270,7 +273,8 @@ export class FrameInjectMaterial extends FrameEnvironmentMaterial {
       };
 
       // NOTE Spectral shadow march. One volume has one spectrum, so the march sums one optical depth.
-      // Then the depths of each channel are linear in it (frameSpectralShadowDepths). Returns { x: direct, y: total }.
+      // Then the depths of each channel are linear in it (frameSpectralShadowDepths).
+      // Returns { x: direct, y: total, z: reduced depth, w: effective depth }, vec3 values.
       const shadowUnit = spectral
         ? frameSpectralShadowUnit(frameExtinctionSpectrum, albedo, this.frameMultipleScattering)
         : null;
@@ -278,6 +282,8 @@ export class FrameInjectMaterial extends FrameEnvironmentMaterial {
       const spectralVolumeTransmittance = (localDirection, maxLocalDistance) => {
         const direct = vec3(1.0).toVar();
         const total = vec3(1.0).toVar();
+        const reduced = vec3(0.0).toVar();
+        const effective = vec3(0.0).toVar();
 
         If(frameAbsorbance.greaterThan(0.0).and(this.frameShadowSteps.greaterThan(0)), () => {
           const direction = normalize(localDirection).toVar();
@@ -311,18 +317,21 @@ export class FrameInjectMaterial extends FrameEnvironmentMaterial {
               probe.addAssign(direction.mul(localStep));
             });
 
+            const depths = frameSpectralShadowDepths(shadowUnit, opticalDepth);
             const shadow = frameSpectralShadowTransmittance(
-              frameSpectralShadowDepths(shadowUnit, opticalDepth),
+              depths,
               this.frameMultipleScattering,
               this.frameScatteringOctaves,
             );
 
             direct.assign(shadow.x);
             total.assign(shadow.y);
+            reduced.assign(depths.z);
+            effective.assign(depths.y);
           });
         });
 
-        return { x: direct, y: total };
+        return { x: direct, y: total, z: reduced, w: effective };
       };
 
       // NOTE Isotropic light (no phase): total transmittance
@@ -334,6 +343,35 @@ export class FrameInjectMaterial extends FrameEnvironmentMaterial {
               albedo,
             )
           : frameShadowTotal(volumeTransmittance(localDirection, maxLocalDistance).y, this.frameScatteringOctaves);
+
+      // NOTE Diffusion: two-sided totals of isotropic light (frameIsotropicDiffusion) for { x: direction, y: opposite direction }.
+      // It marches both directions. Spectral: vec3 values, one for each channel. Call in the Fn body.
+      const diffusion = this.frameMultipleScattering.greaterThan(0.0);
+      const isotropicValue = () => (spectral ? vec3(1.0) : float(1.0)).toVar();
+
+      const diffusionPair = (localDirection) => {
+        const march = spectral ? spectralVolumeTransmittance : volumeTransmittance;
+        const front = march(localDirection, float(1e6));
+        const back = march(localDirection.negate(), float(1e6));
+
+        return {
+          x: frameIsotropicDiffusion(front.z, back.z, front.w).toVar(),
+          y: frameIsotropicDiffusion(back.z, front.z, back.w).toVar(),
+        };
+      };
+
+      // NOTE Total transmittance of isotropic light from one direction. Diffusion: two-sided. Call in the Fn body.
+      const isotropicTransmittance = (localDirection) => {
+        const result = isotropicValue();
+
+        If(diffusion, () => {
+          result.assign(diffusionPair(localDirection).x);
+        }).Else(() => {
+          result.assign(totalTransmittance(localDirection, float(1e6)));
+        });
+
+        return result;
+      };
 
       const outwardNormal = select(
         length(localPosition).greaterThan(1e-4),
@@ -356,19 +394,25 @@ export class FrameInjectMaterial extends FrameEnvironmentMaterial {
           Loop(frameEnvironmentCount, ({ i }) => {
             const direction = worldToLocalDirection.mul(frameEnvironmentDirections.element(i)).toVar();
 
-            environment.addAssign(
-              frameEnvironmentColors.element(i).mul(totalTransmittance(direction, float(1e6))),
-            );
+            environment.addAssign(frameEnvironmentColors.element(i).mul(isotropicTransmittance(direction)));
           });
 
           irradiance.addAssign(max(environment, vec3(0.0)));
         }).Else(() => {
           if (this.environment) {
-            irradiance.addAssign(
-              this.environmentIrradiance(outwardNormal).mul(
-                totalTransmittance(worldToLocalDirection.mul(outwardNormal), float(1e6)),
-              ),
-            );
+            const outwardDirection = worldToLocalDirection.mul(outwardNormal).toVar();
+
+            // NOTE Diffusion: the outward and the inward irradiance, each with its two-sided total. Uniform light then gives E.
+            If(diffusion, () => {
+              const pair = diffusionPair(outwardDirection);
+
+              irradiance.addAssign(this.environmentIrradiance(outwardNormal).mul(pair.x.mul(0.5)));
+              irradiance.addAssign(this.environmentIrradiance(outwardNormal.negate()).mul(pair.y.mul(0.5)));
+            }).Else(() => {
+              irradiance.addAssign(
+                this.environmentIrradiance(outwardNormal).mul(totalTransmittance(outwardDirection, float(1e6))),
+              );
+            });
           }
         });
       });
@@ -376,19 +420,22 @@ export class FrameInjectMaterial extends FrameEnvironmentMaterial {
       If(useLights(frameLights.useHemisphereLights), () => {
         Loop(frameHemiCount, ({ i }) => {
           const upDirection = worldToLocalDirection.mul(frameHemiDirections.element(i)).toVar();
+          const skyTotal = isotropicValue();
+          const groundTotal = isotropicValue();
 
-          irradiance.addAssign(
-            frameHemiSkyColors
-              .element(i)
-              .mul(0.5)
-              .mul(totalTransmittance(upDirection, float(1e6))),
-          );
-          irradiance.addAssign(
-            frameHemiGroundColors
-              .element(i)
-              .mul(0.5)
-              .mul(totalTransmittance(upDirection.negate(), float(1e6))),
-          );
+          // NOTE Diffusion: sky and ground are an opposite pair, two-sided totals
+          If(diffusion, () => {
+            const pair = diffusionPair(upDirection);
+
+            skyTotal.assign(pair.x);
+            groundTotal.assign(pair.y);
+          }).Else(() => {
+            skyTotal.assign(totalTransmittance(upDirection, float(1e6)));
+            groundTotal.assign(totalTransmittance(upDirection.negate(), float(1e6)));
+          });
+
+          irradiance.addAssign(frameHemiSkyColors.element(i).mul(0.5).mul(skyTotal));
+          irradiance.addAssign(frameHemiGroundColors.element(i).mul(0.5).mul(groundTotal));
         });
       });
 
@@ -440,7 +487,7 @@ export class FrameInjectMaterial extends FrameEnvironmentMaterial {
                 this.frameScatteringOctaves,
                 rayDirection,
                 lightDirection,
-                volumeTransmittance(localDirection, maxDistance).toVar(),
+                volumeTransmittance(localDirection, maxDistance).xy.toVar(),
               );
 
           irradiance.addAssign(color.rgb.mul(light).mul(spotAttenuation));
