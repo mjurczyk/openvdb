@@ -140,7 +140,8 @@ export const showGui = () => {
 
     fields.forEach(field => {
       if (field.folder) {
-        const folder = gui.addFolder(field.folder);
+        // NOTE A folder in a folder is a subfolder
+        const folder = level.addFolder(field.folder);
 
         // NOTE closed: true starts the folder collapsed
         if (field.closed) {

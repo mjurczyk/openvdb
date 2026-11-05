@@ -330,9 +330,73 @@ const getReceiverLightsChunk = () => {
   return chunk;
 };
 
+// NOTE ShadowMaterial: lines added after each three.js shadow line of getShadowMask
+const maskLines = [
+  [
+    /(shadow \*= receiveShadow \? getPointShadow\( pointShadowMap\[ i \][^;]*;)/,
+    'frameVolumePointShadow( frameVolumePointMap[ i ], UNROLLED_LOOP_INDEX, frameVolumeWorld )',
+  ],
+  [
+    /(shadow \*= receiveShadow \? getShadow\( spotShadowMap\[ i \][^;]*;)/,
+    'frameVolumeSpotShadow( frameVolumeSpotMap[ i ], UNROLLED_LOOP_INDEX, frameVolumeWorld )',
+  ],
+  [
+    /(shadow \*= receiveShadow \? getShadow\( directionalShadowMap\[ i \][^;]*;)/,
+    'frameVolumeDirShadow( frameVolumeDirMap[ i ], UNROLLED_LOOP_INDEX, frameVolumeWorld, frameVolumeViewDepth )',
+  ],
+];
+
+// NOTE ShadowMaterial has no view position. The vertex shader gives the world position and the view depth.
+const maskVertexPars = /* glsl */ `
+  varying vec3 vFrameVolumeWorld;
+  varying float vFrameVolumeViewDepth;
+`;
+
+const maskVertex = /* glsl */ `
+  vec4 frameVolumeWorldPosition = vec4( transformed, 1.0 );
+  #ifdef USE_BATCHING
+  frameVolumeWorldPosition = batchingMatrix * frameVolumeWorldPosition;
+  #endif
+  #ifdef USE_INSTANCING
+  frameVolumeWorldPosition = instanceMatrix * frameVolumeWorldPosition;
+  #endif
+  vFrameVolumeWorld = ( modelMatrix * frameVolumeWorldPosition ).xyz;
+  vFrameVolumeViewDepth = - mvPosition.z;
+`;
+
+// NOTE getShadowMask of three.js with the volume shadow lines. null when the three.js chunk has other lines.
+const getReceiverMaskChunk = () => {
+  let chunk = Three.ShaderChunk.shadowmask_pars_fragment;
+  const startLine = 'float shadow = 1.0;';
+
+  if (!chunk.includes(startLine) || !maskLines.every(([pattern]) => pattern.test(chunk))) {
+    return null;
+  }
+
+  chunk = chunk.replace(
+    startLine,
+    `${startLine}
+    vec3 frameVolumeWorld = vFrameVolumeWorld;
+    float frameVolumeViewDepth = vFrameVolumeViewDepth;`,
+  );
+
+  maskLines.forEach(([pattern, call]) => {
+    chunk = chunk.replace(
+      pattern,
+      `$1
+      #if ( UNROLLED_LOOP_INDEX < FRAME_VOLUME_MAX_LIGHTS )
+      shadow *= receiveShadow ? ${call} : 1.0;
+      #endif`,
+    );
+  });
+
+  return `${maskVertexPars}\n${chunk}`;
+};
+
 const isLitMaterial = (material) =>
   !material.isShaderMaterial &&
-  (material.isMeshStandardMaterial ||
+  (material.isShadowMaterial ||
+    material.isMeshStandardMaterial ||
     material.isMeshLambertMaterial ||
     material.isMeshPhongMaterial ||
     material.isMeshToonMaterial);
@@ -356,6 +420,7 @@ export class FrameVolumeShadows {
   patchFrame = -1;
   patchedMaterials = new WeakSet();
   receiverChunk = getReceiverLightsChunk();
+  receiverMaskChunk = getReceiverMaskChunk();
   chunkWarned = false;
 
   constructor(frameRenderer) {
@@ -550,6 +615,18 @@ export class FrameVolumeShadows {
       }
 
       Object.assign(shader.uniforms, shadows.receiverUniforms);
+
+      if (this.isShadowMaterial) {
+        shader.vertexShader = shader.vertexShader
+          .replace('void main() {', `${maskVertexPars}\nvoid main() {`)
+          .replace('#include <worldpos_vertex>', `#include <worldpos_vertex>\n${maskVertex}`);
+        shader.fragmentShader = shader.fragmentShader
+          .replace('#include <lights_pars_begin>', `#include <lights_pars_begin>\n${receiverPars}`)
+          .replace('#include <shadowmask_pars_fragment>', shadows.receiverMaskChunk);
+
+        return;
+      }
+
       shader.fragmentShader = shader.fragmentShader
         .replace('#include <lights_pars_begin>', `#include <lights_pars_begin>\n${receiverPars}`)
         .replace('#include <lights_fragment_begin>', shadows.receiverChunk);
@@ -560,7 +637,7 @@ export class FrameVolumeShadows {
     };
 
     material.onBeforeRender = function (renderer, scene, ...rest) {
-      const active = shadows.isPatchActive();
+      const active = shadows.isPatchActive() && (!this.isShadowMaterial || shadows.receiverMaskChunk !== null);
 
       if (active !== state.active) {
         state.active = active;

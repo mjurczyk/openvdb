@@ -172,11 +172,25 @@ const getSliceCorners = (camera, near, far) => {
 // NOTE disposeShadow of the light node makes the receivers build a new shadow node.
 // NOTE Uses three.js internals: setupLightsNode gives the light node that all materials share.
 // NOTE Returns the old shadow node. Keep it, because receivers can still use its shadow map.
+let resetWarned = false;
+
 const resetLightShadow = (light) => {
   const nodeData = {};
-  const [lightNode] = new Three.LightsNode()
-    .setLights([light])
-    .setupLightsNode({ getDataFromNode: () => nodeData, context: { materialLightings: [] } });
+  let lightNode = null;
+
+  // NOTE Other three.js versions can have other internals. Then the light keeps its shadow node, with no volume shadow.
+  try {
+    [lightNode] = new Three.LightsNode()
+      .setLights([light])
+      .setupLightsNode({ getDataFromNode: () => nodeData, context: { materialLightings: [] } });
+  } catch (error) {
+    if (!resetWarned) {
+      resetWarned = true;
+      console.warn('FrameVolumeShadows: this three.js version cannot reset light shadows. Use three.js r187.', error);
+    }
+
+    return null;
+  }
 
   if (!lightNode || !lightNode.disposeShadow || !lightNode.shadowNode) {
     return null;
