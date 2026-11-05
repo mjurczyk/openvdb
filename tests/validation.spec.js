@@ -5,6 +5,7 @@ import { test, expect } from '@playwright/test';
 
 // NOTE Each scenario is validation-set/<name>.json with its screenshot. Default scenarios drop "-default" from the screenshot name.
 // JSON keys are GUI field ids. "demo" is the Example field. "drop" lists asset files for the Custom VDB drop zone.
+// "advanceFrames" moves the paused clock by that number of 60 Hz frames before the capture, for example to play a sequence.
 const validationSetDir = path.join(__dirname, 'validation-set');
 const resultsDir = path.join(__dirname, 'results');
 const updateValidationSet = !!process.env.UPDATE_VALIDATION_SET;
@@ -141,7 +142,7 @@ scenarios.forEach(({ name, config, screenshot }) => {
     await page.goto('/');
     await page.waitForFunction(() => !!document.querySelector('.lil-gui'));
 
-    const { demo, drop, ...fields } = config;
+    const { demo, drop, advanceFrames, ...fields } = config;
 
     await setFields(page, { demo, ...fields });
 
@@ -154,6 +155,11 @@ scenarios.forEach(({ name, config, screenshot }) => {
     // NOTE Fields that need the loaded volume, for example the animation frame
     if (drop) {
       await setFields(page, fields);
+      await waitForIdle(page, pendingRequests, errors);
+    }
+
+    if (advanceFrames) {
+      await page.clock.runFor(advanceFrames * frameTime);
       await waitForIdle(page, pendingRequests, errors);
     }
 

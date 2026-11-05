@@ -1,0 +1,6 @@
+{
+  "demo": "frame",
+  "source": "explosion",
+  "temperatureMax": 12000,
+  "advanceFrames": 30
+}

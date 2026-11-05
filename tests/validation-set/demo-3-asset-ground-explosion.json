@@ -1,4 +1,5 @@
 {
   "demo": "wvdb",
-  "asset": "ground_explosion"
+  "asset": "ground_explosion",
+  "advanceFrames": 30
 }
