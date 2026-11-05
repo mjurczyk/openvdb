@@ -7,6 +7,7 @@ import {
   float,
   int,
   vec2,
+  vec3,
   vec4,
   uniform,
   texture,
@@ -32,6 +33,8 @@ import {
   createGridNodes,
   frameShadowedLight,
   frameShadowTotal,
+  frameMeanComponent,
+  frameSpectralShadowTotal,
 } from './frameShaderChunks.js';
 import { FrameEnvironmentMaterial } from './FrameEnvironmentMaterial.js';
 
@@ -54,6 +57,8 @@ export const createDensityShadowUniforms = () => ({
   frameEnvironmentGridMap: texture(new Three.Texture()),
   // NOTE frameDensityEnvironment values
   frameEnvironmentMode: uniform(0, 'int'),
+  // NOTE frameRenderer.settings.spectral: targets 0 and 1 of slot group 0 (sky up and sky down, core/frameSpectrum.js)
+  frameSkyTransmittanceMaps: [texture(new Three.Texture()), texture(new Three.Texture())],
 });
 
 // NOTE Environment in the density pass: outward direction, none (only the slot light, in the lighting pass),
@@ -88,6 +93,8 @@ export class FrameDensityMaterial extends FrameEnvironmentMaterial {
       lightUniforms,
     };
     this.mipmaps = false;
+    // NOTE frameRenderer.settings.spectral: three targets, no light slots (the lighting pass samples the shadow grid)
+    this.spectral = false;
     this.buildNodes();
 
     this.side = Three.DoubleSide;
@@ -113,11 +120,26 @@ export class FrameDensityMaterial extends FrameEnvironmentMaterial {
     }
   }
 
+  setSpectral(spectral) {
+    if (spectral !== this.spectral) {
+      this.spectral = spectral;
+      this.environmentNodes = [];
+      this.buildNodes();
+      this.needsUpdate = true;
+    }
+  }
+
   rebuildNodes() {
     this.buildNodes();
   }
 
   buildNodes() {
+    if (this.spectral) {
+      this.buildSpectralNodes();
+
+      return;
+    }
+
     const {
       froxelUniforms,
       froxelTileUniforms,
@@ -311,5 +333,164 @@ export class FrameDensityMaterial extends FrameEnvironmentMaterial {
     })();
 
     this.outputNode = outputStruct(densityAlbedo, densityEmission, densityShadow0, densityShadow1);
+  }
+
+  // NOTE Spectral density pass. Targets: (albedo * extinction of each channel, weight), (emission * weight,
+  // visibleT * weight), (extinction of each channel, 0). Weight is the mean extinction of the channels.
+  // NOTE Light slots are not here: they need 3 values each. The lighting pass samples the shadow grid at the froxel.
+  buildSpectralNodes() {
+    const {
+      froxelUniforms,
+      froxelTileUniforms,
+      gridUniforms,
+      environmentGridUniforms,
+      densityShadowUniforms,
+      lightUniforms,
+    } = this.frameUniforms;
+    const volume = createVolumeNodes(this.volumeUniforms, this.mipmaps);
+    const grid = createGridNodes(gridUniforms);
+    const {
+      frameViewToLocal,
+      frameLocalToView,
+      frameOpacity,
+      frameScatterColor,
+      frameWorldScale,
+      frameExtinctionSpectrum,
+    } = this.volumeUniforms;
+    const { frameCameraMatrixWorld, frameScatteringOctaves, frameEnvironmentMode } = densityShadowUniforms;
+    const { froxelSubSteps, frameJitter } = froxelUniforms;
+
+    const densityAlbedo = property('vec4');
+    const densityEmission = property('vec4');
+    const densityExtinction = property('vec4');
+
+    this.vertexNode = frameTileVertex(froxelTileUniforms, this.frameRect, this.frameSliceStart);
+
+    this.colorNode = Fn(() => {
+      const fragCoord = frameFragCoord(froxelTileUniforms.frameTargetSize).toVar();
+      const froxel = frameGetFroxel(froxelUniforms, fragCoord);
+      const viewNear = froxel.viewNear.toVar();
+      const viewFar = froxel.viewFar.toVar();
+      const localNear = frameViewToLocal.mul(vec4(viewNear, 1.0)).xyz.toVar();
+      const localFar = frameViewToLocal.mul(vec4(viewFar, 1.0)).xyz.toVar();
+      const boxSegment = volume.boxSegment(localNear, localFar).toVar();
+
+      If(boxSegment.x.greaterThanEqual(boxSegment.y), () => {
+        Discard();
+      });
+
+      const subStepCount = float(froxelSubSteps);
+      const subStepLength = length(viewFar.sub(viewNear)).div(subStepCount).toVar();
+      const lod = getFroxelLod(froxelUniforms, froxel, volume, subStepLength, frameWorldScale);
+
+      // NOTE The visible position uses the mean transmittance of the channels
+      const extinctionSum = float(0.0).toVar();
+      const transmittance = vec3(1.0).toVar();
+      const visibleWeight = float(0.0).toVar();
+      const visibleTSum = float(0.0).toVar();
+      const jitter = frameNoise(frameJitter, fragCoord).toVar();
+
+      Loop(froxelSubSteps, ({ i }) => {
+        const t = float(i).add(jitter).div(subStepCount).toVar();
+
+        If(t.greaterThanEqual(boxSegment.x).and(t.lessThanEqual(boxSegment.y)), () => {
+          const extinction = volume
+            .sampleExtinction(mix(localNear, localFar, t), lod)
+            .mul(frameOpacity)
+            .toVar();
+          const stepTransmittance = exp(
+            frameExtinctionSpectrum.mul(extinction).mul(subStepLength).negate(),
+          ).toVar();
+          const weight = frameMeanComponent(
+            transmittance.mul(float(1.0).sub(stepTransmittance)),
+          ).toVar();
+
+          visibleWeight.addAssign(weight);
+          visibleTSum.addAssign(weight.mul(t));
+          extinctionSum.addAssign(extinction);
+          transmittance.mulAssign(stepTransmittance);
+        });
+      });
+
+      const extinction = frameExtinctionSpectrum.mul(extinctionSum.div(subStepCount)).toVar();
+      const weight = frameMeanComponent(extinction).toVar();
+
+      If(weight.lessThanEqual(0.0), () => {
+        Discard();
+      });
+
+      const visibleT = select(
+        visibleWeight.greaterThan(0.0),
+        visibleTSum.div(visibleWeight),
+        float(0.5),
+      ).toVar();
+      const visiblePosition = mix(localNear, localFar, visibleT).toVar();
+      const albedo = volume.sampleAlbedo(visiblePosition, lod).toVar();
+      const emission = volume.sampleEmission(visiblePosition, lod).add(frameScatterColor).toVar();
+      const visibleWorldPosition = frameCameraMatrixWorld
+        .mul(vec4(mix(viewNear, viewFar, visibleT), 1.0))
+        .xyz.toVar();
+
+      // NOTE Environment along the outward direction from the volume center, the same as per-volume lighting.
+      // NOTE Its shadow is between the sky down and sky up transmittance of each channel.
+      if (this.environment) {
+        If(frameEnvironmentMode.equal(frameDensityEnvironment.outward), () => {
+          const skyUp = vec3(1.0).toVar();
+          const skyDown = vec3(1.0).toVar();
+
+          If(densityShadowUniforms.frameUseShadows.equal(1), () => {
+            const sky = grid.sampleShadows(densityShadowUniforms.frameSkyTransmittanceMaps, visibleWorldPosition);
+
+            skyUp.assign(sky[0].rgb);
+            skyDown.assign(vec3(sky[0].a, sky[1].r, sky[1].g));
+          });
+
+          const skyDirection = normalize(lightUniforms.frameSkyDirection).toVar();
+          const outwardDirection = select(
+            length(visiblePosition).greaterThan(1e-4),
+            normalize(mat3(frameCameraMatrixWorld).mul(mat3(frameLocalToView).mul(visiblePosition))),
+            skyDirection,
+          ).toVar();
+          const environmentShadow = mix(
+            frameSpectralShadowTotal(skyDown, frameScatteringOctaves, albedo),
+            frameSpectralShadowTotal(skyUp, frameScatteringOctaves, albedo),
+            dot(outwardDirection, skyDirection).mul(0.5).add(0.5),
+          );
+
+          emission.addAssign(
+            albedo
+              .mul(this.environmentIrradiance(outwardDirection))
+              .mul(environmentShadow)
+              .mul(1.0 / Math.PI),
+          );
+        });
+      }
+
+      // NOTE Environment light of the environment grid at the visible position
+      If(frameEnvironmentMode.equal(frameDensityEnvironment.grid), () => {
+        const environment = grid.sampleEnvironmentGrid(
+          densityShadowUniforms.frameEnvironmentGridMap,
+          environmentGridUniforms,
+          visibleWorldPosition,
+          vec4(
+            lightUniforms.frameEnvironmentUnshadowed.mul(
+              frameSpectralShadowTotal(vec3(1.0), frameScatteringOctaves, albedo),
+            ),
+            1.0,
+          ),
+        );
+
+        emission.addAssign(albedo.mul(environment.rgb).mul(1.0 / Math.PI));
+      });
+
+      // NOTE Values are weighted. Additive blending then gives weighted means, and the sum of the extinction.
+      densityAlbedo.assign(vec4(albedo.mul(extinction), weight));
+      densityEmission.assign(vec4(emission.mul(weight), visibleT.mul(weight)));
+      densityExtinction.assign(vec4(extinction, 0.0));
+
+      return vec4(0.0);
+    })();
+
+    this.outputNode = outputStruct(densityAlbedo, densityEmission, densityExtinction);
   }
 }

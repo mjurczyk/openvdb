@@ -12,6 +12,14 @@ const fragmentShader = `
 
   layout(location = 0) out highp vec4 frameResolved;
 
+  // NOTE Spectral: second atlas target (red alpha, blue alpha, 0, green alpha)
+  #ifdef FRAME_SPECTRAL
+    layout(location = 1) out highp vec4 frameResolvedAlpha;
+
+    uniform sampler2D frameCurrentAlphaMap;
+    uniform sampler2D frameHistoryAlphaMap;
+  #endif
+
   ${froxelPars}
 
   uniform sampler2D frameCurrentMap;
@@ -29,21 +37,78 @@ const fragmentShader = `
   }
 
   // NOTE Bilinear filter in the slice. Half a cell inside the tile, then the filter does not read other tiles.
-  vec4 frameSampleHistory(float slice, vec2 uv) {
+  vec4 frameSampleHistory(sampler2D historyMap, float slice, vec2 uv) {
     vec2 cell = clamp(uv * froxelGrid.xy, vec2(0.5), froxelGrid.xy - 0.5);
 
-    return texture(frameHistoryMap, (frameGetTileOrigin(slice) + cell) / frameAtlasSize);
+    return texture(historyMap, (frameGetTileOrigin(slice) + cell) / frameAtlasSize);
+  }
+
+  // NOTE History of one atlas target, clamped to the current neighbors. This limits ghosting of moving volumes.
+  vec4 frameResolve(
+    sampler2D currentMap,
+    sampler2D historyMap,
+    vec2 tile,
+    vec2 cell,
+    float slice,
+    float slice0,
+    float slice1,
+    float sliceBlend,
+    vec2 previousUv
+  ) {
+    vec4 current = texelFetch(currentMap, ivec2(gl_FragCoord.xy), 0);
+    vec4 history = mix(
+      frameSampleHistory(historyMap, slice0, previousUv),
+      frameSampleHistory(historyMap, slice1, previousUv),
+      sliceBlend
+    );
+
+    vec4 neighborMin = current;
+    vec4 neighborMax = current;
+    vec2 tileOrigin = tile * froxelGrid.xy;
+    vec2 cellMax = froxelGrid.xy - 1.0;
+
+    vec2 neighborCells[4];
+    neighborCells[0] = vec2(max(cell.x - 1.0, 0.5), cell.y);
+    neighborCells[1] = vec2(min(cell.x + 1.0, cellMax.x + 0.5), cell.y);
+    neighborCells[2] = vec2(cell.x, max(cell.y - 1.0, 0.5));
+    neighborCells[3] = vec2(cell.x, min(cell.y + 1.0, cellMax.y + 0.5));
+
+    for (int i = 0; i < 4; i++) {
+      vec4 neighbor = texelFetch(currentMap, ivec2(tileOrigin + neighborCells[i]), 0);
+
+      neighborMin = min(neighborMin, neighbor);
+      neighborMax = max(neighborMax, neighbor);
+    }
+
+    for (int i = -1; i <= 1; i += 2) {
+      float neighborSlice = slice + float(i);
+
+      if (neighborSlice >= 0.0 && neighborSlice < froxelGrid.z) {
+        vec4 neighbor = texelFetch(currentMap, ivec2(frameGetTileOrigin(neighborSlice) + cell), 0);
+
+        neighborMin = min(neighborMin, neighbor);
+        neighborMax = max(neighborMax, neighbor);
+      }
+    }
+
+    return mix(clamp(history, neighborMin, neighborMax), current, frameTemporalBlend);
+  }
+
+  // NOTE The current froxels of all targets, with no history
+  void frameWriteCurrent() {
+    frameResolved = texelFetch(frameCurrentMap, ivec2(gl_FragCoord.xy), 0);
+
+    #ifdef FRAME_SPECTRAL
+      frameResolvedAlpha = texelFetch(frameCurrentAlphaMap, ivec2(gl_FragCoord.xy), 0);
+    #endif
   }
 
   void main() {
-    ivec2 texel = ivec2(gl_FragCoord.xy);
-    vec4 current = texelFetch(frameCurrentMap, texel, 0);
-
     vec2 tile = floor(gl_FragCoord.xy / froxelGrid.xy);
     float slice = tile.y * froxelColumns + tile.x;
 
     if (!frameUseHistory || slice >= froxelGrid.z) {
-      frameResolved = current;
+      frameWriteCurrent();
 
       return;
     }
@@ -57,7 +122,7 @@ const fragmentShader = `
     vec4 previousClip = framePreviousProjectionMatrix * previousView;
 
     if (previousClip.w <= 0.0) {
-      frameResolved = current;
+      frameWriteCurrent();
 
       return;
     }
@@ -70,50 +135,30 @@ const fragmentShader = `
     bool outside = any(lessThan(previousUv, vec2(0.0))) || any(greaterThan(previousUv, vec2(1.0)));
 
     if (outside || previousSlice < -0.5 || previousSlice > froxelGrid.z - 0.5) {
-      frameResolved = current;
+      frameWriteCurrent();
 
       return;
     }
 
     float slice0 = clamp(floor(previousSlice), 0.0, froxelGrid.z - 1.0);
     float slice1 = min(slice0 + 1.0, froxelGrid.z - 1.0);
-    vec4 history = mix(
-      frameSampleHistory(slice0, previousUv),
-      frameSampleHistory(slice1, previousUv),
-      clamp(previousSlice - slice0, 0.0, 1.0)
-    );
+    float sliceBlend = clamp(previousSlice - slice0, 0.0, 1.0);
 
-    // NOTE Clamp the history to the current neighbors. This limits ghosting of moving volumes.
-    vec4 neighborMin = current;
-    vec4 neighborMax = current;
-    vec2 tileOrigin = tile * froxelGrid.xy;
-    vec2 cellMax = froxelGrid.xy - 1.0;
+    frameResolved = frameResolve(frameCurrentMap, frameHistoryMap, tile, cell, slice, slice0, slice1, sliceBlend, previousUv);
 
-    vec2 neighborCells[4];
-    neighborCells[0] = vec2(max(cell.x - 1.0, 0.5), cell.y);
-    neighborCells[1] = vec2(min(cell.x + 1.0, cellMax.x + 0.5), cell.y);
-    neighborCells[2] = vec2(cell.x, max(cell.y - 1.0, 0.5));
-    neighborCells[3] = vec2(cell.x, min(cell.y + 1.0, cellMax.y + 0.5));
-
-    for (int i = 0; i < 4; i++) {
-      vec4 neighbor = texelFetch(frameCurrentMap, ivec2(tileOrigin + neighborCells[i]), 0);
-
-      neighborMin = min(neighborMin, neighbor);
-      neighborMax = max(neighborMax, neighbor);
-    }
-
-    for (int i = -1; i <= 1; i += 2) {
-      float neighborSlice = slice + float(i);
-
-      if (neighborSlice >= 0.0 && neighborSlice < froxelGrid.z) {
-        vec4 neighbor = texelFetch(frameCurrentMap, ivec2(frameGetTileOrigin(neighborSlice) + cell), 0);
-
-        neighborMin = min(neighborMin, neighbor);
-        neighborMax = max(neighborMax, neighbor);
-      }
-    }
-
-    frameResolved = mix(clamp(history, neighborMin, neighborMax), current, frameTemporalBlend);
+    #ifdef FRAME_SPECTRAL
+      frameResolvedAlpha = frameResolve(
+        frameCurrentAlphaMap,
+        frameHistoryAlphaMap,
+        tile,
+        cell,
+        slice,
+        slice0,
+        slice1,
+        sliceBlend,
+        previousUv
+      );
+    #endif
   }
 `;
 
@@ -128,6 +173,8 @@ export class FrameTemporalMaterial extends Three.ShaderMaterial {
         ...froxelUniforms,
         frameCurrentMap: { value: null },
         frameHistoryMap: { value: null },
+        frameCurrentAlphaMap: { value: null },
+        frameHistoryAlphaMap: { value: null },
         frameAtlasSize: { value: new Three.Vector2(1.0, 1.0) },
         frameUseHistory: { value: false },
         frameTemporalBlend: { value: 0.1 },
@@ -142,5 +189,16 @@ export class FrameTemporalMaterial extends Three.ShaderMaterial {
       depthWrite: false,
       blending: Three.NoBlending,
     });
+
+    // NOTE frameRenderer.settings.spectral: two atlas targets
+    this.spectral = false;
+  }
+
+  setSpectral(spectral) {
+    if (spectral !== this.spectral) {
+      this.spectral = spectral;
+      this.defines = spectral ? { FRAME_SPECTRAL: '' } : {};
+      this.needsUpdate = true;
+    }
   }
 }

@@ -1,5 +1,11 @@
 import * as Three from 'three';
-import { gridPars, environmentPars, environmentGridPars, shadowPars } from './frameShaderChunks.js';
+import {
+  gridPars,
+  environmentPars,
+  environmentGridPars,
+  shadowPars,
+  spectralPars,
+} from './frameShaderChunks.js';
 import { frameMaxEnvironmentLights } from '../core/frameEnvironment.js';
 
 const vertexShader = `
@@ -17,8 +23,14 @@ const fragmentShader = `
   ${environmentPars}
   ${environmentGridPars}
   ${shadowPars}
+  ${spectralPars}
 
   uniform sampler2D frameShadowDensityMap;
+
+  // NOTE Spectral: the absorption target of the grid. The march is done for each channel.
+  #ifdef FRAME_SPECTRAL
+    uniform sampler2D frameShadowAbsorptionMap;
+  #endif
   uniform int frameLightCount;
   uniform vec3 frameLightDirections[FRAME_MAX_ENVIRONMENT_LIGHTS];
   uniform vec3 frameLightColors[FRAME_MAX_ENVIRONMENT_LIGHTS];
@@ -26,6 +38,15 @@ const fragmentShader = `
   // NOTE (extinction, absorption)
   vec2 frameExtinctionAt(vec3 gridUvw) {
     return frameSampleGrid(frameShadowDensityMap, frameEnvironmentGridCascade, gridUvw).rg;
+  }
+
+  // NOTE Extinction of the voxel. Spectral: of all channels.
+  float frameAnyExtinctionAt(vec3 gridUvw) {
+    #ifdef FRAME_SPECTRAL
+      return dot(frameSampleGrid(frameShadowDensityMap, frameEnvironmentGridCascade, gridUvw).rgb, vec3(1.0));
+    #else
+      return frameExtinctionAt(gridUvw).x;
+    #endif
   }
 
   void main() {
@@ -40,7 +61,11 @@ const fragmentShader = `
     vec3 worldPosition = gridMin + gridUvw * gridSize;
 
     // NOTE Octaves: unshadowed light also gets the octaves
-    gl_FragColor = vec4(frameEnvironmentUnshadowed * frameShadowTotal(1.0), 1.0);
+    #ifdef FRAME_SPECTRAL
+      gl_FragColor = vec4(frameEnvironmentUnshadowed * frameSpectralShadowTotal(vec3(1.0), vec3(1.0)), 1.0);
+    #else
+      gl_FragColor = vec4(frameEnvironmentUnshadowed * frameShadowTotal(1.0), 1.0);
+    #endif
 
     if (z >= resolution) {
       return;
@@ -52,7 +77,7 @@ const fragmentShader = `
     for (int i = 0; i < 8; i++) {
       vec3 corner = vec3(float(i & 1), float((i >> 1) & 1), float((i >> 2) & 1)) - 0.5;
 
-      nearExtinction += frameExtinctionAt((worldPosition + corner * voxel - gridMin) / gridSize).x;
+      nearExtinction += frameAnyExtinctionAt((worldPosition + corner * voxel - gridMin) / gridSize);
     }
 
     if (nearExtinction <= 0.0) {
@@ -60,6 +85,14 @@ const fragmentShader = `
     }
 
     vec3 irradiance = vec3(0.0);
+
+    #ifdef FRAME_SPECTRAL
+      // NOTE Octaves use the albedo of the medium at this voxel
+      vec3 albedo = frameSpectralGridAlbedo(
+        frameSampleGrid(frameShadowDensityMap, cascade, gridUvw).rgb,
+        frameSampleGrid(frameShadowAbsorptionMap, cascade, gridUvw).rgb
+      );
+    #endif
 
     for (int i = 0; i < FRAME_MAX_ENVIRONMENT_LIGHTS; i++) {
       if (i >= frameLightCount) {
@@ -71,6 +104,32 @@ const fragmentShader = `
       float stepLength = 1.0 / max(voxelsPerUnit.x, max(voxelsPerUnit.y, voxelsPerUnit.z));
       vec3 marchStep = direction * stepLength;
       vec3 probe = worldPosition + marchStep * 0.5;
+
+      #ifdef FRAME_SPECTRAL
+        FrameSpectralDepths depths = FrameSpectralDepths(vec3(0.0), vec3(0.0), vec3(0.0));
+
+        for (int j = 0; j < FRAME_MAX_STEPS; j++) {
+          vec3 uvw = (probe - gridMin) / gridSize;
+
+          if (any(lessThan(uvw, vec3(0.0))) || any(greaterThan(uvw, vec3(1.0))) ||
+            frameMinComponent(frameSpectralShadowMarchDepth(depths)) > 6.0) {
+            break;
+          }
+
+          FrameSpectralDepths marchDepths = frameSpectralShadowStep(
+            frameSampleGrid(frameShadowDensityMap, cascade, uvw).rgb,
+            frameSampleGrid(frameShadowAbsorptionMap, cascade, uvw).rgb
+          );
+
+          depths.extinction += marchDepths.extinction * stepLength;
+          depths.effective += marchDepths.effective * stepLength;
+          depths.reduced += marchDepths.reduced * stepLength;
+          probe += marchStep;
+        }
+
+        // NOTE Environment lights are isotropic: total transmittance, no phase
+        irradiance += frameLightColors[i] * frameSpectralShadowTotal(frameSpectralShadowTransmittance(depths).total, albedo);
+      #else
       vec3 depths = vec3(0.0);
 
       for (int j = 0; j < FRAME_MAX_STEPS; j++) {
@@ -88,6 +147,7 @@ const fragmentShader = `
 
       // NOTE Environment lights are isotropic: total transmittance, no phase
       irradiance += frameLightColors[i] * frameShadowTotal(frameShadowTransmittance(depths).y);
+      #endif
     }
 
     gl_FragColor = vec4(max(irradiance, vec3(0.0)), 1.0);
@@ -106,6 +166,7 @@ export class FrameEnvironmentGridMaterial extends Three.ShaderMaterial {
       uniforms: {
         ...sharedUniforms,
         frameShadowDensityMap: { value: null },
+        frameShadowAbsorptionMap: { value: null },
         frameLightCount: { value: 0 },
         frameLightDirections: {
           value: Array.from({ length: frameMaxEnvironmentLights }, () => new Three.Vector3(0.0, 1.0, 0.0)),
@@ -124,5 +185,16 @@ export class FrameEnvironmentGridMaterial extends Three.ShaderMaterial {
       depthWrite: false,
       blending: Three.NoBlending,
     });
+
+    // NOTE frameRenderer.settings.spectral: the march is done for each channel
+    this.spectral = false;
+  }
+
+  setSpectral(spectral) {
+    if (spectral !== this.spectral) {
+      this.spectral = spectral;
+      this.defines = spectral ? { FRAME_SPECTRAL: '' } : {};
+      this.needsUpdate = true;
+    }
   }
 }

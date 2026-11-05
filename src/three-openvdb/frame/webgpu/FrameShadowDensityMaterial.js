@@ -1,5 +1,5 @@
 import * as Three from 'three/webgpu';
-import { Fn, If, Discard, vec4, uniform, max } from 'three/tsl';
+import { Fn, If, Discard, float, vec4, uniform, property, outputStruct, clamp, max } from 'three/tsl';
 import {
   frameFragCoord,
   frameTileVertex,
@@ -23,8 +23,10 @@ export class FrameShadowDensityMaterial extends Three.NodeMaterial {
 
     this.frameUniforms = { gridUniforms, gridTileUniforms };
     this.mipmaps = false;
+    // NOTE frameRenderer.settings.spectral: two targets, (extinction rgb, 0) and (absorption rgb, 0)
+    this.spectral = false;
     this.vertexNode = frameTileVertex(gridTileUniforms, this.frameRect, this.frameSliceStart);
-    this.fragmentNode = this.createFragmentNode();
+    this.rebuildNodes();
 
     this.side = Three.DoubleSide;
     this.forceSinglePass = true;
@@ -43,16 +45,43 @@ export class FrameShadowDensityMaterial extends Three.NodeMaterial {
   setMipmaps(mipmaps) {
     if (mipmaps !== this.mipmaps) {
       this.mipmaps = mipmaps;
-      this.fragmentNode = this.createFragmentNode();
+      this.rebuildNodes();
       this.needsUpdate = true;
     }
   }
 
-  createFragmentNode() {
+  setSpectral(spectral) {
+    if (spectral !== this.spectral) {
+      this.spectral = spectral;
+      this.rebuildNodes();
+      this.needsUpdate = true;
+    }
+  }
+
+  rebuildNodes() {
+    if (!this.spectral) {
+      this.colorNode = null;
+      this.outputNode = null;
+      this.fragmentNode = this.createFragmentNode();
+
+      return;
+    }
+
+    const extinction = property('vec4');
+    const absorption = property('vec4');
+
+    this.fragmentNode = null;
+    this.colorNode = this.createFragmentNode({ extinction, absorption });
+    this.outputNode = outputStruct(extinction, absorption);
+  }
+
+  // NOTE spectralOutputs: { extinction, absorption } property nodes of the spectral targets. null: one target.
+  createFragmentNode(spectralOutputs = null) {
     const { gridUniforms, gridTileUniforms } = this.frameUniforms;
     const volume = createVolumeNodes(this.volumeUniforms, this.mipmaps);
     const grid = createGridNodes(gridUniforms);
-    const { frameWorldToLocal, frameAbsorbance, frameWorldScale } = this.volumeUniforms;
+    const { frameWorldToLocal, frameAbsorbance, frameWorldScale, frameExtinctionSpectrum } =
+      this.volumeUniforms;
     const { frameGridMin, frameGridSize, frameGridVoxel, frameGridCount } = gridUniforms;
 
     return Fn(() => {
@@ -80,6 +109,17 @@ export class FrameShadowDensityMaterial extends Three.NodeMaterial {
       If(extinction.lessThanEqual(0.0), () => {
         Discard();
       });
+
+      if (spectralOutputs) {
+        // NOTE Extinction and absorption of each channel. Absorption is the part that the albedo of the channel does not scatter.
+        const spectralExtinction = frameExtinctionSpectrum.mul(extinction).toVar();
+        const albedo = clamp(volume.sampleAlbedo(localPosition, lod), 0.0, 1.0);
+
+        spectralOutputs.extinction.assign(vec4(spectralExtinction, 0.0));
+        spectralOutputs.absorption.assign(vec4(spectralExtinction.mul(float(1.0).sub(albedo)), 0.0));
+
+        return vec4(0.0);
+      }
 
       return vec4(
         extinction,

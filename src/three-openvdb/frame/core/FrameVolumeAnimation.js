@@ -5,6 +5,8 @@ const sharedParams = [
   'baseColor',
   'scatterColor',
   'extinction',
+  'extinctionScale',
+  'angstromExponent',
   'phase',
   'phaseG',
   'phaseBackG',
@@ -26,6 +28,12 @@ const applyParam = (frame, key, value) => {
     frame[key].set(value);
   } else if (frame[key] instanceof Three.Vector2) {
     frame[key].fromArray(value);
+  } else if (frame[key] instanceof Three.Vector3) {
+    if (Array.isArray(value)) {
+      frame[key].fromArray(value);
+    } else {
+      frame[key].copy(value);
+    }
   } else {
     frame[key] = value;
   }

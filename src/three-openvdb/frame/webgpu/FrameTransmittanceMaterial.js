@@ -20,6 +20,8 @@ import {
   max,
   length,
   normalize,
+  dot,
+  bool,
 } from 'three/tsl';
 import {
   frameFragCoord,
@@ -29,6 +31,9 @@ import {
   frameShadowStep,
   frameShadowMarchDepth,
   frameShadowTransmittance,
+  minComponent,
+  frameSpectralShadowStep,
+  frameSpectralShadowTransmittance,
 } from './frameShaderChunks.js';
 
 // NOTE Light slots: sky up, sky down, then 6 lights. Targets 0 and 1: total transmittance of all slots.
@@ -54,7 +59,38 @@ export class FrameTransmittanceMaterial extends Three.NodeMaterial {
     this.frameMultipleScattering = uniform(0.0);
     // NOTE Scattering octaves of frameRenderer.settings (core/framePhase.js). Count 0 is off.
     this.frameScatteringOctaves = uniform(new Three.Vector4());
+    // NOTE frameRenderer.settings.spectral: the absorption target of the grid, and the slot group of this pass
+    // (core/frameSpectrum.js). The renderer draws this pass one time for each group in use, into its own targets.
+    this.frameShadowAbsorptionMap = texture(new Three.Texture());
+    this.frameSpectralGroup = uniform(0, 'int');
+    this.frameUniforms = { gridUniforms, lightUniforms };
+    this.spectral = false;
 
+    this.buildNodes();
+
+    this.side = Three.DoubleSide;
+    this.forceSinglePass = true;
+    this.depthTest = false;
+    this.depthWrite = false;
+    this.blending = Three.NoBlending;
+  }
+
+  setSpectral(spectral) {
+    if (spectral !== this.spectral) {
+      this.spectral = spectral;
+      this.buildNodes();
+      this.needsUpdate = true;
+    }
+  }
+
+  buildNodes() {
+    if (this.spectral) {
+      this.buildSpectralNodes();
+
+      return;
+    }
+
+    const { gridUniforms, lightUniforms } = this.frameUniforms;
     const grid = createGridNodes(gridUniforms);
     const { frameGridMin, frameGridSize, frameGridVoxel, frameGridCount, frameGridAtlasSize } =
       gridUniforms;
@@ -188,11 +224,172 @@ export class FrameTransmittanceMaterial extends Three.NodeMaterial {
     })();
 
     this.outputNode = outputStruct(transmittance0, transmittance1, transmittance2, transmittance3);
+  }
 
-    this.side = Three.DoubleSide;
-    this.forceSinglePass = true;
-    this.depthTest = false;
-    this.depthWrite = false;
-    this.blending = Three.NoBlending;
+  // NOTE Spectral: transmittance of each channel for the slots of one group (core/frameSpectrum.js).
+  // One march for each direction: the grid gives the extinction and absorption of all channels at each step.
+  buildSpectralNodes() {
+    const { gridUniforms, lightUniforms } = this.frameUniforms;
+    const grid = createGridNodes(gridUniforms);
+    const { frameGridMin, frameGridSize, frameGridVoxel, frameGridCount, frameGridAtlasSize } =
+      gridUniforms;
+    const { frameSkyDirection } = lightUniforms;
+    const group = this.frameSpectralGroup;
+
+    const outputs = [property('vec4'), property('vec4'), property('vec4')];
+
+    // NOTE (extinction, absorption) of each channel
+    const gridSample = (worldPosition) => {
+      const found = grid.findCascade(worldPosition, int(0));
+      const cascade = max(found, int(0)).toVar();
+      const uvw = grid.gridUvw(cascade, worldPosition).toVar();
+      const inside = found.greaterThanEqual(0);
+
+      return {
+        extinction: select(inside, grid.sampleGrid(this.frameShadowDensityMap, cascade, uvw).rgb, vec3(0.0)),
+        absorption: select(inside, grid.sampleGrid(this.frameShadowAbsorptionMap, cascade, uvw).rgb, vec3(0.0)),
+      };
+    };
+
+    // NOTE The same march as the grey pass, with the depths of each channel. Stops when all channels are dark.
+    // Returns { x: direct, y: total }. enabled false: no march, 1.0.
+    const march = (enabled, origin, direction, maxDistance, jitter) => {
+      const direct = vec3(1.0).toVar();
+      const total = vec3(1.0).toVar();
+
+      If(enabled, () => {
+        const depths = { x: vec3(0.0).toVar(), y: vec3(0.0).toVar(), z: vec3(0.0).toVar() };
+        const traveled = float(0.0).toVar();
+        const probe = vec3(origin).toVar();
+
+        Loop(maxShadowSteps, () => {
+          const cascade = grid.findCascade(probe, int(0)).toVar();
+
+          If(
+            cascade
+              .lessThan(0)
+              .or(traveled.greaterThanEqual(maxDistance))
+              .or(
+                minComponent(
+                  frameShadowMarchDepth(depths, this.frameMultipleScattering, this.frameScatteringOctaves),
+                ).greaterThan(6.0),
+              ),
+            () => {
+              Break();
+            },
+          );
+
+          const voxelsPerUnit = abs(direction).div(frameGridVoxel.element(cascade));
+          const stepLength = min(
+            float(1.0).div(max(voxelsPerUnit.x, max(voxelsPerUnit.y, voxelsPerUnit.z))),
+            maxDistance.sub(traveled),
+          ).toVar();
+
+          const sample = gridSample(probe.add(direction.mul(stepLength).mul(jitter)));
+          const step = frameSpectralShadowStep(sample.extinction, sample.absorption, this.frameMultipleScattering);
+
+          depths.x.addAssign(step.x.mul(stepLength));
+          depths.y.addAssign(step.y.mul(stepLength));
+          depths.z.addAssign(step.z.mul(stepLength));
+          probe.addAssign(direction.mul(stepLength));
+          traveled.addAssign(stepLength);
+        });
+
+        const shadow = frameSpectralShadowTransmittance(
+          depths,
+          this.frameMultipleScattering,
+          this.frameScatteringOctaves,
+        );
+
+        direct.assign(shadow.x);
+        total.assign(shadow.y);
+      });
+
+      return { x: direct, y: total };
+    };
+
+    // NOTE March of a light slot. Light w is 1.0 for a light direction, 2.0 or more for a light position.
+    const marchSlot = (enabled, slot, worldPosition, jitter) => {
+      // NOTE Group 3 has no second slot (slot 6). The clamp keeps the read in the array, the march is off.
+      const light = this.frameShadowLights.element(min(slot, int(frameShadowLightSlots - 1))).toVar();
+      const isDirection = light.w.lessThan(1.5);
+      const toLight = light.xyz.sub(worldPosition).toVar();
+
+      return march(
+        enabled.and(slot.lessThan(this.frameShadowLightCount)),
+        worldPosition,
+        select(isDirection, normalize(light.xyz), normalize(toLight)),
+        select(isDirection, float(1e20), length(toLight)),
+        jitter,
+      );
+    };
+
+    this.vertexNode = frameFullscreenVertex;
+
+    this.colorNode = Fn(() => {
+      const fragCoord = frameFragCoord(frameGridAtlasSize).toVar();
+      const cell = grid.getGridCell(fragCoord);
+      const cascade = cell.cascade.toVar();
+
+      outputs.forEach((output) => output.assign(vec4(1.0)));
+
+      If(cascade.lessThan(frameGridCount), () => {
+        const voxel = frameGridVoxel.element(cascade).toVar();
+        const worldPosition = frameGridMin
+          .element(cascade)
+          .add(cell.gridUvw.mul(frameGridSize.element(cascade)))
+          .toVar();
+
+        // NOTE Skip voxels with no extinction near them. The lighting pass does not read them.
+        let nearExtinction = float(0.0);
+
+        for (let i = 0; i < 8; i++) {
+          const corner = vec3(i & 1, (i >> 1) & 1, (i >> 2) & 1).sub(0.5);
+
+          nearExtinction = nearExtinction.add(
+            dot(gridSample(worldPosition.add(corner.mul(voxel))).extinction, vec3(1.0)),
+          );
+        }
+
+        If(nearExtinction.greaterThan(0.0), () => {
+          const jitter = frameNoise(gridUniforms.frameJitter, fragCoord).toVar();
+          const skyDirection = normalize(frameSkyDirection).toVar();
+          const isSkyGroup = group.equal(0).toVar();
+          const slotA = group.mul(2).sub(1).toVar();
+
+          // NOTE Group 0: sky up, sky down, slot 0. Other groups: slots 2g - 1 and 2g, and no third march.
+          const first = march(
+            isSkyGroup,
+            worldPosition,
+            skyDirection,
+            float(1e20),
+            jitter,
+          );
+          const second = march(
+            isSkyGroup,
+            worldPosition,
+            skyDirection.negate(),
+            float(1e20),
+            jitter,
+          );
+          const slotFirst = marchSlot(isSkyGroup.not(), max(slotA, int(0)), worldPosition, jitter);
+          const slotSecond = marchSlot(bool(true), select(isSkyGroup, int(0), slotA.add(1)), worldPosition, jitter);
+
+          const a = {
+            x: select(isSkyGroup, first.y, slotFirst.y).toVar(),
+            y: select(isSkyGroup, second.y, slotFirst.x).toVar(),
+          };
+          const b = { x: slotSecond.y, y: slotSecond.x };
+
+          outputs[0].assign(vec4(a.x, a.y.x));
+          outputs[1].assign(vec4(a.y.y, a.y.z, b.x.x, b.x.y));
+          outputs[2].assign(vec4(b.x.z, b.y));
+        });
+      });
+
+      return vec4(0.0);
+    })();
+
+    this.outputNode = outputStruct(...outputs);
   }
 }

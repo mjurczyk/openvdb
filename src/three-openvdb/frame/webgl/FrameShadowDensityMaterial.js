@@ -12,6 +12,11 @@ const fragmentShader = `
 
   layout(location = 0) out highp vec4 frameShadowDensity;
 
+  // NOTE Spectral: targets (extinction rgb, 0) and (absorption rgb, 0)
+  #ifdef FRAME_SPECTRAL
+    layout(location = 1) out highp vec4 frameShadowAbsorptionOutput;
+  #endif
+
   ${volumePars}
   ${gridPars}
   ${shadowPars}
@@ -42,12 +47,21 @@ const fragmentShader = `
       discard;
     }
 
-    frameShadowDensity = vec4(
-      extinction,
-      frameShadowAbsorption(extinction, frameSampleAlbedo(localPosition, lod)),
-      0.0,
-      0.0
-    );
+    #ifdef FRAME_SPECTRAL
+      // NOTE Absorption is the part that the albedo of each channel does not scatter
+      vec3 spectralExtinction = frameExtinctionSpectrum * extinction;
+      vec3 albedo = clamp(frameSampleAlbedo(localPosition, lod), 0.0, 1.0);
+
+      frameShadowDensity = vec4(spectralExtinction, 0.0);
+      frameShadowAbsorptionOutput = vec4(spectralExtinction * (1.0 - albedo), 0.0);
+    #else
+      frameShadowDensity = vec4(
+        extinction,
+        frameShadowAbsorption(extinction, frameSampleAlbedo(localPosition, lod)),
+        0.0,
+        0.0
+      );
+    #endif
   }
 `;
 
@@ -77,5 +91,16 @@ export class FrameShadowDensityMaterial extends Three.ShaderMaterial {
       blendSrcAlpha: Three.OneFactor,
       blendDstAlpha: Three.OneFactor,
     });
+
+    // NOTE frameRenderer.settings.spectral: two targets
+    this.spectral = false;
+  }
+
+  setSpectral(spectral) {
+    if (spectral !== this.spectral) {
+      this.spectral = spectral;
+      this.defines = spectral ? { FRAME_SPECTRAL: '' } : {};
+      this.needsUpdate = true;
+    }
   }
 }

@@ -90,6 +90,8 @@ const getProps = (frameVolume) => ({
   baseColor: frameVolume.baseColor,
   scatterColor: frameVolume.scatterColor,
   extinction: frameVolume.extinction,
+  extinctionScale: frameVolume.extinctionScale,
+  angstromExponent: frameVolume.angstromExponent,
   phase: frameVolume.phase,
   phaseG: frameVolume.phaseG,
   phaseBackG: frameVolume.phaseBackG,
@@ -135,6 +137,11 @@ export class FrameVolume extends Three.Group {
       baseColor = 0xffffff,
       scatterColor = 0x000000,
       extinction = 350.0,
+      // NOTE frameRenderer.settings.spectral only: extinction scale of each channel (linear red, green, blue)
+      extinctionScale = [1.0, 1.0, 1.0],
+      // NOTE frameRenderer.settings.spectral only: extinction * (wavelength / 550 nm)^-angstromExponent.
+      // A preset name of frameAngstromExponents ('cloud', 'dust', 'smoke', 'air') or a number.
+      angstromExponent = 'cloud',
       // NOTE Phase of direct lights: 'isotropic', 'henyey-greenstein', 'dual-lobe' or 'lorenz-mie'
       phase = 'henyey-greenstein',
       phaseG = 0.8,
@@ -162,6 +169,10 @@ export class FrameVolume extends Three.Group {
     this.baseColor = new Three.Color(baseColor);
     this.scatterColor = new Three.Color(scatterColor);
     this.extinction = extinction;
+    this.extinctionScale = Array.isArray(extinctionScale)
+      ? new Three.Vector3().fromArray(extinctionScale)
+      : new Three.Vector3().copy(extinctionScale);
+    this.angstromExponent = angstromExponent;
     this.phase = phase;
     this.phaseG = phaseG;
     this.phaseBackG = phaseBackG;

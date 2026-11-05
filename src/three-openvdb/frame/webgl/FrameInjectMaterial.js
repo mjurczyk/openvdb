@@ -6,6 +6,8 @@ import {
   phasePars,
   shadowPars,
   scatteringPars,
+  spectralPars,
+  spectralScatteringPars,
   environmentPars,
   createVolumeUniforms,
 } from './frameShaderChunks.js';
@@ -31,12 +33,25 @@ const fragmentShader = `
   uniform int frameLights;
   uniform int frameShadowSteps;
 
+  // NOTE Spectral: atlas target 0 is (color, green alpha), target 1 is (red alpha, blue alpha, 0, green alpha).
+  // NOTE Both targets blend with the green alpha (w of each output).
+  #ifdef FRAME_SPECTRAL
+    layout(location = 0) out highp vec4 frameInjectColor;
+    layout(location = 1) out highp vec4 frameInjectAlpha;
+
+    #define FrameLight vec3
+  #else
+    #define FrameLight float
+  #endif
+
   ${froxelPars}
   ${volumePars}
   ${noisePars}
   ${phasePars}
   ${shadowPars}
   ${scatteringPars}
+  ${spectralPars}
+  ${spectralScatteringPars}
   ${environmentPars}
 
   #include <common>
@@ -80,6 +95,71 @@ const fragmentShader = `
     return frameShadowTransmittance(depths);
   }
 
+  #ifdef FRAME_SPECTRAL
+    // NOTE Spectral shadow march. One volume has one spectrum, so the march sums one optical depth.
+    // Then the depths of each channel are linear in it (frameSpectralShadowDepths).
+    FrameSpectralShadow frameSpectralTransmittance(vec3 origin, vec3 localDirection, float maxLocalDistance, float lod, vec3 albedo) {
+      FrameSpectralShadow unshadowed = FrameSpectralShadow(vec3(1.0), vec3(1.0));
+
+      if (frameAbsorbance <= 0.0 || frameShadowSteps <= 0) {
+        return unshadowed;
+      }
+
+      vec3 direction = normalize(localDirection);
+      float marchDistance = min(frameBoxExit(origin, direction), maxLocalDistance);
+
+      if (marchDistance <= 0.0) {
+        return unshadowed;
+      }
+
+      float localStep = marchDistance / float(frameShadowSteps);
+      float stepLod = max(lod, frameLod(localStep));
+      float worldStep = localStep * length(mat3(frameLocalToView) * direction);
+      float stepScale = worldStep * frameAbsorbance;
+      FrameSpectralDepths unit = frameSpectralShadowUnit(frameExtinctionSpectrum, albedo);
+      float opticalDepth = 0.0;
+      vec3 probe = origin + direction * localStep * frameNoise(gl_FragCoord.xy + vec2(17.0, 31.0));
+
+      for (int i = 0; i < frameShadowSteps; i++) {
+        opticalDepth += frameSampleExtinction(probe, stepLod) * stepScale;
+
+        // NOTE Stop when all channels are dark
+        if (frameMinComponent(frameSpectralShadowMarchDepth(frameSpectralShadowDepths(unit, opticalDepth))) > 8.0) {
+          break;
+        }
+
+        probe += direction * localStep;
+      }
+
+      return frameSpectralShadowTransmittance(frameSpectralShadowDepths(unit, opticalDepth));
+    }
+
+    // NOTE Isotropic light (no phase): total transmittance
+    vec3 frameTotalLight(vec3 origin, vec3 localDirection, float maxLocalDistance, float lod, vec3 albedo) {
+      return frameSpectralShadowTotal(frameSpectralTransmittance(origin, localDirection, maxLocalDistance, lod, albedo).total, albedo);
+    }
+
+    // NOTE Light of a directional, point or spot light, divided by the light color
+    vec3 frameDirectLight(vec3 rayDirection, vec3 lightDirection, vec3 origin, vec3 localDirection, float maxLocalDistance, float lod, vec3 albedo) {
+      return frameSpectralShadowedLight(
+        rayDirection,
+        lightDirection,
+        frameSpectralTransmittance(origin, localDirection, maxLocalDistance, lod, albedo),
+        albedo
+      );
+    }
+  #else
+    // NOTE Isotropic light (no phase): total transmittance
+    float frameTotalLight(vec3 origin, vec3 localDirection, float maxLocalDistance, float lod, vec3 albedo) {
+      return frameShadowTotal(frameTransmittance(origin, localDirection, maxLocalDistance, lod, albedo).y);
+    }
+
+    // NOTE Light of a directional, point or spot light, divided by the light color
+    float frameDirectLight(vec3 rayDirection, vec3 lightDirection, vec3 origin, vec3 localDirection, float maxLocalDistance, float lod, vec3 albedo) {
+      return frameShadowedLight(rayDirection, lightDirection, frameTransmittance(origin, localDirection, maxLocalDistance, lod, albedo));
+    }
+  #endif
+
   void main() {
     vec2 tile = floor(gl_FragCoord.xy / froxelGrid.xy);
     float slice = tile.y * froxelColumns + tile.x;
@@ -112,7 +192,8 @@ const fragmentShader = `
     float lod = frameLod(max(froxelWidth, subStepLength) / frameWorldScale);
 
     // NOTE Pre-integrate the slice along the view ray. Light the visibility-weighted mean position, not the froxel center.
-    float transmittance = 1.0;
+    // NOTE Spectral: transmittance of each channel. The visible position uses the mean of the channels.
+    FrameLight transmittance = FrameLight(1.0);
     float visibleWeight = 0.0;
     float visibleTSum = 0.0;
     float jitter = frameNoise(gl_FragCoord.xy);
@@ -126,17 +207,28 @@ const fragmentShader = `
 
       vec3 probe = mix(localNear, localFar, t);
       float opticalDepth = frameSampleExtinction(probe, lod) * frameOpacity * subStepLength;
-      float stepTransmittance = exp(-opticalDepth);
-      float weight = transmittance * (1.0 - stepTransmittance);
+      #ifdef FRAME_SPECTRAL
+        vec3 stepTransmittance = exp(-frameExtinctionSpectrum * opticalDepth);
+        float weight = frameMeanComponent(transmittance * (1.0 - stepTransmittance));
+      #else
+        float stepTransmittance = exp(-opticalDepth);
+        float weight = transmittance * (1.0 - stepTransmittance);
+      #endif
 
       visibleWeight += weight;
       visibleTSum += weight * t;
       transmittance *= stepTransmittance;
     }
 
-    float alpha = 1.0 - transmittance;
+    FrameLight alpha = 1.0 - transmittance;
 
-    if (visibleWeight <= 0.0 || alpha <= 1e-5) {
+    #ifdef FRAME_SPECTRAL
+      float maxAlpha = frameMaxComponent(alpha);
+    #else
+      float maxAlpha = alpha;
+    #endif
+
+    if (visibleWeight <= 0.0 || maxAlpha <= 1e-5) {
       discard;
     }
 
@@ -171,13 +263,13 @@ const fragmentShader = `
           break;
         }
 
-        environment += frameEnvironmentColors[i] * frameShadowTotal(frameTransmittance(
+        environment += frameEnvironmentColors[i] * frameTotalLight(
           localPosition,
           worldToLocalDirection * frameEnvironmentDirections[i],
           1e6,
           lod,
           albedo
-        ).y);
+        );
       }
 
       irradiance += max(environment, vec3(0.0));
@@ -185,7 +277,7 @@ const fragmentShader = `
 
     #if defined( USE_ENVMAP )
       if ((frameLights & FRAME_LIGHT_ENV) != 0 && frameEnvironmentCount == 0) {
-        float envTransmittance = frameShadowTotal(frameTransmittance(localPosition, viewToLocalDirection * outwardNormal, 1e6, lod, albedo).y);
+        FrameLight envTransmittance = frameTotalLight(localPosition, viewToLocalDirection * outwardNormal, 1e6, lod, albedo);
 
         irradiance += getIBLIrradiance(outwardNormal) * envTransmittance;
       }
@@ -197,8 +289,8 @@ const fragmentShader = `
           HemisphereLight hemiLight = hemisphereLights[i];
           vec3 upDirection = viewToLocalDirection * hemiLight.direction;
 
-          irradiance += 0.5 * hemiLight.skyColor * frameShadowTotal(frameTransmittance(localPosition, upDirection, 1e6, lod, albedo).y);
-          irradiance += 0.5 * hemiLight.groundColor * frameShadowTotal(frameTransmittance(localPosition, -upDirection, 1e6, lod, albedo).y);
+          irradiance += 0.5 * hemiLight.skyColor * frameTotalLight(localPosition, upDirection, 1e6, lod, albedo);
+          irradiance += 0.5 * hemiLight.groundColor * frameTotalLight(localPosition, -upDirection, 1e6, lod, albedo);
         }
       }
     #endif
@@ -208,10 +300,14 @@ const fragmentShader = `
         for (int i = 0; i < NUM_DIR_LIGHTS; i++) {
           DirectionalLight directionalLight = directionalLights[i];
 
-          irradiance += directionalLight.color * frameShadowedLight(
+          irradiance += directionalLight.color * frameDirectLight(
             rayDirection,
             directionalLight.direction,
-            frameTransmittance(localPosition, viewToLocalDirection * directionalLight.direction, 1e6, lod, albedo)
+            localPosition,
+            viewToLocalDirection * directionalLight.direction,
+            1e6,
+            lod,
+            albedo
           );
         }
       }
@@ -225,10 +321,14 @@ const fragmentShader = `
           PointLight pointLight = pointLights[i];
           vec3 toLight = (frameViewToLocal * vec4(pointLight.position, 1.0)).xyz - localPosition;
 
-          irradiance += pointLight.color * frameShadowedLight(
+          irradiance += pointLight.color * frameDirectLight(
             rayDirection,
             normalize(pointLight.position - viewPosition),
-            frameTransmittance(localPosition, toLight, length(toLight), lod, albedo)
+            localPosition,
+            toLight,
+            length(toLight),
+            lod,
+            albedo
           );
         }
       }
@@ -244,10 +344,14 @@ const fragmentShader = `
           if (spotAttenuation > 0.0) {
             vec3 toLight = (frameViewToLocal * vec4(spotLight.position, 1.0)).xyz - localPosition;
 
-            irradiance += spotLight.color * spotAttenuation * frameShadowedLight(
+            irradiance += spotLight.color * spotAttenuation * frameDirectLight(
               rayDirection,
               normalize(spotLight.position - viewPosition),
-              frameTransmittance(localPosition, toLight, length(toLight), lod, albedo)
+              localPosition,
+              toLight,
+              length(toLight),
+              lod,
+              albedo
             );
           }
         }
@@ -259,14 +363,21 @@ const fragmentShader = `
     radiance += frameSampleEmission(localPosition, lod);
 
     // NOTE Premultiplied slice color and alpha. Linear filtering of these values gives transparent edges.
-    gl_FragColor = vec4(radiance * alpha, alpha);
+    #ifdef FRAME_SPECTRAL
+      frameInjectColor = vec4(radiance * alpha, alpha.y);
+      frameInjectAlpha = vec4(alpha.x, alpha.z, 0.0, alpha.y);
+    #else
+      gl_FragColor = vec4(radiance * alpha, alpha);
+    #endif
   }
 `;
 
 // NOTE MeshStandardMaterial gives three.js light uniforms and the PMREM environment. The shader is fully replaced.
 export class FrameInjectMaterial extends Three.MeshStandardMaterial {
   name = 'FrameInjectMaterial';
-  customProgramCacheKey = () => 'FrameInjectMaterial';
+  customProgramCacheKey = () => `FrameInjectMaterial|${this.spectral ? 1 : 0}`;
+  // NOTE frameRenderer.settings.spectral: extinction and multiple scattering of each channel, two atlas targets
+  spectral = false;
 
   constructor(froxelUniforms) {
     super();
@@ -301,5 +412,22 @@ export class FrameInjectMaterial extends Three.MeshStandardMaterial {
       shader.vertexShader = vertexShader;
       shader.fragmentShader = fragmentShader;
     };
+  }
+
+  // NOTE GLSL3 keeps the two spectral outputs
+  setSpectral(spectral) {
+    if (spectral !== this.spectral) {
+      this.spectral = spectral;
+      this.glslVersion = spectral ? Three.GLSL3 : null;
+      this.defines = { ...this.defines };
+
+      if (spectral) {
+        this.defines.FRAME_SPECTRAL = '';
+      } else {
+        delete this.defines.FRAME_SPECTRAL;
+      }
+
+      this.needsUpdate = true;
+    }
   }
 }
