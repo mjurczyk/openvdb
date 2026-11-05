@@ -45,14 +45,16 @@ const targetOptions = {
 };
 
 // NOTE Directional lights: an atlas with one tile for each cascade, in a row
-const createTarget = (size, light) => {
+// NOTE Spectral: directional and spot maps have a second row with the optical depth of each channel. One sampler for both rows.
+// Point lights (cube maps) get a second cube map.
+const createTarget = (size, light, spectral = false) => {
   if (light.isPointLight) {
     return new Three.WebGLCubeRenderTarget(size, targetOptions);
   }
 
   const tiles = light.isDirectionalLight ? frameMaxShadowMapCascades : 1;
 
-  return new Three.WebGLRenderTarget(size * tiles, size, targetOptions);
+  return new Three.WebGLRenderTarget(size * tiles, spectral ? size * 2 : size, targetOptions);
 };
 
 // NOTE Clears a new map one time. Empty maps cast no shadow.
@@ -311,24 +313,17 @@ ${receiverPars.slice(beerEnd)}`;
 
   pars = pars
     .replace(
-      'uniform sampler2D frameVolumeDirMap[FRAME_VOLUME_MAX_LIGHTS];',
-      'uniform sampler2D frameVolumeDirMap[FRAME_VOLUME_MAX_LIGHTS];\n  uniform sampler2D frameVolumeDirSpectralMap[FRAME_VOLUME_MAX_LIGHTS];',
-    )
-    .replace(
-      'uniform sampler2D frameVolumeSpotMap[FRAME_VOLUME_MAX_LIGHTS];',
-      'uniform sampler2D frameVolumeSpotMap[FRAME_VOLUME_MAX_LIGHTS];\n  uniform sampler2D frameVolumeSpotSpectralMap[FRAME_VOLUME_MAX_LIGHTS];',
-    )
-    .replace(
       'uniform samplerCube frameVolumePointMap[FRAME_VOLUME_MAX_LIGHTS];',
       'uniform samplerCube frameVolumePointMap[FRAME_VOLUME_MAX_LIGHTS];\n  uniform samplerCube frameVolumePointSpectralMap[FRAME_VOLUME_MAX_LIGHTS];',
     )
-    .replace('float frameVolumeDirShadow(sampler2D map,', 'vec3 frameVolumeDirShadow(sampler2D map, sampler2D spectralMap,')
-    .replace('float frameVolumeSpotShadow(sampler2D map,', 'vec3 frameVolumeSpotShadow(sampler2D map, sampler2D spectralMap,')
+    .replace('float frameVolumeDirShadow(sampler2D map,', 'vec3 frameVolumeDirShadow(sampler2D map,')
+    .replace('float frameVolumeSpotShadow(sampler2D map,', 'vec3 frameVolumeSpotShadow(sampler2D map,')
     .replace('float frameVolumePointShadow(samplerCube map,', 'vec3 frameVolumePointShadow(samplerCube map, samplerCube spectralMap,')
     .replace(/return 1\.0;/g, 'return vec3(1.0);')
     .replace(
       'vec4 texel = texture(map, vec2((uv.x + float(cascade)) / float(FRAME_VOLUME_CASCADES), uv.y));',
-      'vec2 tileUv = vec2((uv.x + float(cascade)) / float(FRAME_VOLUME_CASCADES), uv.y);\n    vec4 texel = texture(map, tileUv);\n    vec4 spectralTexel = texture(spectralMap, tileUv);',
+      // NOTE Row 0: the Beer map, row 1: the optical depth of each channel. The inset keeps uv in its row.
+      'vec2 tileUv = vec2((uv.x + float(cascade)) / float(FRAME_VOLUME_CASCADES), uv.y * 0.5);\n    vec4 texel = texture(map, tileUv);\n    vec4 spectralTexel = texture(map, tileUv + vec2(0.0, 0.5));',
     )
     .replace(
       'return frameVolumeBeer(texel, depth, frameVolumeDirFar[index]);',
@@ -336,7 +331,8 @@ ${receiverPars.slice(beerEnd)}`;
     )
     .replace(
       'return frameVolumeBeer(texture(map, uv), depth, frameVolumeSpotFar[light]);',
-      'return frameVolumeBeer(texture(map, uv), texture(spectralMap, uv), depth, frameVolumeSpotFar[light]);',
+      // NOTE Half a texel in from the row sides. Then the linear filter does not read the other row.
+      'float rowInset = 1.0 / float(textureSize(map, 0).y);\n    vec2 rowUv = vec2(uv.x, clamp(uv.y, rowInset, 1.0 - rowInset) * 0.5);\n\n    return frameVolumeBeer(texture(map, rowUv), texture(map, rowUv + vec2(0.0, 0.5)), depth, frameVolumeSpotFar[light]);',
     )
     .replace(
       'return frameVolumeBeer(texture(map, offset), length(offset), frameVolumePointFar[light]);',
@@ -348,9 +344,9 @@ ${receiverPars.slice(beerEnd)}`;
 
 const spectralReceiverPars = getSpectralReceiverPars();
 
-// NOTE Spectral call of a shadow function: the second map of the light type after its first map
+// NOTE Spectral call of a shadow function. Point lights: the second cube map after the first. Directional and spot maps have two rows.
 const getSpectralCall = (call) =>
-  call.replace(/frameVolume(Dir|Spot|Point)Map\[ i \],/, 'frameVolume$1Map[ i ], frameVolume$1SpectralMap[ i ],');
+  call.replace(/frameVolumePointMap\[ i \],/, 'frameVolumePointMap[ i ], frameVolumePointSpectralMap[ i ],');
 
 // NOTE Lines added after the three.js shadow line of each light type, in the unrolled light loops.
 // NOTE [ i ] and UNROLLED_LOOP_INDEX become the shadow index of the light.
@@ -551,13 +547,11 @@ export class FrameVolumeShadows {
       frameVolumeDirOrigin: { value: fill(slots, () => new Three.Vector3()) },
       frameVolumeDirFar: { value: fill(slots, () => 1) },
       frameVolumeDirMap: { value: fill(maxLights, () => this.placeholder2D) },
-      frameVolumeDirSpectralMap: { value: fill(maxLights, () => this.placeholder2D) },
       frameVolumeSpotEnabled: { value: fill(maxLights, () => 0) },
       frameVolumeSpotViewProjection: { value: fill(maxLights, () => new Three.Matrix4()) },
       frameVolumeSpotOrigin: { value: fill(maxLights, () => new Three.Vector3()) },
       frameVolumeSpotFar: { value: fill(maxLights, () => 1) },
       frameVolumeSpotMap: { value: fill(maxLights, () => this.placeholder2D) },
-      frameVolumeSpotSpectralMap: { value: fill(maxLights, () => this.placeholder2D) },
       frameVolumePointEnabled: { value: fill(maxLights, () => 0) },
       frameVolumePointOrigin: { value: fill(maxLights, () => new Three.Vector3()) },
       frameVolumePointFar: { value: fill(maxLights, () => 1) },
@@ -596,16 +590,16 @@ export class FrameVolumeShadows {
       const isPoint = light.isPointLight === true;
       const size = this.getMapSize();
       const spectral = this.isSpectral();
-      const target = initTarget(renderer, createTarget(size, light), isPoint);
+      const target = initTarget(renderer, createTarget(size, light, spectral), isPoint);
 
       entry = {
         light,
         isPoint,
         target,
         size,
-        // NOTE frameRenderer.settings.spectral: a second map with the optical depth of each channel
+        // NOTE frameRenderer.settings.spectral: the optical depth of each channel in a second row, or a second cube map
         spectral,
-        spectralTarget: spectral ? initTarget(renderer, createTarget(size, light), isPoint) : null,
+        spectralTarget: spectral && isPoint ? initTarget(renderer, createTarget(size, light), isPoint) : null,
         enabled: false,
         cubeCamera: isPoint ? new Three.CubeCamera(0.5, 500.0, target) : null,
         // NOTE Current camera values. drawn: the values of the last draw, for the receivers.
@@ -658,10 +652,10 @@ export class FrameVolumeShadows {
       this.retired.push(entry.spectralTarget);
     }
 
-    entry.target = initTarget(renderer, createTarget(size, entry.light), entry.isPoint);
+    entry.target = initTarget(renderer, createTarget(size, entry.light, spectral), entry.isPoint);
     entry.size = size;
     entry.spectral = spectral;
-    entry.spectralTarget = spectral ? initTarget(renderer, createTarget(size, entry.light), entry.isPoint) : null;
+    entry.spectralTarget = spectral && entry.isPoint ? initTarget(renderer, createTarget(size, entry.light), entry.isPoint) : null;
     entry.item.signature.length = 0;
     entry.cascades?.forEach((cascade) => (cascade.signature.length = 0));
     entry.drawn.cascadeCount = 0;
@@ -934,19 +928,21 @@ export class FrameVolumeShadows {
     renderer.autoClear = false;
     this.mesh.layers.mask = camera.layers.mask;
 
-    // NOTE Spectral: the second draw writes the optical depth of each channel into the second map
-    const targets = entry.spectralTarget ? [entry.target, entry.spectralTarget] : [entry.target];
+    // NOTE Spectral: the second draw writes the optical depth of each channel. Point lights: into the second cube map.
+    // Directional and spot lights: into the second row of the same map.
+    const outputs = entry.spectral ? [0, 1] : [0];
 
-    targets.forEach((target, output) => {
+    outputs.forEach((output) => {
       this.material.uniforms.frameShadowOutput.value = output;
 
       if (entry.isPoint) {
-        entry.cubeCamera.renderTarget = target;
+        entry.cubeCamera.renderTarget = output === 0 ? entry.target : entry.spectralTarget;
         entry.cubeCamera.update(renderer, this.scene);
       } else {
-        target.viewport.copy(viewport);
-        target.scissorTest = false;
-        renderer.setRenderTarget(target);
+        entry.target.viewport.copy(viewport);
+        entry.target.viewport.y += output * entry.size;
+        entry.target.scissorTest = false;
+        renderer.setRenderTarget(entry.target);
         renderer.render(this.scene, camera);
       }
     });
@@ -1107,6 +1103,7 @@ export class FrameVolumeShadows {
   updateReceivers(scene, camera) {
     const uniforms = this.receiverUniforms;
     const order = getShadowOrder(scene, camera);
+    const spectral = this.isSpectral();
 
     for (let i = 0; i < maxLights; i++) {
       const directional = this.entries.get(order.directional[i]);
@@ -1124,8 +1121,9 @@ export class FrameVolumeShadows {
         uniforms.frameVolumeDirBreaks.value[i].copy(drawn.cascadeBreaks);
         uniforms.frameVolumeDirForward.value[i].copy(drawn.forward);
         uniforms.frameVolumeDirSize.value[i] = directional.size;
-        uniforms.frameVolumeDirMap.value[i] = directional.target.texture;
-        uniforms.frameVolumeDirSpectralMap.value[i] = directional.spectralTarget?.texture ?? this.placeholder2D;
+        // NOTE A map of the other layout (just after a spectral change) is not read
+        uniforms.frameVolumeDirMap.value[i] =
+          directional.spectral === spectral ? directional.target.texture : this.placeholder2D;
 
         directional.cascades.forEach((cascade, c) => {
           const slot = i * frameMaxShadowMapCascades + c;
@@ -1136,18 +1134,15 @@ export class FrameVolumeShadows {
         });
       } else {
         uniforms.frameVolumeDirMap.value[i] = this.placeholder2D;
-        uniforms.frameVolumeDirSpectralMap.value[i] = this.placeholder2D;
       }
 
       if (spot?.enabled) {
         uniforms.frameVolumeSpotViewProjection.value[i].copy(spot.drawn.viewProjection);
         uniforms.frameVolumeSpotOrigin.value[i].copy(spot.drawn.origin);
         uniforms.frameVolumeSpotFar.value[i] = spot.drawn.far;
-        uniforms.frameVolumeSpotMap.value[i] = spot.target.texture;
-        uniforms.frameVolumeSpotSpectralMap.value[i] = spot.spectralTarget?.texture ?? this.placeholder2D;
+        uniforms.frameVolumeSpotMap.value[i] = spot.spectral === spectral ? spot.target.texture : this.placeholder2D;
       } else {
         uniforms.frameVolumeSpotMap.value[i] = this.placeholder2D;
-        uniforms.frameVolumeSpotSpectralMap.value[i] = this.placeholder2D;
       }
 
       if (pointEntry?.enabled) {
