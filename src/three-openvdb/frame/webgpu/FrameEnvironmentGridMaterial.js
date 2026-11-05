@@ -12,7 +12,6 @@ import {
   texture,
   floor,
   abs,
-  exp,
   max,
 } from 'three/tsl';
 import {
@@ -20,7 +19,9 @@ import {
   frameFullscreenVertex,
   createGridNodes,
   frameShadowStep,
-  frameShadowDepth,
+  frameShadowMarchDepth,
+  frameShadowTransmittance,
+  frameShadowTotal,
 } from './frameShaderChunks.js';
 import { frameMaxEnvironmentLights } from '../core/frameEnvironment.js';
 
@@ -47,6 +48,8 @@ export class FrameEnvironmentGridMaterial extends Three.NodeMaterial {
     );
     // NOTE Multiple scattering of frameRenderer.settings (core/framePhase.js). 0.0 is single scattering.
     this.frameMultipleScattering = uniform(0.0);
+    // NOTE Scattering octaves of frameRenderer.settings (core/framePhase.js). Count 0 is off.
+    this.frameScatteringOctaves = uniform(new Three.Vector4());
 
     const grid = createGridNodes(gridUniforms);
     const { frameGridMin, frameGridSize, frameGridVoxel, frameGridResolution } = gridUniforms;
@@ -67,7 +70,8 @@ export class FrameEnvironmentGridMaterial extends Three.NodeMaterial {
       const gridMin = frameGridMin.element(cascade).toVar();
       const gridSize = frameGridSize.element(cascade).toVar();
       const worldPosition = gridMin.add(gridUvw.mul(gridSize)).toVar();
-      const result = vec4(frameEnvironmentUnshadowed, 1.0).toVar();
+      // NOTE Octaves: unshadowed light also gets the octaves
+      const result = vec4(frameEnvironmentUnshadowed.mul(frameShadowTotal(float(1.0), this.frameScatteringOctaves)), 1.0).toVar();
 
       const extinctionAt = (position) =>
         grid.sampleGrid(this.frameShadowDensityMap, cascade, position.sub(gridMin).div(gridSize)).r;
@@ -105,7 +109,7 @@ export class FrameEnvironmentGridMaterial extends Three.NodeMaterial {
                 .or(uvw.x.greaterThan(1.0))
                 .or(uvw.y.greaterThan(1.0))
                 .or(uvw.z.greaterThan(1.0))
-                .or(frameShadowDepth(depths, this.frameMultipleScattering).greaterThan(6.0)),
+                .or(frameShadowMarchDepth(depths, this.frameMultipleScattering, this.frameScatteringOctaves).greaterThan(6.0)),
               () => {
                 Break();
               },
@@ -120,10 +124,10 @@ export class FrameEnvironmentGridMaterial extends Three.NodeMaterial {
           });
 
           // NOTE Environment lights are isotropic: total transmittance, no phase
+          const shadow = frameShadowTransmittance(depths, this.frameMultipleScattering, this.frameScatteringOctaves);
+
           irradiance.addAssign(
-            this.frameLightColors
-              .element(i)
-              .mul(exp(frameShadowDepth(depths, this.frameMultipleScattering).negate())),
+            this.frameLightColors.element(i).mul(frameShadowTotal(shadow.y, this.frameScatteringOctaves)),
           );
         });
 

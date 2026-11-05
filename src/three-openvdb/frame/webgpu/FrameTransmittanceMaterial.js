@@ -27,7 +27,7 @@ import {
   frameFullscreenVertex,
   createGridNodes,
   frameShadowStep,
-  frameShadowDepth,
+  frameShadowMarchDepth,
   frameShadowTransmittance,
 } from './frameShaderChunks.js';
 
@@ -52,6 +52,8 @@ export class FrameTransmittanceMaterial extends Three.NodeMaterial {
     );
     // NOTE Multiple scattering of frameRenderer.settings (core/framePhase.js). 0.0 is single scattering.
     this.frameMultipleScattering = uniform(0.0);
+    // NOTE Scattering octaves of frameRenderer.settings (core/framePhase.js). Count 0 is off.
+    this.frameScatteringOctaves = uniform(new Three.Vector4());
 
     const grid = createGridNodes(gridUniforms);
     const { frameGridMin, frameGridSize, frameGridVoxel, frameGridCount, frameGridAtlasSize } =
@@ -86,7 +88,7 @@ export class FrameTransmittanceMaterial extends Three.NodeMaterial {
         const cascade = grid.findCascade(probe, int(0)).toVar();
 
         If(
-          cascade.lessThan(0).or(traveled.greaterThanEqual(maxDistance)).or(frameShadowDepth(depths, this.frameMultipleScattering).greaterThan(6.0)),
+          cascade.lessThan(0).or(traveled.greaterThanEqual(maxDistance)).or(frameShadowMarchDepth(depths, this.frameMultipleScattering, this.frameScatteringOctaves).greaterThan(6.0)),
           () => {
             Break();
           },
@@ -107,7 +109,7 @@ export class FrameTransmittanceMaterial extends Three.NodeMaterial {
         traveled.addAssign(stepLength);
       });
 
-      return frameShadowTransmittance(depths, this.frameMultipleScattering);
+      return frameShadowTransmittance(depths, this.frameMultipleScattering, this.frameScatteringOctaves);
     };
 
     // NOTE Light w is 1.0 for a light direction, 2.0 or more for a light position

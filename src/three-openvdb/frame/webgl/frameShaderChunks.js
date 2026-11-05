@@ -1,5 +1,5 @@
 import * as Three from 'three';
-import { getFramePhase } from '../core/framePhase.js';
+import { getFramePhase, frameMieAsymmetry, frameMaxScatteringOctaves } from '../core/framePhase.js';
 import { frameMieTable, frameMieTableSize } from '../core/frameMieTable.js';
 import { frameMaxEnvironmentLights } from '../core/frameEnvironment.js';
 
@@ -60,8 +60,12 @@ frameMieTexture.needsUpdate = true;
 // NOTE Phase function of direct lights. framePhase is (forward g, back g, back weight, Lorenz-Mie weight).
 // See core/framePhase.js.
 // NOTE Multiple scattering in shadow marches. frameMultipleScattering is 1 - g (core/framePhase.js), 0.0 is single scattering.
+// NOTE frameScatteringOctaves is (count N, extinction a, contribution b, phase c) of the indirect light octaves. N 0 is off.
 export const shadowPars = `
+  #define FRAME_MAX_SCATTERING_OCTAVES ${frameMaxScatteringOctaves}
+
   uniform float frameMultipleScattering;
+  uniform vec4 frameScatteringOctaves;
 
   // NOTE Absorption of the shadow extinction: the part of the light that the albedo (linear luminance) does not scatter
   float frameShadowAbsorption(float extinction, vec3 albedo) {
@@ -87,14 +91,54 @@ export const shadowPars = `
     return min(depths.x, depths.y + log(1.0 + 0.75 * depths.z));
   }
 
-  // NOTE (direct, total) transmittance. Direct light gets the phase function, scattered light (total - direct) is isotropic.
+  // NOTE Optical depth of the least shadowed light term. Marches stop when it is large.
+  // Octaves: the last octave has extinction * a^N, so the march goes deeper.
+  float frameShadowMarchDepth(vec3 depths) {
+    if (frameScatteringOctaves.x > 0.0) {
+      return depths.x * pow(frameScatteringOctaves.y, frameScatteringOctaves.x);
+    }
+
+    return frameShadowDepth(depths);
+  }
+
+  // NOTE Shadow values (direct, total) transmittance. Direct light gets the phase function, scattered light (total - direct) is isotropic.
+  // NOTE Octaves: y is 1 / (1 + optical depth). Half float targets keep it for deep volumes, and 1.0 is no shadow.
   vec2 frameShadowTransmittance(vec3 depths) {
+    if (frameScatteringOctaves.x > 0.0) {
+      return vec2(exp(-depths.x), 1.0 / (1.0 + depths.x));
+    }
+
     return vec2(exp(-depths.x), exp(-frameShadowDepth(depths)));
   }
 
-  // NOTE Light of a shadowed light, divided by the light color: phase * direct + scattered
-  float frameShadowedLight(float phase, vec2 transmittance) {
-    return phase * transmittance.x + transmittance.y - transmittance.x;
+  // NOTE Optical depth from the y shadow value of octaves
+  float frameShadowOpticalDepth(float shadowY) {
+    return max(1.0 / max(shadowY, 1e-6) - 1.0, 0.0);
+  }
+
+  // NOTE Total transmittance of isotropic light (no phase) from the y shadow value.
+  // Octaves: sum of b^n * exp(-a^n * optical depth), n 0 (direct) to N.
+  float frameShadowTotal(float shadowY) {
+    if (frameScatteringOctaves.x <= 0.0) {
+      return shadowY;
+    }
+
+    float opticalDepth = frameShadowOpticalDepth(shadowY);
+    float total = exp(-opticalDepth);
+    float extinctionScale = 1.0;
+    float contribution = 1.0;
+
+    for (int n = 1; n <= FRAME_MAX_SCATTERING_OCTAVES; n++) {
+      if (float(n) > frameScatteringOctaves.x) {
+        break;
+      }
+
+      extinctionScale *= frameScatteringOctaves.y;
+      contribution *= frameScatteringOctaves.z;
+      total += contribution * exp(-opticalDepth * extinctionScale);
+    }
+
+    return total;
   }
 `;
 
@@ -134,6 +178,54 @@ export const phasePars = `
     }
 
     return weight;
+  }
+
+  // NOTE Phase with all g multiplied by gScale. Lorenz-Mie uses Henyey-Greenstein with the table asymmetry g.
+  float framePhaseWeightScaled(float cosTheta, float gScale) {
+    float weight = mix(
+      frameHenyeyGreenstein(cosTheta, framePhase.x * gScale),
+      frameHenyeyGreenstein(cosTheta, framePhase.y * gScale),
+      framePhase.z
+    );
+
+    if (framePhase.w > 0.0) {
+      weight = mix(weight, frameHenyeyGreenstein(cosTheta, ${frameMieAsymmetry} * gScale), framePhase.w);
+    }
+
+    return weight;
+  }
+`;
+
+// NOTE Light of a shadowed directional, point or spot light. Needs phasePars and shadowPars before it.
+export const scatteringPars = `
+  // NOTE Light divided by the light color: phase * direct + scattered.
+  // Diffusion or single scattering: the scattered light (total - direct) is isotropic.
+  // Octaves: sum of b^n * phase(g * c^n) * exp(-a^n * optical depth), n 1 to N.
+  float frameShadowedLight(vec3 rayDirection, vec3 lightDirection, vec2 shadow) {
+    float light = framePhaseWeight(rayDirection, lightDirection) * shadow.x;
+
+    if (frameScatteringOctaves.x <= 0.0) {
+      return light + shadow.y - shadow.x;
+    }
+
+    float cosTheta = dot(rayDirection, lightDirection);
+    float opticalDepth = frameShadowOpticalDepth(shadow.y);
+    float extinctionScale = 1.0;
+    float contribution = 1.0;
+    float gScale = 1.0;
+
+    for (int n = 1; n <= FRAME_MAX_SCATTERING_OCTAVES; n++) {
+      if (float(n) > frameScatteringOctaves.x) {
+        break;
+      }
+
+      extinctionScale *= frameScatteringOctaves.y;
+      contribution *= frameScatteringOctaves.z;
+      gScale *= frameScatteringOctaves.w;
+      light += contribution * framePhaseWeightScaled(cosTheta, gScale) * exp(-opticalDepth * extinctionScale);
+    }
+
+    return light;
   }
 `;
 

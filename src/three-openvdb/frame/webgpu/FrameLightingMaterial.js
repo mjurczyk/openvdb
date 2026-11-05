@@ -6,6 +6,7 @@ import {
   Discard,
   float,
   ivec2,
+  vec2,
   vec3,
   vec4,
   uniform,
@@ -27,7 +28,7 @@ import {
   frameLoad,
   frameGetFroxel,
   frameFullscreenVertex,
-  framePhaseWeight,
+  frameShadowedLight,
 } from './frameShaderChunks.js';
 // NOTE Lights each froxel one time from the combined data of all volumes.
 // NOTE The environment is added in the density pass, along the outward direction of each volume.
@@ -46,6 +47,8 @@ export class FrameLightingMaterial extends Three.NodeMaterial {
     this.frameCameraMatrixWorld = uniform(new Three.Matrix4());
     // NOTE One phase for all volumes, from frameRenderer.settings
     this.framePhase = uniform(new Three.Vector4());
+    // NOTE Scattering octaves of frameRenderer.settings (core/framePhase.js). Count 0 is off.
+    this.frameScatteringOctaves = uniform(new Three.Vector4());
     // NOTE Environment lights with a shadow slot (0 or 1). Light i has slot frameEnvironmentShadowSlot + i.
     this.frameEnvironmentLightCount = uniform(0, 'int');
     this.frameEnvironmentShadowSlot = uniform(0, 'int');
@@ -148,14 +151,17 @@ export class FrameLightingMaterial extends Three.NodeMaterial {
         );
 
         // NOTE Directional position xyz is the direction to the light
-        const phase = framePhaseWeight(
+        const unshadowed = frameShadowedLight(
           this.framePhase,
+          this.frameScatteringOctaves,
           rayDirection,
           select(position.w.lessThan(1.5), position.xyz, normalize(lightVector)),
+          vec2(1.0),
         );
 
-        // NOTE A light with a shadow slot: the density pass stored phase * direct + scattered light
-        const lightFactor = select(i.lessThan(this.frameShadowLightCount), shadow, phase);
+        // NOTE A light with a shadow slot: the density pass stored phase * direct + scattered light.
+        // A light with no shadow slot: no shadow, then octaves still add their light.
+        const lightFactor = select(i.lessThan(this.frameShadowLightCount), shadow, unshadowed);
 
         irradiance.addAssign(
           color.rgb.mul(lightFactor).mul(spotAttenuation).mul(distanceAttenuation),

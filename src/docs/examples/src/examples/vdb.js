@@ -12,6 +12,7 @@ import {
   applyPhaseParams,
 } from '../utils/phase';
 import { createToneMappingField } from '../utils/toneMapping';
+import { createMultipleScatteringFields } from '../utils/scattering';
 import { groundLevel } from '../utils/resources';
 
 let animation, volumePivot, targetScene;
@@ -671,15 +672,7 @@ export const exampleVDB = ({ scene }) => {
     {
       folder: 'Rendering',
       children: [
-        // NOTE Off is single scattering: dense volumes get dark inside
-        {
-          id: 'multipleScattering',
-          name: 'Multiple Scattering',
-          defaultValue: OpenVDB.frameRenderer.settings.multipleScattering,
-          onChange: (value) => {
-            OpenVDB.frameRenderer.settings.multipleScattering = value;
-          },
-        },
+        ...createMultipleScatteringFields(),
         createToneMappingField(),
       ],
     },

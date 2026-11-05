@@ -26,7 +26,7 @@ import {
   createLightUniforms,
   frameFullscreenVertex,
 } from './frameShaderChunks.js';
-import { getFramePhase, getFrameMultipleScattering } from '../core/framePhase.js';
+import { getFramePhase, getFrameMultipleScattering, getFrameScatteringOctaves } from '../core/framePhase.js';
 import {
   FrameEnvironmentLights,
   frameEnvironmentModes,
@@ -136,8 +136,13 @@ export class FrameRenderer {
     environmentLighting: 'directional',
     environmentSamples: 8,
     environmentShOrder: 1,
-    // NOTE Multiple scattering in the shadows of all lights. false is single scattering (core/framePhase.js).
+    // NOTE Multiple scattering in the shadows of all lights (core/framePhase.js). true: diffusion approximation.
+    // 'octaves': indirect light octaves (experimental). false: single scattering.
     multipleScattering: true,
+    scatteringOctaves: 4,
+    scatteringOctaveExtinction: 0.5,
+    scatteringOctaveContribution: 0.5,
+    scatteringOctavePhase: 0.5,
   };
 
   // NOTE TSL uniform nodes. Passes share them, the CPU writes .value.
@@ -207,6 +212,7 @@ export class FrameRenderer {
   environmentGridTarget = null;
   environmentGridSignature = [];
   nextEnvironmentGridSignature = [];
+  scatteringOctaves = new Three.Vector4();
 
   atlasTarget = null;
   densityTarget = null;
@@ -320,12 +326,14 @@ export class FrameRenderer {
     this.environmentGridUniforms.frameEnvironmentGridCascade.value = cascade;
 
     const multipleScattering = getFrameMultipleScattering(this.settings.multipleScattering, this.settings);
+    const scatteringOctaves = getFrameScatteringOctaves(this.settings, this.scatteringOctaves);
 
     signature.length = 0;
     signature.push(
       frameGridResolution.value,
       cascade,
       multipleScattering,
+      ...scatteringOctaves.toArray(),
       ...frameGridMin.array[cascade].toArray(),
       ...frameGridSize.array[cascade].toArray(),
     );
@@ -371,6 +379,7 @@ export class FrameRenderer {
     material.frameShadowDensityMap.value = this.shadowDensityTarget.texture;
     material.frameLightCount.value = gridLights.length;
     material.frameMultipleScattering.value = multipleScattering;
+    material.frameScatteringOctaves.value.copy(scatteringOctaves);
 
     gridLights.forEach(({ direction, color }, index) => {
       material.frameLightDirections.array[index].fromArray(direction);
@@ -740,6 +749,7 @@ export class FrameRenderer {
         this.settings.multipleScattering,
         frameVolume,
       );
+      getFrameScatteringOctaves(this.settings, injectMaterial.frameScatteringOctaves.value);
 
       // NOTE Draw only the atlas rows that contain the slices of this volume.
       // Scissor y starts at the top of the target.
@@ -813,6 +823,7 @@ export class FrameRenderer {
         this.settings.multipleScattering,
         this.settings,
       );
+      getFrameScatteringOctaves(this.settings, this.transmittanceMaterial.frameScatteringOctaves.value);
       this.transmittanceMesh.layers.mask = camera.layers.mask;
 
       renderer.setRenderTarget(this.transmittanceTarget);
@@ -832,6 +843,7 @@ export class FrameRenderer {
     densityShadowUniforms.frameTransmittanceMap3.value = this.transmittanceTarget.textures[3];
     densityShadowUniforms.frameShadowSceneLightCount.value = lights.environmentShadowSlot;
     getFramePhase(this.settings, densityShadowUniforms.framePhase.value);
+    getFrameScatteringOctaves(this.settings, densityShadowUniforms.frameScatteringOctaves.value);
     densityShadowUniforms.frameEnvironmentGridMap.value = this.environmentGridTarget.texture;
     densityShadowUniforms.frameEnvironmentMode.value = useEnvironmentGrid
       ? frameDensityEnvironment.grid
@@ -887,6 +899,7 @@ export class FrameRenderer {
     lightingMaterial.frameEnvironmentShadowSlot.value = lights.environmentShadowSlot;
     lightingMaterial.frameCameraMatrixWorld.value.copy(camera.matrixWorld);
     getFramePhase(this.settings, lightingMaterial.framePhase.value);
+    getFrameScatteringOctaves(this.settings, lightingMaterial.frameScatteringOctaves.value);
 
     renderer.setRenderTarget(this.atlasTarget);
     renderer.clear(true, false, false);
