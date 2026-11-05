@@ -80,6 +80,8 @@ const guiBaseFields = () => [
           'Sky Midday': 'sky-midday',
           'Sky Night': 'sky-night',
           UV: 'uv-1',
+          // NOTE White furnace test (utils/furnace.js)
+          'Furnace (test)': 'furnace',
         },
         defaultValue: activeEnvironment,
         onChange: (value) => {

@@ -5,6 +5,7 @@ import { GroundedSkybox } from 'three/examples/jsm/objects/GroundedSkybox.js';
 import * as OpenVDB from 'three-openvdb';
 import { EnvironmentLightExtractor, EnvironmentShadowLights } from 'three-environment-shadows';
 import { isPhone, isIPhone } from './device';
+import { furnaceEnvironment, setFurnaceActive, createFurnaceMap } from './furnace';
 import { camera, controls } from '../main';
 
 export const vdbList = {};
@@ -233,10 +234,15 @@ const setCameraBounds = (bounds) => {
 
 export const loadEnvironment = (scene, name) => {
   const loadId = ++environmentLoadId;
-  const useUltraHdrBackground = ultraHdrBackgrounds.includes(name);
+  // NOTE The furnace map (utils/furnace.js) is its own background, with intensity 1
+  const isFurnace = name === furnaceEnvironment;
+  const intensity = isFurnace ? 1.0 : ultraHdrIntensity;
+  const useUltraHdrBackground = isFurnace || ultraHdrBackgrounds.includes(name);
+
+  setFurnaceActive(isFurnace);
 
   // NOTE The current environment stays until the new one loads
-  loaders.ultraHdr.load(`./assets/${name}-HDR${ultraHdrSuffix}.jpg`, async (env) => {
+  const onEnvironment = async (env) => {
     if (loadId !== environmentLoadId) {
       return;
     }
@@ -245,7 +251,7 @@ export const loadEnvironment = (scene, name) => {
 
     if (useUltraHdrBackground) {
       scene.background = env;
-      scene.backgroundIntensity = ultraHdrIntensity;
+      scene.backgroundIntensity = intensity;
     }
 
     if (groundedEnvironments[name]) {
@@ -282,7 +288,7 @@ export const loadEnvironment = (scene, name) => {
     environmentMaps = { full: env, withoutLights: extraction?.texture ?? env };
     environmentLights.setLights(extraction?.lights ?? []);
     applyEnvironmentMap(scene);
-    scene.environmentIntensity = ultraHdrIntensity;
+    scene.environmentIntensity = intensity;
 
     if (previousMaps && previousMaps.withoutLights !== previousMaps.full) {
       previousMaps.withoutLights.dispose();
@@ -290,10 +296,16 @@ export const loadEnvironment = (scene, name) => {
 
     await nextRenderedFrame();
     resolveFirstEnvironment();
-  }, undefined, (error) => {
-    console.error('Could not load the environment.', { name, error });
-    resolveFirstEnvironment();
-  });
+  };
+
+  if (isFurnace) {
+    onEnvironment(createFurnaceMap());
+  } else {
+    loaders.ultraHdr.load(`./assets/${name}-HDR${ultraHdrSuffix}.jpg`, onEnvironment, undefined, (error) => {
+      console.error('Could not load the environment.', { name, error });
+      resolveFirstEnvironment();
+    });
+  }
 
   if (!useUltraHdrBackground) {
     loaders.texture.load(`./assets/${name}-${backgroundSize}.jpg`, (background) => {

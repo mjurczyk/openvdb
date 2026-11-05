@@ -45,17 +45,17 @@ const fragmentShader = `
   #include <envmap_physical_pars_fragment>
 
   // NOTE Shadow march inside the source volume only. Other volumes do not cast shadows.
-  // NOTE Returns shadow values (frameShadowTransmittance). The absorption uses the albedo at the lit position.
-  vec2 frameTransmittance(vec3 origin, vec3 localDirection, float maxLocalDistance, float lod, vec3 albedo) {
+  // NOTE Returns (direct, total, reduced depth, effective depth). The absorption uses the albedo at the lit position.
+  vec4 frameTransmittanceDepths(vec3 origin, vec3 localDirection, float maxLocalDistance, float lod, vec3 albedo) {
     if (frameAbsorbance <= 0.0 || frameShadowSteps <= 0) {
-      return vec2(1.0);
+      return vec4(1.0, 1.0, 0.0, 0.0);
     }
 
     vec3 direction = normalize(localDirection);
     float marchDistance = min(frameBoxExit(origin, direction), maxLocalDistance);
 
     if (marchDistance <= 0.0) {
-      return vec2(1.0);
+      return vec4(1.0, 1.0, 0.0, 0.0);
     }
 
     float localStep = marchDistance / float(frameShadowSteps);
@@ -77,7 +77,30 @@ const fragmentShader = `
       probe += direction * localStep;
     }
 
-    return frameShadowTransmittance(depths);
+    return vec4(frameShadowTransmittance(depths), depths.z, depths.y);
+  }
+
+  // NOTE Returns shadow values (frameShadowTransmittance)
+  vec2 frameTransmittance(vec3 origin, vec3 localDirection, float maxLocalDistance, float lod, vec3 albedo) {
+    return frameTransmittanceDepths(origin, localDirection, maxLocalDistance, lod, albedo).xy;
+  }
+
+  // NOTE Diffusion: two-sided totals of isotropic light (frameIsotropicDiffusion) for (direction, opposite direction).
+  // It marches both directions.
+  vec2 frameDiffusionPair(vec3 origin, vec3 localDirection, float lod, vec3 albedo) {
+    vec4 front = frameTransmittanceDepths(origin, localDirection, 1e6, lod, albedo);
+    vec4 back = frameTransmittanceDepths(origin, -localDirection, 1e6, lod, albedo);
+
+    return vec2(frameIsotropicDiffusion(front.z, back.z, front.w), frameIsotropicDiffusion(back.z, front.z, back.w));
+  }
+
+  // NOTE Total transmittance of isotropic light from one direction. Diffusion: two-sided.
+  float frameIsotropicTransmittance(vec3 origin, vec3 localDirection, float lod, vec3 albedo) {
+    if (frameMultipleScattering > 0.0) {
+      return frameDiffusionPair(origin, localDirection, lod, albedo).x;
+    }
+
+    return frameShadowTotal(frameTransmittance(origin, localDirection, 1e6, lod, albedo).y);
   }
 
   void main() {
@@ -171,13 +194,12 @@ const fragmentShader = `
           break;
         }
 
-        environment += frameEnvironmentColors[i] * frameShadowTotal(frameTransmittance(
+        environment += frameEnvironmentColors[i] * frameIsotropicTransmittance(
           localPosition,
           worldToLocalDirection * frameEnvironmentDirections[i],
-          1e6,
           lod,
           albedo
-        ).y);
+        );
       }
 
       irradiance += max(environment, vec3(0.0));
@@ -185,9 +207,18 @@ const fragmentShader = `
 
     #if defined( USE_ENVMAP )
       if ((frameLights & FRAME_LIGHT_ENV) != 0 && frameEnvironmentCount == 0) {
-        float envTransmittance = frameShadowTotal(frameTransmittance(localPosition, viewToLocalDirection * outwardNormal, 1e6, lod, albedo).y);
+        vec3 outwardDirection = viewToLocalDirection * outwardNormal;
 
-        irradiance += getIBLIrradiance(outwardNormal) * envTransmittance;
+        if (frameMultipleScattering > 0.0) {
+          // NOTE Diffusion: the outward and the inward irradiance, each with its two-sided total. Uniform light then gives E.
+          vec2 pair = frameDiffusionPair(localPosition, outwardDirection, lod, albedo);
+
+          irradiance += 0.5 * (getIBLIrradiance(outwardNormal) * pair.x + getIBLIrradiance(-outwardNormal) * pair.y);
+        } else {
+          float envTransmittance = frameShadowTotal(frameTransmittance(localPosition, outwardDirection, 1e6, lod, albedo).y);
+
+          irradiance += getIBLIrradiance(outwardNormal) * envTransmittance;
+        }
       }
     #endif
 
@@ -197,8 +228,16 @@ const fragmentShader = `
           HemisphereLight hemiLight = hemisphereLights[i];
           vec3 upDirection = viewToLocalDirection * hemiLight.direction;
 
-          irradiance += 0.5 * hemiLight.skyColor * frameShadowTotal(frameTransmittance(localPosition, upDirection, 1e6, lod, albedo).y);
-          irradiance += 0.5 * hemiLight.groundColor * frameShadowTotal(frameTransmittance(localPosition, -upDirection, 1e6, lod, albedo).y);
+          // NOTE Diffusion: sky and ground are an opposite pair, two-sided totals
+          vec2 sky = frameMultipleScattering > 0.0
+            ? frameDiffusionPair(localPosition, upDirection, lod, albedo)
+            : vec2(
+              frameShadowTotal(frameTransmittance(localPosition, upDirection, 1e6, lod, albedo).y),
+              frameShadowTotal(frameTransmittance(localPosition, -upDirection, 1e6, lod, albedo).y)
+            );
+
+          irradiance += 0.5 * hemiLight.skyColor * sky.x;
+          irradiance += 0.5 * hemiLight.groundColor * sky.y;
         }
       }
     #endif

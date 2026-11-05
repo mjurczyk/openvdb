@@ -29,6 +29,7 @@ import {
   frameShadowStep,
   frameShadowMarchDepth,
   frameShadowTransmittance,
+  frameIsotropicDiffusion,
 } from './frameShaderChunks.js';
 
 // NOTE Light slots: sky up, sky down, then 6 lights. Targets 0 and 1: total transmittance of all slots.
@@ -109,12 +110,23 @@ export class FrameTransmittanceMaterial extends Three.NodeMaterial {
         traveled.addAssign(stepLength);
       });
 
-      return frameShadowTransmittance(depths, this.frameMultipleScattering, this.frameScatteringOctaves);
+      const transmittance = frameShadowTransmittance(depths, this.frameMultipleScattering, this.frameScatteringOctaves);
+
+      // NOTE (direct, total, reduced depth, effective depth). Sky up and down use z and w for the diffusion total.
+      return vec4(transmittance.x, transmittance.y, depths.z, depths.y);
     };
+
+    // NOTE Sky up and down are isotropic, and opposite. Diffusion: two-sided total (frameIsotropicDiffusion).
+    const skyTotal = (front, back) =>
+      select(
+        this.frameMultipleScattering.greaterThan(0.0),
+        frameIsotropicDiffusion(front.z, back.z, front.w),
+        front.y,
+      );
 
     // NOTE Light w is 1.0 for a light direction, 2.0 or more for a light position
     const lightTransmittance = (slot, worldPosition, jitter) => {
-      const result = vec2(1.0).toVar();
+      const result = vec4(1.0, 1.0, 0.0, 0.0).toVar();
 
       If(int(slot).lessThan(this.frameShadowLightCount), () => {
         const light = this.frameShadowLights.element(slot).toVar();
@@ -170,14 +182,10 @@ export class FrameTransmittanceMaterial extends Three.NodeMaterial {
             lightTransmittance(slot, worldPosition, jitter).toVar(),
           );
 
-          transmittance0.assign(
-            vec4(
-              march(worldPosition, skyDirection, float(1e20), jitter).y,
-              march(worldPosition, skyDirection.negate(), float(1e20), jitter).y,
-              lights[0].y,
-              lights[1].y,
-            ),
-          );
+          const skyUp = march(worldPosition, skyDirection, float(1e20), jitter).toVar();
+          const skyDown = march(worldPosition, skyDirection.negate(), float(1e20), jitter).toVar();
+
+          transmittance0.assign(vec4(skyTotal(skyUp, skyDown), skyTotal(skyDown, skyUp), lights[0].y, lights[1].y));
           transmittance1.assign(vec4(lights[2].y, lights[3].y, lights[4].y, lights[5].y));
           transmittance2.assign(vec4(lights[0].x, lights[1].x, lights[2].x, lights[3].x));
           transmittance3.assign(vec4(lights[4].x, lights[5].x, 1.0, 1.0));
