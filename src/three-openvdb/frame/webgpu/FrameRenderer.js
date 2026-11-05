@@ -11,6 +11,7 @@ import { FrameShadowDensityMaterial } from './FrameShadowDensityMaterial.js';
 import { FrameTransmittanceMaterial, frameShadowLightSlots } from './FrameTransmittanceMaterial.js';
 import { FrameLightingMaterial } from './FrameLightingMaterial.js';
 import { FrameTemporalMaterial } from './FrameTemporalMaterial.js';
+import { FrameVolumeShadows } from './FrameVolumeShadows.js';
 import { FrameEnvironmentMapMaterial } from './FrameEnvironmentMapMaterial.js';
 import { FrameEnvironmentGridMaterial } from './FrameEnvironmentGridMaterial.js';
 import { updateVolumeMipmaps, disposeVolumeMipmaps } from './frameMipmaps.js';
@@ -132,6 +133,19 @@ export class FrameRenderer {
     phaseBackWeight: 0.2,
     // NOTE Blend the volumes over the scene in sRGB, the same as WebGLRenderer. false blends in linear space.
     srgbBlending: true,
+    // NOTE Volumes cast shadows on meshes, for directional, point and spot lights with castShadow
+    castShadows: false,
+    // NOTE Texels on each side of a volume shadow map (of each cascade tile and cube face)
+    castShadowMapSize: 512,
+    // NOTE Directional lights: cascades of the volume shadow map, and the largest view distance that they cover
+    castShadowCascades: 1,
+    castShadowDistance: 4000,
+    // NOTE Grid samples on each light ray of a volume shadow map
+    castShadowSteps: 32,
+    // NOTE Volume shadow map pieces made again in one render (a cascade tile or a spot map 1, a cube map 6)
+    castShadowUpdatesPerFrame: 1,
+    // NOTE Very small maps and few samples: soft blob shadows, almost no cost
+    castShadowCoarse: false,
     // NOTE Environment light: 'outward', 'directional' or 'spherical-harmonics' (core/frameEnvironment.js)
     environmentLighting: 'directional',
     environmentSamples: 8,
@@ -160,6 +174,7 @@ export class FrameRenderer {
   transmittanceMaterial = new FrameTransmittanceMaterial(this);
   densityMaterial = new FrameDensityMaterial(this);
   shadowDensityMaterial = new FrameShadowDensityMaterial(this);
+  volumeShadows = new FrameVolumeShadows(this);
 
   // NOTE The light scene has the scene environment. It draws the volume inject pass or the frame lighting pass.
   injectScene = createScene();
@@ -219,6 +234,24 @@ export class FrameRenderer {
   shadowDensityTarget = null;
   transmittanceTarget = null;
   lightLimitWarned = false;
+
+  // NOTE World shadow grid of the current render. Volume shadows make it before the first lit mesh.
+  // NOTE Then 'frame' lighting uses it again. gridVersion changes when the grid content changes.
+  gridRenderId = -1;
+  gridCamera = null;
+  gridReady = false;
+  gridFreshCamera = null;
+  gridVersion = 0;
+  gridSignature = [];
+  nextGridSignature = [];
+  // NOTE castVersion changes when the last grid cascade (all volumes) changes. Volume shadow maps read only it.
+  castVersion = 0;
+  castSignature = [];
+  nextCastSignature = [];
+  casterSignature = [];
+
+  // NOTE collectVolumes result of the current render. The grid pass and the proxy use it.
+  collected = { renderId: -1, camera: null, scene: null, result: null };
 
   cachedFrame = -1;
   cachedCamera = null;
@@ -281,7 +314,9 @@ export class FrameRenderer {
       return;
     }
 
-    const { volumes, casters } = this.collectVolumes(scene, camera);
+    this.volumeShadows.update(renderer, scene);
+
+    const { volumes, casters } = this.collectVolumes(renderer, scene, camera);
 
     if (volumes.length > 0) {
       this.renderFrame(renderer, scene, camera, volumes, casters);
@@ -418,11 +453,28 @@ export class FrameRenderer {
     );
   }
 
-  collectVolumes(scene, camera) {
+  // NOTE Visible volumes and shadow casters, one time in a render (the render id of three.js NodeFrame, internal)
+  collectVolumes(renderer, scene, camera) {
+    const renderId = renderer._nodes?.nodeFrame?.renderId ?? -1;
+    const { collected } = this;
+
+    if (renderId !== -1 && collected.renderId === renderId && collected.camera === camera && collected.scene === scene) {
+      return collected.result;
+    }
+
+    collected.renderId = renderId;
+    collected.camera = camera;
+    collected.scene = scene;
+    collected.result = this.findVolumes(scene, camera);
+
+    return collected.result;
+  }
+
+  findVolumes(scene, camera) {
     const { settings } = this;
     const volumes = [];
     const casters = [];
-    const frameLighting = this.isFrameLighting();
+    const useGrid = this.usesShadowGrid();
 
     projectionScreenMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     frustum.setFromProjectionMatrix(projectionScreenMatrix);
@@ -452,7 +504,7 @@ export class FrameRenderer {
         volume.worldBox.copy(unitBox).applyMatrix4(volume.matrixWorld);
 
         // NOTE Volumes out of the view can still cast shadows on visible volumes
-        if (frameLighting) {
+        if (useGrid) {
           casters.push({ frameVolume: object, volume });
         }
 
@@ -479,18 +531,30 @@ export class FrameRenderer {
     far = Math.min(far, settings.far, camera.far);
 
     if (volumes.length === 0 || far <= near) {
-      return { volumes: [], casters: [] };
+      // NOTE Volumes out of the view still cast shadows on meshes
+      this.updateMipmapFlags(casters);
+
+      return { volumes: [], casters };
     }
 
     this.froxelUniforms.froxelRange.value.set(near, Math.max(far, near * 1.0001));
 
-    const mipmaps = [...volumes, ...casters].some(({ frameVolume }) => frameVolume.mipmaps);
+    this.updateMipmapFlags([...volumes, ...casters]);
+
+    return { volumes, casters };
+  }
+
+  updateMipmapFlags(items) {
+    const mipmaps = items.some(({ frameVolume }) => frameVolume.mipmaps);
 
     [this.densityMaterial, this.shadowDensityMaterial, this.injectMaterial].forEach((material) =>
       material.setMipmaps(mipmaps),
     );
+  }
 
-    return { volumes, casters };
+  // NOTE The world shadow grid is used by 'frame' lighting and by volume shadows on meshes
+  usesShadowGrid() {
+    return this.isFrameLighting() || this.settings.castShadows;
   }
 
   getSlice(viewDepth) {
@@ -509,7 +573,7 @@ export class FrameRenderer {
   }
 
   updateTargets(renderer) {
-    const { width, height, depth, subSteps, shadowResolution, shadowCascades } = this.settings;
+    const { width, height, depth, subSteps } = this.settings;
     const froxelAtlas = getAtlasLayout(width, height, depth);
 
     if (
@@ -572,58 +636,63 @@ export class FrameRenderer {
         });
       }
 
-      const resolution = Math.max(2, Math.round(shadowResolution));
-      const cascades = this.getCascadeCount();
-      const gridAtlas = getAtlasLayout(resolution, resolution, resolution * cascades);
-      if (
-        !this.shadowDensityTarget ||
-        this.shadowDensityTarget.width !== gridAtlas.width ||
-        this.shadowDensityTarget.height !== gridAtlas.height
-      ) {
-        if (this.shadowDensityTarget) {
-          this.shadowDensityTarget.dispose();
-          this.transmittanceTarget.dispose();
-        }
-
-        // NOTE Extinction and absorption
-        this.shadowDensityTarget = createRenderTarget(gridAtlas.width, gridAtlas.height, {
-          format: Three.RGFormat,
-        });
-        // NOTE Total transmittance (2 targets), then direct transmittance of the light slots (2 targets)
-        this.transmittanceTarget = createRenderTarget(gridAtlas.width, gridAtlas.height, {
-          count: 4,
-        });
-      }
-
-      // NOTE The environment grid is one cascade. A new target is empty, so the signature is reset.
-      const environmentAtlas = getAtlasLayout(resolution, resolution, resolution);
-
-      if (
-        !this.environmentGridTarget ||
-        this.environmentGridTarget.width !== environmentAtlas.width ||
-        this.environmentGridTarget.height !== environmentAtlas.height
-      ) {
-        if (this.environmentGridTarget) {
-          this.environmentGridTarget.dispose();
-        }
-
-        this.environmentGridTarget = createRenderTarget(environmentAtlas.width, environmentAtlas.height);
-        this.environmentGridSignature = [];
-      }
-
-      this.environmentGridUniforms.frameEnvironmentGridColumns.value = environmentAtlas.columns;
-      this.environmentGridUniforms.frameEnvironmentGridAtlasSize.value.set(
-        environmentAtlas.width,
-        environmentAtlas.height,
-      );
-
-      this.gridUniforms.frameGridResolution.value = resolution;
-      this.gridUniforms.frameGridColumns.value = gridAtlas.columns;
-      this.gridUniforms.frameGridAtlasSize.value.set(gridAtlas.width, gridAtlas.height);
-      this.gridTileUniforms.frameTileSize.value.set(resolution, resolution);
-      this.gridTileUniforms.frameTileColumns.value = gridAtlas.columns;
-      this.gridTileUniforms.frameTargetSize.value.set(gridAtlas.width, gridAtlas.height);
+      this.updateGridTargets();
     }
+  }
+
+  updateGridTargets() {
+    const resolution = Math.max(2, Math.round(this.settings.shadowResolution));
+    const cascades = this.getCascadeCount();
+    const gridAtlas = getAtlasLayout(resolution, resolution, resolution * cascades);
+
+    if (
+      !this.shadowDensityTarget ||
+      this.shadowDensityTarget.width !== gridAtlas.width ||
+      this.shadowDensityTarget.height !== gridAtlas.height
+    ) {
+      if (this.shadowDensityTarget) {
+        this.shadowDensityTarget.dispose();
+        this.transmittanceTarget.dispose();
+      }
+
+      // NOTE Extinction and absorption
+      this.shadowDensityTarget = createRenderTarget(gridAtlas.width, gridAtlas.height, {
+        format: Three.RGFormat,
+      });
+      // NOTE Total transmittance (2 targets), then direct transmittance of the light slots (2 targets)
+      this.transmittanceTarget = createRenderTarget(gridAtlas.width, gridAtlas.height, {
+        count: 4,
+      });
+    }
+
+    // NOTE The environment grid is one cascade. A new target is empty, so the signature is reset.
+    const environmentAtlas = getAtlasLayout(resolution, resolution, resolution);
+
+    if (
+      !this.environmentGridTarget ||
+      this.environmentGridTarget.width !== environmentAtlas.width ||
+      this.environmentGridTarget.height !== environmentAtlas.height
+    ) {
+      if (this.environmentGridTarget) {
+        this.environmentGridTarget.dispose();
+      }
+
+      this.environmentGridTarget = createRenderTarget(environmentAtlas.width, environmentAtlas.height);
+      this.environmentGridSignature = [];
+    }
+
+    this.environmentGridUniforms.frameEnvironmentGridColumns.value = environmentAtlas.columns;
+    this.environmentGridUniforms.frameEnvironmentGridAtlasSize.value.set(
+      environmentAtlas.width,
+      environmentAtlas.height,
+    );
+
+    this.gridUniforms.frameGridResolution.value = resolution;
+    this.gridUniforms.frameGridColumns.value = gridAtlas.columns;
+    this.gridUniforms.frameGridAtlasSize.value.set(gridAtlas.width, gridAtlas.height);
+    this.gridTileUniforms.frameTileSize.value.set(resolution, resolution);
+    this.gridTileUniforms.frameTileColumns.value = gridAtlas.columns;
+    this.gridTileUniforms.frameTargetSize.value.set(gridAtlas.width, gridAtlas.height);
   }
 
   renderFrame(renderer, scene, camera, volumes, casters) {
@@ -671,6 +740,8 @@ export class FrameRenderer {
     } else {
       this.historyValid = false;
     }
+
+    this.gridFreshCamera = null;
 
     renderer.setScissorTest(currentScissorTest);
     renderer.autoClear = currentAutoClear;
@@ -780,43 +851,16 @@ export class FrameRenderer {
 
     // NOTE Shadow pass. Extinction of all casters in one world grid, then transmittance to each light.
     // It is before the density pass. Then the density pass can sample the shadows of each volume.
-    const useShadows = casters.length > 0 && this.updateGrid(casters, camera);
+    // NOTE Volume shadows on meshes can make the grid before, in the same render.
+    const useShadows =
+      this.gridFreshCamera === camera
+        ? this.gridReady
+        : this.renderShadowDensity(renderer, camera, casters);
+
+    this.gridFreshCamera = null;
     const useEnvironmentGrid = useShadows && lights.environmentGridLights.length > 0;
 
     if (useShadows) {
-      const cascadeCasters = [];
-
-      for (let cascade = 0; cascade < this.gridUniforms.frameGridCount.value; cascade++) {
-        casters.forEach((caster) => cascadeCasters.push({ ...caster, cascade }));
-      }
-
-      this.updatePool(
-        this.shadowPool,
-        this.shadowScene,
-        this.shadowDensityMaterial,
-        cascadeCasters,
-        camera,
-        (entry, { frameVolume, volume, cascade }) => {
-          const range = this.getGridRange(volume, cascade);
-
-          if (!range) {
-            return false;
-          }
-
-          entry.frameVolume = frameVolume;
-          entry.volume = volume;
-          entry.rect.copy(range.rect);
-          entry.sliceStart = range.first;
-          entry.geometry.instanceCount = range.count;
-
-          return true;
-        },
-      );
-
-      renderer.setRenderTarget(this.shadowDensityTarget);
-      renderer.clear(true, false, false);
-      renderer.render(this.shadowScene, camera);
-
       this.transmittanceMaterial.frameShadowDensityMap.value = this.shadowDensityTarget.texture;
       this.transmittanceMaterial.frameShadowLightCount.value = lights.shadowLightCount;
       this.transmittanceMaterial.frameMultipleScattering.value = getFrameMultipleScattering(
@@ -904,6 +948,160 @@ export class FrameRenderer {
     renderer.setRenderTarget(this.atlasTarget);
     renderer.clear(true, false, false);
     renderer.render(this.injectScene, camera);
+  }
+
+  // NOTE Extinction of all casters in the world shadow grid cascades. Returns false with no casters.
+  // NOTE onlyLast: only the last cascade (all volumes), drawn only when castVersion changed.
+  // NOTE Volume shadows on meshes read only the last cascade. 'frame' lighting needs all cascades.
+  renderShadowDensity(renderer, camera, casters, onlyLast = false) {
+    const ready = casters.length > 0 && this.updateGrid(casters, camera);
+    const castChanged = this.updateGridVersion(ready ? casters : []);
+
+    if (!ready) {
+      return false;
+    }
+
+    if (onlyLast && !castChanged) {
+      return true;
+    }
+
+    const count = this.gridUniforms.frameGridCount.value;
+    const cascadeCasters = [];
+
+    for (let cascade = onlyLast ? count - 1 : 0; cascade < count; cascade++) {
+      casters.forEach((caster) => cascadeCasters.push({ ...caster, cascade }));
+    }
+
+    this.updatePool(
+      this.shadowPool,
+      this.shadowScene,
+      this.shadowDensityMaterial,
+      cascadeCasters,
+      camera,
+      (entry, { frameVolume, volume, cascade }) => {
+        const range = this.getGridRange(volume, cascade);
+
+        if (!range) {
+          return false;
+        }
+
+        entry.frameVolume = frameVolume;
+        entry.volume = volume;
+        entry.rect.copy(range.rect);
+        entry.sliceStart = range.first;
+        entry.geometry.instanceCount = range.count;
+
+        return true;
+      },
+    );
+
+    renderer.setRenderTarget(this.shadowDensityTarget);
+    renderer.clear(true, false, false);
+    renderer.render(this.shadowScene, camera);
+
+    return true;
+  }
+
+  // NOTE gridVersion changes when the cascades, a caster transform, a caster grid or a caster shadow prop change.
+  // NOTE castVersion changes only for the last cascade. Returns true when castVersion changed. Arrays are reused.
+  updateGridVersion(casters) {
+    const { frameGridMin, frameGridSize, frameGridCount, frameGridResolution } = this.gridUniforms;
+    const count = frameGridCount.value;
+    const casterValues = this.casterSignature;
+    const castValues = this.nextCastSignature;
+    const gridValues = this.nextGridSignature;
+    const same = (a, b) => a.length === b.length && a.every((value, index) => value === b[index]);
+
+    casterValues.length = 0;
+    casters.forEach(({ frameVolume, volume }) => {
+      casterValues.push(...volume.matrixWorld.elements);
+
+      [volume.densityMap3D, volume.maskMap3D, volume.mipMaps?.densityMap3D?.texture].forEach((map) => {
+        casterValues.push(map ? map.id : -1, map ? map.version : -1);
+      });
+
+      casterValues.push(
+        frameVolume.densityScale,
+        frameVolume.densityCutoff,
+        frameVolume.extinction,
+        frameVolume.absorbance,
+        frameVolume.mipmaps ? 1 : 0,
+        frameVolume.wrap3D,
+        ...frameVolume.offset3D.toArray(),
+      );
+    });
+
+    // NOTE The cascade count changes the atlas layout, so a new count needs a new draw
+    castValues.length = 0;
+    castValues.push(casters.length, count, frameGridResolution.value);
+
+    if (count > 0) {
+      castValues.push(...frameGridMin.array[count - 1].toArray(), ...frameGridSize.array[count - 1].toArray());
+    }
+
+    castValues.push(...casterValues);
+
+    gridValues.length = 0;
+    gridValues.push(count);
+
+    for (let i = 0; i < count; i++) {
+      gridValues.push(...frameGridMin.array[i].toArray(), ...frameGridSize.array[i].toArray());
+    }
+
+    gridValues.push(...castValues);
+
+    if (!same(gridValues, this.gridSignature)) {
+      this.gridVersion++;
+      this.nextGridSignature = this.gridSignature;
+      this.gridSignature = gridValues;
+    }
+
+    const castChanged = !same(castValues, this.castSignature);
+
+    if (castChanged) {
+      this.castVersion++;
+      this.nextCastSignature = this.castSignature;
+      this.castSignature = castValues;
+    }
+
+    return castChanged;
+  }
+
+  // NOTE Makes the world shadow grid one time in a render, before the first lit mesh.
+  // NOTE 'frame' lighting uses it again in the same render. Returns false with no casters.
+  prepareShadowGrid(renderer, scene, camera, renderId) {
+    if (this.gridRenderId === renderId && this.gridCamera === camera) {
+      return this.gridReady;
+    }
+
+    this.gridRenderId = renderId;
+    this.gridCamera = camera;
+
+    const { casters } = this.collectVolumes(renderer, scene, camera);
+
+    const currentRenderTarget = renderer.getRenderTarget();
+    const currentActiveCubeFace = renderer.getActiveCubeFace();
+    const currentActiveMipmapLevel = renderer.getActiveMipmapLevel();
+    const currentAutoClear = renderer.autoClear;
+    const currentClearAlpha = renderer.getClearAlpha();
+    const currentScissorTest = renderer.getScissorTest();
+
+    renderer.getClearColor(clearColor);
+    renderer.autoClear = false;
+    renderer.setScissorTest(false);
+    renderer.setClearColor(0x000000, 0.0);
+
+    this.updateGridTargets();
+    // NOTE 'volume' lighting: only the last cascade, for the volume shadow maps
+    this.gridReady = this.renderShadowDensity(renderer, camera, casters, !this.isFrameLighting());
+    this.gridFreshCamera = camera;
+
+    renderer.setScissorTest(currentScissorTest);
+    renderer.autoClear = currentAutoClear;
+    renderer.setClearColor(clearColor, currentClearAlpha);
+    renderer.setRenderTarget(currentRenderTarget, currentActiveCubeFace, currentActiveMipmapLevel);
+
+    return this.gridReady;
   }
 
   // NOTE Pool entries are reused between frames. Unused entries are hidden.
@@ -1270,6 +1468,7 @@ export class FrameRenderer {
   }
 
   dispose() {
+    this.volumeShadows.dispose();
     this.historyTargets.forEach((target) => target && target.dispose());
     this.historyTargets = [null, null];
     this.historyValid = false;

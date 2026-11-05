@@ -1,7 +1,7 @@
 import * as Three from 'three';
 import * as OpenVDB from 'three-openvdb';
 import { gui, setGuiFields } from '../utils/gui';
-import { loadAndCacheVDB } from '../utils/resources';
+import { loadAndCacheVDB, groundLevel } from '../utils/resources';
 import { setLoading } from '../utils/loading';
 import { createEmissionDemo } from '../utils/emission';
 import {
@@ -78,10 +78,10 @@ export const exampleFrame = ({ scene }) => {
     temperatureMin: 600.0,
     temperatureMax: 7000.0,
     shadowSteps: 32,
-    rotate: true,
     lighting: 'frame',
     animateLights: true,
     mipmaps: true,
+    castShadow: false,
   };
 
   let entries = [];
@@ -99,6 +99,24 @@ export const exampleFrame = ({ scene }) => {
   );
   debugObstacle.position.set(0.0, 0.0, 40.0);
   scene.add(debugObstacle);
+
+  // NOTE Show Obstacle also shows the pillars and spheres. Their group has the floor transform.
+  const obstacleProps = new Three.Group();
+  obstacleProps.add(emission.props);
+  obstacleProps.visible = false;
+  scene.add(obstacleProps);
+
+  // NOTE The volumes and the floor stand on the environment ground, the same as the Streaming demo
+  const volumeStage = new Three.Group();
+  scene.add(volumeStage);
+
+  const placeMeshes = (height, width, groundScale) => {
+    emission.placeMeshes(height, width, groundScale);
+    volumeStage.position.y = groundLevel + height / 2.0;
+    emission.meshes.position.y = groundLevel;
+    obstacleProps.position.copy(emission.meshes.position);
+    obstacleProps.scale.copy(emission.meshes.scale);
+  };
 
   // NOTE Light rig. The "Lights" field shows one light setup at a time.
   const lightHelpers = [];
@@ -176,6 +194,49 @@ export const exampleFrame = ({ scene }) => {
     topSpotLight,
   ];
 
+  // NOTE Lights with a shadow map when "Cast Shadows" is on
+  const shadowLights = [sun, orbitPointLight, topPointLight, insidePointLight, orbitSpotLight, topSpotLight];
+
+  // NOTE The sun shadow camera covers the ground and props (all receivers) as seen from the sun.
+  // NOTE three.js applies shadows, also volume shadows, only in the light shadow camera. Negative near keeps the scene in it.
+  const sunBounds = new Three.Box3();
+  const sunCorner = new Three.Vector3();
+  const sunView = new Three.Box3();
+
+  const fitSunShadow = () => {
+    emission.meshes.updateMatrixWorld(true);
+    sunBounds.setFromObject(emission.meshes);
+    sun.updateMatrixWorld();
+    sun.shadow.updateMatrices(sun);
+    sunView.makeEmpty();
+
+    for (let i = 0; i < 8; i++) {
+      sunCorner
+        .set(
+          i & 1 ? sunBounds.max.x : sunBounds.min.x,
+          i & 2 ? sunBounds.max.y : sunBounds.min.y,
+          i & 4 ? sunBounds.max.z : sunBounds.min.z,
+        )
+        .applyMatrix4(sun.shadow.camera.matrixWorldInverse);
+      sunView.expandByPoint(sunCorner);
+    }
+
+    Object.assign(sun.shadow.camera, {
+      left: sunView.min.x,
+      right: sunView.max.x,
+      top: sunView.max.y,
+      bottom: sunView.min.y,
+      near: -1000.0,
+      far: 1000.0,
+    });
+    sun.shadow.camera.updateProjectionMatrix();
+  };
+
+  shadowLights.forEach((light) => {
+    light.shadow.mapSize.setScalar(light === sun ? 2048 : 1024);
+    light.shadow.normalBias = 0.5;
+  });
+
   setInterval(() => {
     if (params.animateLights) {
       orbitPointPivot.rotateX(0.005);
@@ -224,7 +285,7 @@ export const exampleFrame = ({ scene }) => {
     }
 
     entries.forEach(({ pivot, volume }) => {
-      scene.remove(pivot);
+      pivot.removeFromParent();
       volume.dispose();
     });
 
@@ -243,7 +304,7 @@ export const exampleFrame = ({ scene }) => {
     pivot.add(volume);
 
     applyVolumeParams(volume);
-    scene.add(pivot);
+    volumeStage.add(pivot);
     entries.push({ pivot, volume });
 
     return pivot;
@@ -295,7 +356,8 @@ export const exampleFrame = ({ scene }) => {
                 animation.play();
 
                 // NOTE Z-up: the height is the Z side of the box
-                emission.placeMeshes(size.z * scale, Math.max(size.x, size.y) * scale);
+                placeMeshes(size.z * scale, Math.max(size.x, size.y) * scale);
+                fitSunShadow();
                 onBuilt();
               },
               undefined,
@@ -310,7 +372,7 @@ export const exampleFrame = ({ scene }) => {
           pivot.rotation.x = -Math.PI / 2.0;
           pivot.add(animation);
           applyVolumeParams(animation);
-          scene.add(pivot);
+          volumeStage.add(pivot);
           entries.push({ pivot, volume: animation });
         })
         .catch(onError);
@@ -327,7 +389,8 @@ export const exampleFrame = ({ scene }) => {
       // NOTE Center the first bunny at the scene origin
       const firstPivot = addVolume(createBunny(), center);
       firstPivot.position.set(0.0, 0.0, 0.0);
-      emission.placeMeshes(size.y, Math.max(size.x, size.z));
+      placeMeshes(size.y, Math.max(size.x, size.z));
+      fitSunShadow();
 
       if (params.source !== 'twoBunnies') {
         return;
@@ -338,9 +401,7 @@ export const exampleFrame = ({ scene }) => {
       secondPivot.position.set(size.x * 0.6, size.y * 0.1, -size.z * 0.2);
 
       rotation = setInterval(() => {
-        if (params.rotate) {
-          secondPivot.rotation.y += 0.01;
-        }
+        secondPivot.rotation.y += 0.01;
       }, 1000 / 60);
     };
 
@@ -351,8 +412,10 @@ export const exampleFrame = ({ scene }) => {
       const offset = ((bunnyGridSize - 1) * spacing) / 2.0;
       let source = null;
 
+
       // NOTE The ground covers the grid
-      emission.placeMeshes(side, side, (bunnyGridSize * 1.1 + 4.0) / 8.0);
+      placeMeshes(side, side, (bunnyGridSize * 1.1 + 4.0) / 8.0);
+      fitSunShadow();
 
       const createBunny = () => {
         if (!source) {
@@ -482,6 +545,8 @@ export const exampleFrame = ({ scene }) => {
     OpenVDB.frameRenderer.settings[key] = Math.round(value);
   };
 
+  const [multipleScatteringField, ...octaveScatteringFields] = createMultipleScatteringFields();
+
   setGuiFields([
     {
       folder: 'General',
@@ -507,6 +572,7 @@ export const exampleFrame = ({ scene }) => {
               getController('fogColor')?.setValue(explosion.baseColor);
               getController('extinction')?.setValue(explosion.extinction);
               getController('emissiveIntensity')?.setValue(explosion.emissiveIntensity);
+              getController('castShadow')?.setValue(true);
             }
 
             rebuild();
@@ -601,6 +667,7 @@ export const exampleFrame = ({ scene }) => {
           defaultValue: false,
           onChange: (value) => {
             debugObstacle.visible = value;
+            obstacleProps.visible = value;
           },
         },
         { ...emission.meshesField, name: 'Show Floor' },
@@ -625,36 +692,34 @@ export const exampleFrame = ({ scene }) => {
           },
         },
         {
-          id: 'rotate',
-          name: 'Rotate Second Bunny',
-          defaultValue: params.rotate,
-          onChange: (value) => {
-            params.rotate = value;
-          },
-        },
-        {
-          id: 'froxelWidth',
-          name: 'Froxels X',
-          defaultValue: OpenVDB.frameRenderer.settings.width,
-          min: 4,
-          max: 1280,
-          onChange: setFrameSetting('width'),
-        },
-        {
-          id: 'froxelHeight',
-          name: 'Froxels Y',
-          defaultValue: OpenVDB.frameRenderer.settings.height,
-          min: 4,
-          max: 760,
-          onChange: setFrameSetting('height'),
-        },
-        {
-          id: 'froxelDepth',
-          name: 'Slices',
-          defaultValue: OpenVDB.frameRenderer.settings.depth,
-          min: 8,
-          max: 512,
-          onChange: setFrameSetting('depth'),
+          folder: 'Render Cascades',
+          closed: true,
+          children: [
+            {
+              id: 'froxelWidth',
+              name: 'Froxels X',
+              defaultValue: OpenVDB.frameRenderer.settings.width,
+              min: 4,
+              max: 1280,
+              onChange: setFrameSetting('width'),
+            },
+            {
+              id: 'froxelHeight',
+              name: 'Froxels Y',
+              defaultValue: OpenVDB.frameRenderer.settings.height,
+              min: 4,
+              max: 760,
+              onChange: setFrameSetting('height'),
+            },
+            {
+              id: 'froxelDepth',
+              name: 'Slices',
+              defaultValue: OpenVDB.frameRenderer.settings.depth,
+              min: 8,
+              max: 512,
+              onChange: setFrameSetting('depth'),
+            },
+          ],
         },
         {
           id: 'lighting',
@@ -689,81 +754,102 @@ export const exampleFrame = ({ scene }) => {
           max: 8,
           onChange: setFrameSetting('environmentSamples'),
         },
-        ...createMultipleScatteringFields(),
-        ...createFramePhaseFields(),
-        createToneMappingField(),
-        // NOTE WebGPURenderer only. WebGLRenderer always blends on the sRGB canvas.
-        ...('srgbBlending' in OpenVDB.frameRenderer.settings
-          ? [
-              {
-                id: 'srgbBlending',
-                name: 'sRGB Blending',
-                defaultValue: OpenVDB.frameRenderer.settings.srgbBlending,
-                onChange: (value) => {
-                  OpenVDB.frameRenderer.settings.srgbBlending = value;
-                },
-              },
-            ]
-          : []),
+        multipleScatteringField,
         {
-          id: 'mipmaps',
-          name: 'Mipmaps',
-          defaultValue: params.mipmaps,
-          onChange: (value) => {
-            params.mipmaps = value;
+          folder: 'Octave Scattering',
+          closed: true,
+          children: octaveScatteringFields,
+        },
+        {
+          folder: 'Phase Scattering',
+          closed: true,
+          children: createFramePhaseFields(),
+        },
+        {
+          folder: 'Blending & Shaders',
+          closed: true,
+          children: [
+            createToneMappingField(),
+            // NOTE WebGPURenderer only. WebGLRenderer always blends on the sRGB canvas.
+            ...('srgbBlending' in OpenVDB.frameRenderer.settings
+              ? [
+                  {
+                    id: 'srgbBlending',
+                    name: 'sRGB Blending',
+                    defaultValue: OpenVDB.frameRenderer.settings.srgbBlending,
+                    onChange: (value) => {
+                      OpenVDB.frameRenderer.settings.srgbBlending = value;
+                    },
+                  },
+                ]
+              : []),
+            {
+              id: 'mipmaps',
+              name: 'Mipmaps',
+              defaultValue: params.mipmaps,
+              onChange: (value) => {
+                params.mipmaps = value;
 
-            applyParams();
-          },
+                applyParams();
+              },
+            },
+            {
+              id: 'jitter',
+              name: 'Jitter',
+              defaultValue: OpenVDB.frameRenderer.settings.jitter,
+              onChange: (value) => {
+                OpenVDB.frameRenderer.settings.jitter = value;
+              },
+            },
+            {
+              id: 'temporal',
+              name: 'Temporal',
+              defaultValue: OpenVDB.frameRenderer.settings.temporal,
+              onChange: (value) => {
+                OpenVDB.frameRenderer.settings.temporal = value;
+              },
+            },
+            {
+              id: 'temporalBlend',
+              name: 'Temporal Blend',
+              defaultValue: OpenVDB.frameRenderer.settings.temporalBlend,
+              min: 0.01,
+              max: 1.0,
+              onChange: (value) => {
+                OpenVDB.frameRenderer.settings.temporalBlend = value;
+              },
+            },
+          ],
         },
         {
-          id: 'shadowResolution',
-          name: 'Shadow Grid',
-          defaultValue: OpenVDB.frameRenderer.settings.shadowResolution,
-          min: 16,
-          max: 160,
-          onChange: setFrameSetting('shadowResolution'),
-        },
-        {
-          id: 'jitter',
-          name: 'Jitter',
-          defaultValue: OpenVDB.frameRenderer.settings.jitter,
-          onChange: (value) => {
-            OpenVDB.frameRenderer.settings.jitter = value;
-          },
-        },
-        {
-          id: 'temporal',
-          name: 'Temporal',
-          defaultValue: OpenVDB.frameRenderer.settings.temporal,
-          onChange: (value) => {
-            OpenVDB.frameRenderer.settings.temporal = value;
-          },
-        },
-        {
-          id: 'temporalBlend',
-          name: 'Temporal Blend',
-          defaultValue: OpenVDB.frameRenderer.settings.temporalBlend,
-          min: 0.01,
-          max: 1.0,
-          onChange: (value) => {
-            OpenVDB.frameRenderer.settings.temporalBlend = value;
-          },
-        },
-        {
-          id: 'shadowCascades',
-          name: 'Shadow Cascades',
-          defaultValue: OpenVDB.frameRenderer.settings.shadowCascades,
-          min: 1,
-          max: 4,
-          onChange: setFrameSetting('shadowCascades'),
-        },
-        {
-          id: 'froxelSubSteps',
-          name: 'Sub-steps',
-          defaultValue: OpenVDB.frameRenderer.settings.subSteps,
-          min: 1,
-          max: 32,
-          onChange: setFrameSetting('subSteps'),
+          folder: 'Shadow Cascades',
+          closed: true,
+          children: [
+            {
+              id: 'shadowResolution',
+              name: 'Shadow Grid',
+              defaultValue: OpenVDB.frameRenderer.settings.shadowResolution,
+              min: 16,
+              max: 160,
+              onChange: setFrameSetting('shadowResolution'),
+            },
+            {
+              id: 'shadowCascades',
+              name: 'Shadow Cascades',
+              defaultValue: OpenVDB.frameRenderer.settings.shadowCascades,
+              min: 1,
+              max: 4,
+              onChange: setFrameSetting('shadowCascades'),
+            },
+            {
+              id: 'froxelSubSteps',
+              name: 'Sub-steps',
+              defaultValue: OpenVDB.frameRenderer.settings.subSteps,
+              min: 1,
+              max: 32,
+              onChange: setFrameSetting('subSteps'),
+            },
+          ],
         },
       ],
     },
@@ -771,6 +857,85 @@ export const exampleFrame = ({ scene }) => {
       folder: 'Light Emission',
       closed: true,
       children: emission.lightFields,
+    },
+    {
+      folder: 'Shadow Casting',
+      closed: true,
+      children: [
+        {
+          id: 'castShadow',
+          name: 'Cast Shadows',
+          defaultValue: params.castShadow,
+          onChange: (value) => {
+            params.castShadow = value;
+            OpenVDB.frameRenderer.settings.castShadows = value;
+
+            // NOTE Ground and props show the shadows
+            shadowLights.forEach((light) => {
+              light.castShadow = value;
+            });
+
+            [emission.meshes, debugObstacle, obstacleProps].forEach((object) =>
+              object.traverse((mesh) => {
+                if (mesh.isMesh) {
+                  mesh.castShadow = value;
+                  mesh.receiveShadow = value;
+                }
+              }),
+            );
+
+            if (value) {
+              getController('sceneMeshes')?.setValue(true);
+            }
+          },
+        },
+        {
+          id: 'shadowMapSize',
+          name: 'Volume Shadow Map',
+          defaultValue: OpenVDB.frameRenderer.settings.castShadowMapSize,
+          options: { 128: 128, 256: 256, 512: 512, 1024: 1024 },
+          onChange: (value) => {
+            OpenVDB.frameRenderer.settings.castShadowMapSize = value;
+          },
+        },
+        {
+          id: 'castShadowSteps',
+          name: 'Shadow Samples',
+          defaultValue: OpenVDB.frameRenderer.settings.castShadowSteps,
+          min: 4,
+          max: 128,
+          onChange: (value) => {
+            OpenVDB.frameRenderer.settings.castShadowSteps = Math.round(value);
+          },
+        },
+        {
+          id: 'castShadowUpdatesPerFrame',
+          name: 'Updates / Frame',
+          defaultValue: OpenVDB.frameRenderer.settings.castShadowUpdatesPerFrame,
+          min: 1,
+          max: 24,
+          onChange: (value) => {
+            OpenVDB.frameRenderer.settings.castShadowUpdatesPerFrame = Math.round(value);
+          },
+        },
+        {
+          id: 'castShadowCascades',
+          name: 'Sun Cascades',
+          defaultValue: OpenVDB.frameRenderer.settings.castShadowCascades,
+          options: { 1: 1, 2: 2, 3: 3, 4: 4 },
+          onChange: (value) => {
+            OpenVDB.frameRenderer.settings.castShadowCascades = value;
+          },
+        },
+        {
+          id: 'castShadowCoarse',
+          name: 'Coarse Shadows',
+          defaultValue: OpenVDB.frameRenderer.settings.castShadowCoarse,
+          onChange: (value) => {
+            OpenVDB.frameRenderer.settings.castShadowCoarse = value;
+          },
+        },
+      ],
     },
     {
       folder: 'Volume',
@@ -815,28 +980,34 @@ export const exampleFrame = ({ scene }) => {
         },
         ...createPhaseFields(params, setParam),
         {
-          id: 'emissiveIntensity',
-          name: 'Emissive Intensity',
-          defaultValue: params.emissiveIntensity,
-          min: 0.0,
-          max: 50.0,
-          onChange: setParam('emissiveIntensity'),
-        },
-        {
-          id: 'temperatureMin',
-          name: 'Temperature Min (K)',
-          defaultValue: params.temperatureMin,
-          min: 0.0,
-          max: 3000.0,
-          onChange: setParam('temperatureMin'),
-        },
-        {
-          id: 'temperatureMax',
-          name: 'Temperature Max (K)',
-          defaultValue: params.temperatureMax,
-          min: 1000.0,
-          max: 12000.0,
-          onChange: setParam('temperatureMax'),
+          folder: 'Emissive',
+          closed: true,
+          children: [
+            {
+              id: 'emissiveIntensity',
+              name: 'Emissive Intensity',
+              defaultValue: params.emissiveIntensity,
+              min: 0.0,
+              max: 50.0,
+              onChange: setParam('emissiveIntensity'),
+            },
+            {
+              id: 'temperatureMin',
+              name: 'Temperature Min (K)',
+              defaultValue: params.temperatureMin,
+              min: 0.0,
+              max: 3000.0,
+              onChange: setParam('temperatureMin'),
+            },
+            {
+              id: 'temperatureMax',
+              name: 'Temperature Max (K)',
+              defaultValue: params.temperatureMax,
+              min: 1000.0,
+              max: 12000.0,
+              onChange: setParam('temperatureMax'),
+            },
+          ],
         },
         {
           id: 'shadowSteps',

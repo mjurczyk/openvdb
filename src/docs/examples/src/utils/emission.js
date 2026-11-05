@@ -23,21 +23,27 @@ export const createEmissionDemo = (scene) => {
   // NOTE A ground and props around the volume, in units of the box width
   const meshes = new Three.Group();
   const material = new Three.MeshStandardMaterial({ color: 0x9a9a9a, roughness: 0.8 });
-  const ground = new Three.Mesh(new Three.PlaneGeometry(8.0, 8.0), material);
+  // NOTE The ground shows only shadows. Elsewhere it is transparent, so the environment ground shows.
+  const ground = new Three.Mesh(new Three.PlaneGeometry(8.0, 8.0), new Three.ShadowMaterial({ opacity: 0.5 }));
   const pillarGeometry = new Three.BoxGeometry(0.12, 0.5, 0.12);
   const sphereGeometry = new Three.SphereGeometry(0.15, 32, 16);
 
-  ground.rotation.x = -Math.PI / 2.0;
-  meshes.add(ground);
+  // NOTE Pillars and spheres. A demo can move them to another group with the same transform.
+  const props = new Three.Group();
 
+  ground.rotation.x = -Math.PI / 2.0;
+  meshes.add(ground, props);
+
+  // NOTE Each sphere is between two pillars, on the pillar circle
   for (let i = 0; i < 8; i++) {
     const angle = (i / 8) * Math.PI * 2.0;
+    const sphereAngle = angle + Math.PI / 8.0;
     const pillar = new Three.Mesh(pillarGeometry, material);
     const sphere = new Three.Mesh(sphereGeometry, material);
 
-    pillar.position.set(Math.cos(angle) * 1.0, 0.25, Math.sin(angle) * 1.0);
-    sphere.position.set(Math.cos(angle + 0.4) * 1.6, 0.15, Math.sin(angle + 0.4) * 1.6);
-    meshes.add(pillar, sphere);
+    pillar.position.set(Math.cos(angle) * 0.67, 0.25, Math.sin(angle) * 0.67);
+    sphere.position.set(Math.cos(sphereAngle) * 0.67, 0.15, Math.sin(sphereAngle) * 0.67);
+    props.add(pillar, sphere);
   }
 
   meshes.visible = params.sceneMeshes;
@@ -103,5 +109,5 @@ export const createEmissionDemo = (scene) => {
     },
   };
 
-  return { light, meshes, placeMeshes, lightFields, meshesField };
+  return { light, meshes, props, placeMeshes, lightFields, meshesField };
 };
