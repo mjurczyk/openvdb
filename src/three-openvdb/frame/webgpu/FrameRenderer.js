@@ -810,6 +810,7 @@ export class FrameRenderer {
     this.integrateMaterial.frameCameraOrthographic.value = camera.isOrthographicCamera ? 1 : 0;
     this.integrateMaterial.setSrgbBlending(
       this.settings.srgbBlending && renderer.outputColorSpace === Three.SRGBColorSpace,
+      renderer.toneMapping === Three.NoToneMapping,
     );
 
     // NOTE Pass materials are unlit. Nested renders do not update shadow maps.
