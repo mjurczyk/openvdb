@@ -52,9 +52,10 @@ export class FrameIntegrateMaterial extends Three.NodeMaterial {
     this.frameCameraOrthographic = uniform(0, 'int');
     this.froxelUniforms = froxelUniforms;
     this.srgbBlending = null;
+    this.srgbClamp = null;
 
     this.vertexNode = frameFullscreenVertex;
-    this.setSrgbBlending(true);
+    this.setSrgbBlending(true, true);
 
     this.side = Three.DoubleSide;
     this.forceSinglePass = true;
@@ -65,12 +66,14 @@ export class FrameIntegrateMaterial extends Three.NodeMaterial {
 
   // NOTE WebGLRenderer blended on the sRGB canvas. WebGPURenderer blends in linear space.
   // NOTE sRGB blending reads the scene color and blends in sRGB, the same as WebGLRenderer.
-  setSrgbBlending(srgbBlending) {
-    if (srgbBlending === this.srgbBlending) {
+  // NOTE srgbClamp: clamp the colors to 0.0 - 1.0. Tone mapping comes after this pass, so clamp only without it.
+  setSrgbBlending(srgbBlending, srgbClamp) {
+    if (srgbBlending === this.srgbBlending && srgbClamp === this.srgbClamp) {
       return;
     }
 
     this.srgbBlending = srgbBlending;
+    this.srgbClamp = srgbClamp;
     this.updateNodes();
   }
 
@@ -102,6 +105,15 @@ export class FrameIntegrateMaterial extends Three.NodeMaterial {
     }
   }
 
+  // NOTE The 8-bit sRGB canvas of WebGLRenderer clamped both colors to 0.0 - 1.0 after tone mapping.
+  // NOTE With tone mapping, the colors stay HDR. A clamp would cut bright scene color at the volume edges.
+  createSrgbColor() {
+    const { srgbClamp } = this;
+
+    return (color) =>
+      srgbClamp ? clamp(sRGBTransferOETF(color), 0.0, 1.0) : sRGBTransferOETF(color);
+  }
+
   // NOTE Empty depth (no geometry) gives an infinite scene depth
   createSceneDepth() {
     return Fn((_, builder) => {
@@ -125,6 +137,7 @@ export class FrameIntegrateMaterial extends Three.NodeMaterial {
   // NOTE Composite: scene color * transmittance + volume color, in sRGB (srgbBlending) or in linear space.
   createSpectralFragmentNode() {
     const { froxelUniforms, srgbBlending } = this;
+    const srgbColor = this.createSrgbColor();
     const { froxelGrid, froxelColumns, froxelRange, froxelAtlasSize } = froxelUniforms;
     const sceneDepth = this.createSceneDepth();
 
@@ -189,9 +202,8 @@ export class FrameIntegrateMaterial extends Three.NodeMaterial {
       const outputAlpha = alpha.y.add(background.a.mul(float(1.0).sub(alpha.y)));
 
       if (srgbBlending) {
-        // NOTE The 8-bit sRGB canvas of WebGLRenderer clamped both colors to 0.0 - 1.0
-        const volumeColor = clamp(sRGBTransferOETF(radiance.div(max(alpha, vec3(1e-6)))), 0.0, 1.0);
-        const backgroundColor = clamp(sRGBTransferOETF(background.rgb), 0.0, 1.0);
+        const volumeColor = srgbColor(radiance.div(max(alpha, vec3(1e-6))));
+        const backgroundColor = srgbColor(background.rgb);
 
         return vec4(sRGBTransferEOTF(mix(backgroundColor, volumeColor, alpha)), outputAlpha);
       }
@@ -203,6 +215,7 @@ export class FrameIntegrateMaterial extends Three.NodeMaterial {
   createFragmentNode() {
     const { froxelUniforms, srgbBlending } = this;
     const { froxelGrid, froxelColumns, froxelRange, froxelAtlasSize } = froxelUniforms;
+    const srgbColor = this.createSrgbColor();
 
     const sceneDepth = this.createSceneDepth();
 
@@ -261,10 +274,9 @@ export class FrameIntegrateMaterial extends Three.NodeMaterial {
       });
 
       if (srgbBlending) {
-        // NOTE The 8-bit sRGB canvas of WebGLRenderer clamped both colors to 0.0 - 1.0
         const background = viewportTexture().toVar();
-        const volumeColor = clamp(sRGBTransferOETF(radiance.div(alpha)), 0.0, 1.0);
-        const backgroundColor = clamp(sRGBTransferOETF(background.rgb), 0.0, 1.0);
+        const volumeColor = srgbColor(radiance.div(alpha));
+        const backgroundColor = srgbColor(background.rgb);
 
         return vec4(
           sRGBTransferEOTF(mix(backgroundColor, volumeColor, alpha)),

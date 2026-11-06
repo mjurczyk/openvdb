@@ -326,7 +326,7 @@ Froxel grid settings are global, in `frameRenderer.settings`:
   * Both lightings: the froxel atlas and the 2 temporal history targets get one more RG half float target (red and blue alpha). With 512 × 512 × 24 froxels, approximately +75 MB.
   * `castShadows`: each light has a second shadow map, and each map piece is drawn two times. `ShadowMaterial` gets the mean of the channels.
   * The volume is composited over the scene with the transmittance of each channel: `three-openvdb` reads the scene color (also with `srgbBlending: false`), `three-openvdb/webgl` has one more fullscreen pass.
-* `srgbBlending` - (default: `true`) blends the volumes over the scene in sRGB, the same as `WebGLRenderer` did. `false` blends in linear space, the default of `WebGPURenderer`. Linear blending makes thin fog brighter.
+* `srgbBlending` - (default: `true`) blends the volumes over the scene in sRGB, the same as `WebGLRenderer` did. `false` blends in linear space, the default of `WebGPURenderer`. Linear blending makes thin fog brighter. With tone mapping, `three-openvdb` blends the HDR colors without a clamp, because `WebGPURenderer` tone maps after the blend.
 * `castShadows` - (default: `false`) volumes cast shadows on meshes, for directional, point and spot lights with `castShadow` (see Volume shadows).
 * `castShadowMapSize` - (default: `512`) texels on each side of a volume shadow map (of each cascade tile and cube face).
 * `castShadowCascades` - (default: `1`, max `4`) cascades of the volume shadow map of a directional light.
