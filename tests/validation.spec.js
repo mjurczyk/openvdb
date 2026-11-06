@@ -81,6 +81,7 @@ const waitForIdle = async (page, pendingRequests, errors) => {
   let stableSince = Date.now();
 
   while (Date.now() - stableSince < 1000) {
+    await page.evaluate(() => window.__flushLoadingFrames());
     await page.clock.runFor(0);
     await page.waitForTimeout(50);
 
@@ -139,6 +140,43 @@ scenarios.forEach(({ name, config, screenshot }) => {
 
     await page.clock.install({ time: new Date('2026-01-01T00:00:00Z') });
     await page.clock.pauseAt(new Date('2026-01-01T00:00:01Z'));
+
+    // NOTE Loading in utils/resources.js waits for animation frames between steps.
+    // Only those frames run, at the paused time. Animations do not move.
+    await page.addInitScript(() => {
+      const requestFrame = window.requestAnimationFrame.bind(window);
+      const cancelFrame = window.cancelAnimationFrame.bind(window);
+      const loadingFrames = new Map();
+
+      window.requestAnimationFrame = (callback) => {
+        const id = requestFrame((time) => {
+          loadingFrames.delete(id);
+          callback(time);
+        });
+
+        if (/\/src\/utils\/resources\.js/.test(new Error().stack)) {
+          loadingFrames.set(id, callback);
+        }
+
+        return id;
+      };
+
+      window.cancelAnimationFrame = (id) => {
+        loadingFrames.delete(id);
+        cancelFrame(id);
+      };
+
+      window.__flushLoadingFrames = () => {
+        const frames = [...loadingFrames];
+
+        loadingFrames.clear();
+        frames.forEach(([id, callback]) => {
+          cancelFrame(id);
+          callback(performance.now());
+        });
+      };
+    });
+
     await page.goto('/');
     await page.waitForFunction(() => !!document.querySelector('.lil-gui'));
 
