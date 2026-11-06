@@ -23,12 +23,12 @@ import {
   frameSample,
   frameSliceDepth,
   frameGetViewPosition,
-  frameFullscreenVertex,
+  frameTileVertex,
 } from './frameShaderChunks.js';
 
 // NOTE Blends the froxels of this frame with the reprojected froxels of the previous frames
 export class FrameTemporalMaterial extends Three.NodeMaterial {
-  constructor({ froxelUniforms }) {
+  constructor({ froxelUniforms, froxelTileUniforms, froxelAreaUniforms }) {
     super();
 
     this.name = 'FrameTemporalMaterial';
@@ -46,7 +46,12 @@ export class FrameTemporalMaterial extends Three.NodeMaterial {
     this.framePreviousProjectionMatrix = uniform(new Three.Matrix4());
     this.framePreviousRange = uniform(new Three.Vector2(0.1, 1.0));
 
-    this.vertexNode = frameFullscreenVertex;
+    // NOTE Only the froxel area of the volumes. The renderer clears the target first.
+    this.vertexNode = frameTileVertex(
+      froxelTileUniforms,
+      froxelAreaUniforms.frameAreaRect,
+      froxelAreaUniforms.frameAreaSliceStart,
+    );
     this.rebuildNodes();
 
     this.side = Three.DoubleSide;

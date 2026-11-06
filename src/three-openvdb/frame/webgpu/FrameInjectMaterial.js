@@ -32,7 +32,7 @@ import {
   getSampledLod,
   getBoxSteps,
   frameNoise,
-  frameFullscreenVertex,
+  frameTileVertex,
   frameShadowAbsorption,
   frameShadowStep,
   frameShadowMarchDepth,
@@ -57,7 +57,7 @@ import { frameLights } from '../core/frameLights.js';
 // NOTE Lights one volume in each froxel, with a shadow march in this volume. Other volumes do not cast shadows.
 // NOTE The renderer draws it one time for each volume, with the uniforms of that volume.
 export class FrameInjectMaterial extends FrameEnvironmentMaterial {
-  constructor({ froxelUniforms, lightUniforms }) {
+  constructor({ froxelUniforms, froxelTileUniforms, lightUniforms }) {
     super();
 
     this.name = 'FrameInjectMaterial';
@@ -75,7 +75,10 @@ export class FrameInjectMaterial extends FrameEnvironmentMaterial {
     // NOTE frameRenderer.settings.spectral: extinction and multiple scattering of each channel, two atlas targets
     this.spectral = false;
 
-    this.vertexNode = frameFullscreenVertex;
+    // NOTE The froxel rectangle and the slices of the volume of this draw. One instance for each slice.
+    this.frameRect = uniform(new Three.Vector4());
+    this.frameSliceStart = uniform(0.0);
+    this.vertexNode = frameTileVertex(froxelTileUniforms, this.frameRect, this.frameSliceStart);
     this.rebuildNodes();
 
     this.side = Three.DoubleSide;

@@ -1,12 +1,17 @@
 import * as Three from 'three';
 
+// NOTE A quad over the screen rectangle of the froxel area (clip x0, y0, x1, y1). Other froxels are empty.
 const vertexShader = `
+  uniform vec4 frameScreenRect;
+
   varying vec2 vUv;
 
   void main() {
-    vUv = position.xy * 0.5 + 0.5;
+    vec2 clip = mix(frameScreenRect.xy, frameScreenRect.zw, position.xy * 0.5 + 0.5);
 
-    gl_Position = vec4(position.xy, 0.0, 1.0);
+    vUv = clip * 0.5 + 0.5;
+
+    gl_Position = vec4(clip, 0.0, 1.0);
   }
 `;
 
@@ -25,6 +30,8 @@ const fragmentShader = `
   uniform vec3 froxelGrid;
   uniform float froxelColumns;
   uniform vec2 froxelRange;
+  // NOTE Slices of the froxel area (first, end)
+  uniform vec2 frameSliceRange;
 
   uniform sampler2D frameDepthMap;
   uniform float frameCameraNear;
@@ -64,14 +71,15 @@ const fragmentShader = `
       float sceneDepth = frameSceneDepth();
 
       vec2 froxelUv = clamp(vUv * froxelGrid.xy, vec2(0.5), froxelGrid.xy - 0.5);
-      int sliceCount = int(froxelGrid.z);
+      int sliceFirst = int(frameSliceRange.x);
+      int sliceEnd = int(frameSliceRange.y);
 
       vec3 radiance = vec3(0.0);
       vec3 transmittance = vec3(1.0);
-      float sliceStart = froxelRange.x;
+      float sliceStart = frameSliceDepth(float(sliceFirst) / froxelGrid.z);
 
-      for (int i = 0; i < FRAME_MAX_SLICES; i++) {
-        if (i >= sliceCount || sliceStart >= sceneDepth || max(transmittance.x, max(transmittance.y, transmittance.z)) < 0.001) {
+      for (int i = sliceFirst; i < FRAME_MAX_SLICES; i++) {
+        if (i >= sliceEnd || sliceStart >= sceneDepth || max(transmittance.x, max(transmittance.y, transmittance.z)) < 0.001) {
           break;
         }
 
@@ -118,14 +126,15 @@ const fragmentShader = `
       float sceneDepth = frameSceneDepth();
 
       vec2 froxelUv = clamp(vUv * froxelGrid.xy, vec2(0.5), froxelGrid.xy - 0.5);
-      int sliceCount = int(froxelGrid.z);
+      int sliceFirst = int(frameSliceRange.x);
+      int sliceEnd = int(frameSliceRange.y);
 
       vec3 radiance = vec3(0.0);
       float transmittance = 1.0;
-      float sliceStart = froxelRange.x;
+      float sliceStart = frameSliceDepth(float(sliceFirst) / froxelGrid.z);
 
-      for (int i = 0; i < FRAME_MAX_SLICES; i++) {
-        if (i >= sliceCount || sliceStart >= sceneDepth || transmittance < 0.001) {
+      for (int i = sliceFirst; i < FRAME_MAX_SLICES; i++) {
+        if (i >= sliceEnd || sliceStart >= sceneDepth || transmittance < 0.001) {
           break;
         }
 
@@ -176,6 +185,8 @@ export class FrameIntegrateMaterial extends Three.ShaderMaterial {
         frameDepthMap: { value: null },
         frameCameraNear: { value: 0.1 },
         frameCameraFar: { value: 1000.0 },
+        frameScreenRect: { value: new Three.Vector4(-1.0, -1.0, 1.0, 1.0) },
+        frameSliceRange: { value: new Three.Vector2(0.0, 1.0) },
       },
       vertexShader,
       fragmentShader,

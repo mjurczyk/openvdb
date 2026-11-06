@@ -1,11 +1,5 @@
 import * as Three from 'three';
-import { froxelPars } from './frameShaderChunks.js';
-
-const vertexShader = `
-  void main() {
-    gl_Position = vec4(position.xy, 0.0, 1.0);
-  }
-`;
+import { froxelPars, tileQuadVertexShader } from './frameShaderChunks.js';
 
 const fragmentShader = `
   precision highp float;
@@ -183,7 +177,8 @@ export class FrameTemporalMaterial extends Three.ShaderMaterial {
         framePreviousProjectionMatrix: { value: new Three.Matrix4() },
         framePreviousRange: { value: new Three.Vector2(0.1, 1.0) },
       },
-      vertexShader,
+      // NOTE Only the froxel area of the volumes (frameRect, frameSliceStart). The renderer clears the target first.
+      vertexShader: tileQuadVertexShader,
       fragmentShader,
       depthTest: false,
       depthWrite: false,

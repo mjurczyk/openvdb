@@ -85,8 +85,13 @@ export const firstEnvironment = new Promise((resolve) => {
 const nextRenderedFrame = () =>
   new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 
-// NOTE The "high" quality of the three-environment-shadows examples
-const environmentLightQuality = { maxLights: 2, samples: 4, maxShadowMaps: 8, mapSize: 1024 };
+// NOTE The "high" quality of the three-environment-shadows examples. Phones: fewer and smaller shadow maps.
+const environmentLightQuality = {
+  maxLights: 2,
+  samples: 4,
+  maxShadowMaps: isPhone ? 2 : 8,
+  mapSize: isPhone ? 512 : 1024,
+};
 
 // NOTE The "Environment" light setup: the lights found in the environment map, with shadows.
 // The bounds hold a volume with a longest side of 100 units, and the mesh of the Mesh Volume demo.

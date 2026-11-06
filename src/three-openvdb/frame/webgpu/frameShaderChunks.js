@@ -764,8 +764,16 @@ export const createVolumeNodes = (volume, useMipmaps = false) => {
       : map.sample(uvw).level(float(0.0));
 
   // NOTE Samples a grid only when the volume has it. Returns fallback when not.
-  const sampleOptional = (useMap, map, mipMap, levels, uvw, lod, fallback) =>
-    select(useMap.equal(1), sample3D(map, mipMap, levels, uvw, lod), vec4(fallback));
+  // NOTE A branch, not select: select also samples the placeholder texture.
+  const sampleOptional = (useMap, map, mipMap, levels, uvw, lod, fallback) => {
+    const value = vec4(fallback).toVar();
+
+    If(useMap.equal(1), () => {
+      value.assign(sample3D(map, mipMap, levels, uvw, lod));
+    });
+
+    return value;
+  };
 
   // NOTE Mip level for a footprint of the given size in local units of the longest box side
   const getLod = (localSize) => max(0.0, log2(localSize.mul(maxComponent(frameGridTexels))));
@@ -1087,6 +1095,12 @@ export const createTileUniforms = () => ({
   frameTileSize: uniform(new Three.Vector2(1.0, 1.0)),
   frameTileColumns: uniform(1.0),
   frameTargetSize: uniform(new Three.Vector2(1.0, 1.0)),
+});
+
+// NOTE Froxel area of all volumes (core/frameView.js getFroxelArea). Passes over the whole froxel grid draw only it.
+export const createAreaUniforms = () => ({
+  frameAreaRect: uniform(new Three.Vector4()),
+  frameAreaSliceStart: uniform(0.0),
 });
 
 export const frameTileVertex = (tileUniforms, rect, sliceStart) => {

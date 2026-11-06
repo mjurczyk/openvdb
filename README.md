@@ -295,7 +295,7 @@ Limits: no specular light, no shadows of meshes, and the smoke of one volume doe
 
 Froxel grid settings are global, in `frameRenderer.settings`:
 
-* `width`, `height` - (default: `512`, `512`) froxels on the screen axes.
+* `width`, `height` - (default: `512`, `512`) froxels on the screen axes. Not more than the pixels of the canvas (drawing buffer) on each axis.
 * `depth` - (default: `24`) depth slices. Slices are exponential: thin near the camera, thick far away. Slices fit the visible volumes.
 * `subSteps` - (default: `32`) density samples along the view ray in each slice. Each froxel is lit at the visibility-weighted mean position of its samples, then stored as slice color and alpha.
 * `near`, `far` - (default: `0.1`, `512.0`) limits of the slice range in view depth.
@@ -306,7 +306,7 @@ Froxel grid settings are global, in `frameRenderer.settings`:
   * `'frame'` - all volumes are written into the froxels first (density and material only). World-space shadow grid cascades hold the extinction of all volumes, also volumes out of the view. Transmittance to each light is calculated one time in the grid. Then each froxel is lit one time. Volumes shadow each other, and the number of render calls does not grow with the number of volumes. Good for many overlapping volumes, for example cloud fields.
   * `'volume'` - each volume is lit alone. Shadows come only from the same volume. Good for a small number of dense volumes with sharp edges.
 * `shadowResolution` - (default: `64`) voxels on each axis of each shadow grid cascade (`'frame'` lighting only).
-* `shadowCascades` - (default: `3`, max `4`) shadow grid cascades. The last cascade fits all volumes. Each finer cascade is half the size, around the camera. Shadows are dense near the camera and sparse far away (`'frame'` lighting only).
+* `shadowCascades` - (default: `1`, max `4`) shadow grid cascades. The last cascade fits all volumes. Each finer cascade is half the size, around the camera. Shadows are dense near the camera and sparse far away (`'frame'` lighting only). Finer cascades follow the camera, so near volumes draw the shadow grid again on each camera move. They cost much GPU time.
 * `shadowDistance` - (default: `512`) the finer shadow grid cascades cover only this distance from the camera. The last cascade covers all volumes, with coarser voxels (`'frame'` lighting only).
 * `phase`, `phaseG`, `phaseBackG`, `phaseBackWeight` - (default: `'henyey-greenstein'`, `0.8`, `-0.3`, `0.2`) one phase function for all volumes with `'frame'` lighting. The values are the same as the `FrameVolume` phase props. `'volume'` lighting uses the phase props of each `FrameVolume`.
 * `environmentLighting` - (default: `'directional'`) environment light (`scene.environment`) of the volumes, with self-shadowing:

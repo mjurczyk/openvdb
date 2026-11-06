@@ -7,15 +7,20 @@ import packageInfo from '../../../three-openvdb/package.json';
 import { setActiveDemo } from './utils/gui';
 import { exampleWVDB } from './examples/wvdb';
 import { readFurnace } from './utils/furnace';
+import { isPhone } from './utils/device';
+import { updateShadowMaps } from './utils/shadowMaps';
 
 export const camera = new Three.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.01, 10000.0);
 export const scene = new Three.Scene();
 // NOTE npm run dev:webgl uses WebGLRenderer and three-openvdb/webgl. ?webgl uses the WebGL2 fallback of WebGPURenderer.
+// NOTE No MSAA on phones. The volume pass copies the scene color and depth in each frame, and MSAA makes this 4 times larger.
+const antialias = !isPhone;
+
 export const renderer =
   import.meta.env.VITE_FRAME_RENDERER === 'webgl'
-    ? new Three.WebGLRenderer({ antialias: true })
+    ? new Three.WebGLRenderer({ antialias })
     : new WebGPURenderer({
-        antialias: true,
+        antialias,
         forceWebGL: new URLSearchParams(window.location.search).has('webgl'),
       });
 
@@ -56,6 +61,7 @@ const animate = () => {
   stats.begin();
 
   controls.update();
+  updateShadowMaps(scene);
   renderer.render(scene, camera);
   readFurnace(renderer);
 

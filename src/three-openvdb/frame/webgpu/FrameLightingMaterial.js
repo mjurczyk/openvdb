@@ -31,7 +31,7 @@ import {
   frameFragCoord,
   frameLoad,
   frameGetFroxel,
-  frameFullscreenVertex,
+  frameTileVertex,
   frameShadowedLight,
   createGridNodes,
   frameSpectralShadowedLight,
@@ -42,7 +42,7 @@ import { frameSpectralGroupCount } from '../core/frameSpectrum.js';
 // NOTE Lights each froxel one time from the combined data of all volumes.
 // NOTE The environment is added in the density pass, along the outward direction of each volume.
 export class FrameLightingMaterial extends Three.NodeMaterial {
-  constructor({ froxelUniforms, lightUniforms, gridUniforms, densityShadowUniforms }) {
+  constructor({ froxelUniforms, froxelTileUniforms, froxelAreaUniforms, lightUniforms, gridUniforms, densityShadowUniforms }) {
     super();
 
     this.name = 'FrameLightingMaterial';
@@ -75,7 +75,12 @@ export class FrameLightingMaterial extends Three.NodeMaterial {
     // NOTE frameRenderer.settings.spectral: two atlas targets
     this.spectral = false;
 
-    this.vertexNode = frameFullscreenVertex;
+    // NOTE Only the froxel area of the volumes. Other froxels have no density.
+    this.vertexNode = frameTileVertex(
+      froxelTileUniforms,
+      froxelAreaUniforms.frameAreaRect,
+      froxelAreaUniforms.frameAreaSliceStart,
+    );
     this.rebuildNodes();
 
     this.side = Three.DoubleSide;

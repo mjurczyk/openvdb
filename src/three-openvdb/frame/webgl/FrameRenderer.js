@@ -21,6 +21,18 @@ import {
   getFrameScatteringOctaves,
   isFrameDiffusion,
 } from '../core/framePhase.js';
+import { getAtlasLayout, getFroxelSize } from '../core/frameLayout.js';
+import { FrameVolumeCollector, getFroxelSliceRange, getFroxelRect, getFroxelArea } from '../core/frameView.js';
+import {
+  updateGridCascades,
+  getGridRange,
+  getCascadeCasters,
+  updateGridSignatures,
+  pushVector,
+  pushColor,
+  pushElements,
+  sameValues,
+} from '../core/frameGrid.js';
 import { getFrameExtinctionSpectrum, getFrameSpectralGroups } from '../core/frameSpectrum.js';
 import {
   FrameEnvironmentLights,
@@ -31,20 +43,30 @@ import {
 
 const textureKeys = ['densityMap3D', 'emissiveMap3D', 'baseColorMap3D', 'maskMap3D'];
 
-const unitBox = new Three.Box3(
-  new Three.Vector3(-0.5, -0.5, -0.5),
-  new Three.Vector3(0.5, 0.5, 0.5),
-);
-const viewBox = new Three.Box3();
-const casterBox = new Three.Box3();
-const cascadeBox = new Three.Box3();
-const frustum = new Three.Frustum();
-const projectionScreenMatrix = new Three.Matrix4();
-const clipMatrix = new Three.Matrix4();
 const viewport = new Three.Vector4();
-const corner = new Three.Vector4();
 const clearColor = new Three.Color();
 const vector3 = new Three.Vector3();
+const lightPosition = new Three.Vector3();
+const lightTarget = new Three.Vector3();
+const froxelSize = { width: 1, height: 1 };
+
+// NOTE A texture and its version in a signature. A missing texture is null, -1.
+const pushMap = (values, map) => {
+  values.push(map ?? null, map ? map.version : -1);
+};
+
+// NOTE The shadow density pass reads the extinction and the albedo. Mipmaps are made on the textures, so their
+// versions follow them.
+const pushCasterMaps = (values, volume) => {
+  values.push(
+    volume.densityMap3D ? volume.densityMap3D.id : -1,
+    volume.densityMap3D ? volume.densityMap3D.version : -1,
+    volume.maskMap3D ? volume.maskMap3D.id : -1,
+    volume.maskMap3D ? volume.maskMap3D.version : -1,
+    volume.baseColorMap3D ? volume.baseColorMap3D.id : -1,
+    volume.baseColorMap3D ? volume.baseColorMap3D.version : -1,
+  );
+};
 
 const lightProxyFactories = {
   AmbientLight: () => new Three.AmbientLight(),
@@ -101,18 +123,46 @@ const isSpectralTarget = (target) => target.textures.length > 1;
 const extinctionSpectrum = new Three.Vector3();
 
 
+// NOTE Instanced tile quads: one instance for each slice
+const createTileGeometry = () => {
+  const geometry = new Three.InstancedBufferGeometry();
+  geometry.instanceCount = 0;
+  geometry.setAttribute('position', tileQuadPosition);
+
+  return geometry;
+};
+
+// NOTE A quad. The integrate materials put it on the screen rectangle of the froxel area.
+const createQuadGeometry = () => {
+  const geometry = new Three.BufferGeometry();
+  geometry.setAttribute('position', tileQuadPosition);
+
+  return geometry;
+};
+
+// NOTE Clip rectangle of a froxel cell rectangle, padding cells larger on each side. An empty rectangle stays empty.
+const clipRect = { x0: 0, y0: 0, x1: 0, y1: 0 };
+
+const getClipRect = (rect, width, height, padding) => {
+  if (rect.z <= rect.x || rect.w <= rect.y) {
+    clipRect.x0 = clipRect.y0 = clipRect.x1 = clipRect.y1 = 0.0;
+
+    return clipRect;
+  }
+
+  clipRect.x0 = (Math.max(0, rect.x - padding) / width) * 2.0 - 1.0;
+  clipRect.y0 = (Math.max(0, rect.y - padding) / height) * 2.0 - 1.0;
+  clipRect.x1 = (Math.min(width, rect.z + padding) / width) * 2.0 - 1.0;
+  clipRect.y1 = (Math.min(height, rect.w + padding) / height) * 2.0 - 1.0;
+
+  return clipRect;
+};
+
 const createScene = () => {
   const scene = new Three.Scene();
   scene.matrixWorldAutoUpdate = false;
 
   return scene;
-};
-
-const getAtlasLayout = (tileWidth, tileHeight, tileCount) => {
-  const columns = Math.ceil(Math.sqrt((tileCount * tileHeight) / tileWidth));
-  const rows = Math.ceil(tileCount / columns);
-
-  return { columns, width: tileWidth * columns, height: tileHeight * rows };
 };
 
 export class FrameRenderer {
@@ -128,7 +178,7 @@ export class FrameRenderer {
     temporalBlend: 0.2,
     lighting: 'frame',
     shadowResolution: 64,
-    shadowCascades: 3,
+    shadowCascades: 1,
     shadowDistance: 512,
     // NOTE Phase of all volumes with 'frame' lighting. 'volume' lighting uses the phase of each FrameVolume.
     phase: 'henyey-greenstein',
@@ -179,6 +229,14 @@ export class FrameRenderer {
     frameTargetSize: { value: new Three.Vector2(1.0, 1.0) },
   };
 
+  // NOTE Froxel area of the volumes in this frame (core/frameView.js). The lighting and temporal passes draw only it.
+  froxelAreaUniforms = {
+    frameRect: { value: new Three.Vector4() },
+    frameSliceStart: { value: 0.0 },
+  };
+  froxelArea = { rect: new Three.Vector4(), first: 0, count: 0 };
+  areaGeometry = createTileGeometry();
+
   gridUniforms = {
     frameGridMin: {
       value: Array.from({ length: frameMaxShadowCascades }, () => new Three.Vector3()),
@@ -228,14 +286,20 @@ export class FrameRenderer {
   environmentUniforms = createEnvironmentUniforms();
   environmentGridUniforms = createEnvironmentGridUniforms();
 
-  injectMaterial = new FrameInjectMaterial({ ...this.froxelUniforms, ...this.environmentUniforms });
+  injectMaterial = new FrameInjectMaterial({
+    ...this.froxelUniforms,
+    ...this.froxelTileUniforms,
+    ...this.environmentUniforms,
+  });
   integrateMaterial = new FrameIntegrateMaterial(this.froxelUniforms);
   // NOTE Spectral: multiplies the scene color by the transmittance of each channel, before the proxy adds the volume color
   integrateTransmittanceMaterial = new FrameIntegrateTransmittanceMaterial(this.integrateMaterial);
   integrateTransmittanceScene = createScene();
-  integrateTransmittanceMesh = new Three.Mesh(createFullscreenGeometry(), this.integrateTransmittanceMaterial);
+  integrateTransmittanceMesh = new Three.Mesh(createQuadGeometry(), this.integrateTransmittanceMaterial);
   lightingMaterial = new FrameLightingMaterial({
     ...this.froxelUniforms,
+    ...this.froxelTileUniforms,
+    ...this.froxelAreaUniforms,
     ...this.environmentUniforms,
     ...this.gridUniforms,
   });
@@ -248,8 +312,8 @@ export class FrameRenderer {
 
   // NOTE The light scene holds the light copies. It draws the volume inject pass or the frame lighting pass.
   injectScene = createScene();
-  injectMesh = new Three.Mesh(createFullscreenGeometry(), this.injectMaterial);
-  lightingMesh = new Three.Mesh(createFullscreenGeometry(), this.lightingMaterial);
+  injectMesh = new Three.Mesh(createTileGeometry(), this.injectMaterial);
+  lightingMesh = new Three.Mesh(this.areaGeometry, this.lightingMaterial);
   lightProxies = {};
 
   densityScene = createScene();
@@ -261,9 +325,13 @@ export class FrameRenderer {
   transmittanceScene = createScene();
   transmittanceMesh = new Three.Mesh(createFullscreenGeometry(), this.transmittanceMaterial);
 
-  temporalMaterial = new FrameTemporalMaterial(this.froxelUniforms);
+  temporalMaterial = new FrameTemporalMaterial({
+    ...this.froxelUniforms,
+    ...this.froxelTileUniforms,
+    ...this.froxelAreaUniforms,
+  });
   temporalScene = createScene();
-  temporalMesh = new Three.Mesh(createFullscreenGeometry(), this.temporalMaterial);
+  temporalMesh = new Three.Mesh(this.areaGeometry, this.temporalMaterial);
   historyTargets = [null, null];
   historyIndex = 0;
   historyValid = false;
@@ -315,8 +383,11 @@ export class FrameRenderer {
   gridFreshCamera = null;
   gridVersion = 0;
   gridSignature = [];
+  nextGridSignature = [];
   castVersion = 0;
   castSignature = [];
+  nextCastSignature = [];
+  casterSignature = [];
   // NOTE What the shadow grid and the transmittance targets were last drawn from. While it stays the same, the
   // targets still hold it and the passes are not drawn again: a still volume under still lights costs nothing.
   shadowDrawnVersion = -1;
@@ -327,6 +398,34 @@ export class FrameRenderer {
   cachedFrame = -1;
   cachedCamera = null;
   rendererWarned = false;
+
+  // NOTE Results of collectVolumes, getSliceRange, getGridRange and the cascade casters. They are used again in the next call.
+  viewCollector = new FrameVolumeCollector();
+  gridCollector = new FrameVolumeCollector();
+  sliceRange = { first: 0, count: 0 };
+  gridRange = { rect: new Three.Vector4(), first: 0, count: 0 };
+  cascadeCasterPool = { items: [], entries: [] };
+  // NOTE updateLightProxies state and result. Positions are pooled: length is the used count, entries the vectors.
+  lightState = {
+    camera: null,
+    used: {},
+    hasSky: false,
+    skyDirection: new Three.Vector3(0.0, 1.0, 0.0),
+    directions: { length: 0, entries: [] },
+    points: { length: 0, entries: [] },
+    spots: { length: 0, entries: [] },
+  };
+  lightResult = {
+    skyDirection: new Three.Vector3(0.0, 1.0, 0.0),
+    shadowLights: [],
+    pointOffset: 0,
+    spotOffset: 0,
+    environmentLightCount: 0,
+    environmentShadowSlot: 0,
+    environmentGridLights: [],
+  };
+  environmentShadowLight = new Three.Vector4();
+  environmentGridLightEntries = [];
 
   constructor() {
     [
@@ -397,7 +496,7 @@ export class FrameRenderer {
 
   // NOTE Backend hooks of FrameVolume (core/frameBackend.js)
   createProxyGeometry() {
-    return createFullscreenGeometry();
+    return createQuadGeometry();
   }
 
   // NOTE WebGL generates mipmaps for 3D textures. Far froxels and coarse shadow cascades sample a lower level.
@@ -410,16 +509,16 @@ export class FrameRenderer {
   disposeVolume() {}
 
   // NOTE FrameVolume mipmaps can change after creation. The textures are uploaded again.
-  updateMipmaps(frameVolume, volume) {
-    textureKeys.forEach((key) => {
-      const texture = volume[key];
+  updateMipmaps = (frameVolume, volume) => {
+    for (let i = 0; i < textureKeys.length; i++) {
+      const texture = volume[textureKeys[i]];
 
       if (texture && texture.generateMipmaps !== frameVolume.mipmaps) {
         this.configureTexture(texture, frameVolume.mipmaps);
         texture.needsUpdate = true;
       }
-    });
-  }
+    }
+  };
 
   isFrameLighting() {
     return this.settings.lighting === 'frame';
@@ -444,36 +543,33 @@ export class FrameRenderer {
       cascade,
       this.isSpectral() ? 1 : 0,
       multipleScattering,
-      ...scatteringOctaves.toArray(),
-      ...frameGridMin.value[cascade].toArray(),
-      ...frameGridSize.value[cascade].toArray(),
     );
+    pushVector(signature, scatteringOctaves);
+    pushVector(signature, frameGridMin.value[cascade]);
+    pushVector(signature, frameGridSize.value[cascade]);
 
-    gridLights.forEach(({ direction, color }) => signature.push(...direction, ...color));
+    for (let i = 0; i < gridLights.length; i++) {
+      pushElements(signature, gridLights[i].direction);
+      pushElements(signature, gridLights[i].color);
+    }
 
-    casters.forEach(({ frameVolume, volume }) => {
-      [volume.densityMap3D, volume.maskMap3D, volume.baseColorMap3D].forEach((map) =>
-        signature.push(map, map ? map.version : -1),
-      );
+    for (let i = 0; i < casters.length; i++) {
+      const { frameVolume, volume } = casters[i];
 
-      signature.push(
-        frameVolume.extinction,
-        ...getFrameExtinctionSpectrum(frameVolume, extinctionSpectrum).toArray(),
-        frameVolume.densityScale,
-        frameVolume.densityCutoff,
-        frameVolume.absorbance,
-        ...frameVolume.baseColor.toArray(),
-        frameVolume.wrap3D,
-        frameVolume.mipmaps,
-        ...frameVolume.offset3D.toArray(),
-        ...volume.matrixWorld.elements,
-      );
-    });
+      pushMap(signature, volume.densityMap3D);
+      pushMap(signature, volume.maskMap3D);
+      pushMap(signature, volume.baseColorMap3D);
 
-    if (
-      signature.length === previous.length &&
-      signature.every((value, index) => value === previous[index])
-    ) {
+      signature.push(frameVolume.extinction);
+      pushVector(signature, getFrameExtinctionSpectrum(frameVolume, extinctionSpectrum));
+      signature.push(frameVolume.densityScale, frameVolume.densityCutoff, frameVolume.absorbance);
+      pushColor(signature, frameVolume.baseColor);
+      signature.push(frameVolume.wrap3D, frameVolume.mipmaps);
+      pushVector(signature, frameVolume.offset3D);
+      pushElements(signature, volume.matrixWorld.elements);
+    }
+
+    if (sameValues(signature, previous)) {
       return;
     }
 
@@ -488,10 +584,10 @@ export class FrameRenderer {
     uniforms.frameMultipleScattering.value = multipleScattering;
     uniforms.frameScatteringOctaves.value.copy(scatteringOctaves);
 
-    gridLights.forEach(({ direction, color }, index) => {
-      uniforms.frameLightDirections.value[index].fromArray(direction);
-      uniforms.frameLightColors.value[index].fromArray(color);
-    });
+    for (let i = 0; i < gridLights.length; i++) {
+      uniforms.frameLightDirections.value[i].fromArray(gridLights[i].direction);
+      uniforms.frameLightColors.value[i].fromArray(gridLights[i].color);
+    }
 
     this.environmentGridMesh.layers.mask = camera.layers.mask;
 
@@ -531,70 +627,17 @@ export class FrameRenderer {
       .then(() => pixels);
   }
 
-  collectVolumes(scene, camera) {
-    const { settings } = this;
-    const volumes = [];
-    const casters = [];
+  // NOTE collector: view volumes of render() or casters of prepareShadowGrid(). Each one keeps its result to its next call.
+  collectVolumes(scene, camera, collector = this.viewCollector) {
     // NOTE The world shadow grid is used by 'frame' lighting and by volume shadows on meshes
-    const useGrid = this.isFrameLighting() || settings.castShadows;
+    const useGrid = this.isFrameLighting() || this.settings.castShadows;
+    const result = collector.collect(scene, camera, this.settings, useGrid, this.updateMipmaps);
 
-    projectionScreenMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
-    frustum.setFromProjectionMatrix(projectionScreenMatrix);
-
-    let near = Infinity;
-    let far = 0.0;
-
-    scene.traverseVisible((object) => {
-      if (!object.isFrameVolume || !object.proxy.layers.test(camera.layers)) {
-        return;
-      }
-
-      object.volumes.forEach((volume) => {
-        if (!volume.ready) {
-          return;
-        }
-
-        this.updateMipmaps(object, volume);
-
-        volume.matrixWorld.multiplyMatrices(object.matrixWorld, volume.matrix);
-        volume.worldToLocal.copy(volume.matrixWorld).invert();
-        volume.worldBox.copy(unitBox).applyMatrix4(volume.matrixWorld);
-
-        // NOTE Volumes out of the view can still cast shadows on visible volumes
-        if (useGrid) {
-          casters.push({ frameVolume: object, volume });
-        }
-
-        if (!frustum.intersectsBox(volume.worldBox)) {
-          return;
-        }
-
-        volume.localToView.multiplyMatrices(camera.matrixWorldInverse, volume.matrixWorld);
-        volume.viewToLocal.copy(volume.localToView).invert();
-        viewBox.copy(unitBox).applyMatrix4(volume.localToView);
-
-        volume.viewNear = -viewBox.max.z;
-        volume.viewFar = -viewBox.min.z;
-
-        near = Math.min(near, volume.viewNear);
-        far = Math.max(far, volume.viewFar);
-
-        volumes.push({ frameVolume: object, volume });
-      });
-    });
-
-    // NOTE Fit the slices to the visible volumes. Then no slices are used for empty space.
-    near = Math.max(near, settings.near, camera.near);
-    far = Math.min(far, settings.far, camera.far);
-
-    // NOTE Volumes out of the view still cast shadows on meshes
-    if (volumes.length === 0 || far <= near) {
-      return { volumes: [], casters };
+    if (result.volumes.length > 0) {
+      this.froxelUniforms.froxelRange.value.set(result.near, result.far);
     }
 
-    this.froxelUniforms.froxelRange.value.set(near, Math.max(far, near * 1.0001));
-
-    return { volumes, casters };
+    return result;
   }
 
   isSpectral() {
@@ -614,23 +657,16 @@ export class FrameRenderer {
     return targets[group];
   }
 
-  getSlice(viewDepth) {
-    const range = this.froxelUniforms.froxelRange.value;
-    const depth = this.froxelUniforms.froxelGrid.value.z;
-
-    return (depth * Math.log(Math.max(viewDepth, range.x) / range.x)) / Math.log(range.y / range.x);
-  }
-
+  // NOTE Slices of a volume. Returns this.sliceRange ({ first, count }), used again in the next call.
   getSliceRange(volume) {
-    const depth = this.froxelUniforms.froxelGrid.value.z;
-    const first = Math.max(0, Math.floor(this.getSlice(volume.viewNear)));
-    const last = Math.min(depth - 1, Math.ceil(this.getSlice(volume.viewFar)));
+    const { froxelRange, froxelGrid } = this.froxelUniforms;
 
-    return { first, count: last - first + 1 };
+    return getFroxelSliceRange(volume, froxelRange.value, froxelGrid.value.z, this.sliceRange);
   }
 
   updateTargets(renderer) {
-    const { width, height, depth, subSteps } = this.settings;
+    const { depth, subSteps } = this.settings;
+    const { width, height } = getFroxelSize(this.settings, renderer, froxelSize);
     const spectral = this.isSpectral();
     const froxelAtlas = getAtlasLayout(width, height, depth);
 
@@ -816,6 +852,7 @@ export class FrameRenderer {
     this.environment = this.environmentLights.update(renderer, scene, this.settings);
 
     this.updateTargets(renderer);
+    this.updateFroxelArea(volumes, camera);
 
     this.froxelUniforms.froxelProjectionInverse.value.copy(camera.projectionMatrixInverse);
     this.integrateMaterial.uniforms.frameCameraNear.value = camera.near;
@@ -865,6 +902,24 @@ export class FrameRenderer {
   }
 
   // NOTE Blends this frame into the history. The integrate pass then reads the blended froxels.
+  // NOTE Froxel area of the volumes, for the passes over the froxel grid and for the integrate pass
+  updateFroxelArea(volumes, camera) {
+    const { froxelGrid, froxelRange } = this.froxelUniforms;
+    const { x: width, y: height, z: depth } = froxelGrid.value;
+    const area = getFroxelArea(volumes, camera, width, height, froxelRange.value, depth, this.froxelArea);
+    const { uniforms } = this.integrateMaterial;
+
+    this.froxelAreaUniforms.frameRect.value.copy(area.rect);
+    this.froxelAreaUniforms.frameSliceStart.value = area.first;
+    this.areaGeometry.instanceCount = area.count;
+
+    // NOTE One more cell on each side: the linear filter of the integrate pass reads one cell away
+    const { x0, y0, x1, y1 } = getClipRect(area.rect, width, height, area.count > 0 ? 1 : 0);
+
+    uniforms.frameScreenRect.value.set(x0, y0, x1, y1);
+    uniforms.frameSliceRange.value.set(area.first, area.first + area.count);
+  }
+
   renderTemporal(renderer, camera) {
     const uniforms = this.temporalMaterial.uniforms;
     const readTarget = this.historyTargets[this.historyIndex];
@@ -884,7 +939,9 @@ export class FrameRenderer {
 
     this.temporalMesh.layers.mask = camera.layers.mask;
 
+    // NOTE The pass draws only the froxel area. The clear empties the other froxels.
     renderer.setRenderTarget(writeTarget);
+    renderer.clear(true, false, false);
     renderer.render(this.temporalScene, camera);
 
     this.integrateMaterial.uniforms.froxelAtlas.value = writeTarget.textures[0];
@@ -953,19 +1010,26 @@ export class FrameRenderer {
 
   renderInject(renderer, scene, camera, volumes) {
     const { atlasTarget, injectScene } = this;
-    const { froxelGrid, froxelColumns } = this.froxelUniforms;
     const uniforms = this.injectMaterial.frameUniforms;
 
     this.prepareLightScene(scene, camera, this.injectMesh);
 
-    atlasTarget.scissorTest = false;
     renderer.setRenderTarget(atlasTarget);
     renderer.clear(true, false, false);
 
-    const columns = froxelColumns.value;
-    const sliceHeight = froxelGrid.value.y;
+    for (let i = 0; i < volumes.length; i++) {
+      const { frameVolume, volume } = volumes[i];
 
-    volumes.forEach(({ frameVolume, volume }) => {
+      // NOTE Draw only the froxel rectangle and the slices of this volume. One instance for each slice.
+      if (!this.getFroxelRect(volume, camera, uniforms.frameRect.value)) {
+        continue;
+      }
+
+      const { first, count } = this.getSliceRange(volume);
+
+      uniforms.frameSliceStart.value = first;
+      this.injectMesh.geometry.instanceCount = count;
+
       setVolumeUniforms(uniforms, frameVolume, volume);
       uniforms.frameLights.value = frameVolume.lights;
       uniforms.frameShadowSteps.value = frameVolume.shadowSteps;
@@ -975,24 +1039,9 @@ export class FrameRenderer {
       );
       getFrameScatteringOctaves(this.settings, uniforms.frameScatteringOctaves.value);
 
-      // NOTE Draw only the atlas rows that contain the slices of this volume
-      const { first, count } = this.getSliceRange(volume);
-      const firstRow = Math.floor(first / columns);
-      const lastRow = Math.floor((first + count - 1) / columns);
-
-      atlasTarget.scissor.set(
-        0,
-        firstRow * sliceHeight,
-        atlasTarget.width,
-        (lastRow - firstRow + 1) * sliceHeight,
-      );
-      atlasTarget.scissorTest = true;
-
       renderer.setRenderTarget(atlasTarget);
       renderer.render(injectScene, camera);
-    });
-
-    atlasTarget.scissorTest = false;
+    }
   }
 
   // NOTE Combined lighting: density of all volumes, one shadow grid, one lighting pass.
@@ -1024,9 +1073,9 @@ export class FrameRenderer {
       );
       getFrameScatteringOctaves(this.settings, transmittanceUniforms.frameScatteringOctaves.value);
 
-      lights.shadowLights.forEach((light, index) => {
-        transmittanceUniforms.frameShadowLights.value[index].copy(light);
-      });
+      for (let index = 0; index < lights.shadowLights.length; index++) {
+        transmittanceUniforms.frameShadowLights.value[index].copy(lights.shadowLights[index]);
+      }
 
       this.transmittanceMesh.layers.mask = camera.layers.mask;
 
@@ -1060,9 +1109,9 @@ export class FrameRenderer {
       densityShadowUniforms.frameTransmittanceMap3.value = this.transmittanceTarget.textures[3];
     }
     densityShadowUniforms.frameShadowSceneLightCount.value = lights.environmentShadowSlot;
-    lights.shadowLights.forEach((light, index) => {
-      densityShadowUniforms.frameShadowLights.value[index].copy(light);
-    });
+    for (let index = 0; index < lights.shadowLights.length; index++) {
+      densityShadowUniforms.frameShadowLights.value[index].copy(lights.shadowLights[index]);
+    }
     densityShadowUniforms.frameCameraMatrixWorld.value.copy(camera.matrixWorld);
     densityShadowUniforms.frameSkyDirection.value.copy(lights.skyDirection);
     densityShadowUniforms.frameEnvironmentGridMap.value = this.environmentGridTarget.texture;
@@ -1089,36 +1138,8 @@ export class FrameRenderer {
       this.densityScene,
       volumes,
       camera,
-      (entry, { frameVolume, volume }) => {
-        const rect = this.getFroxelRect(volume, camera);
-
-        if (!rect) {
-          return false;
-        }
-
-        const { first, count } = this.getSliceRange(volume);
-
-        entry.material.setSpectral(spectral);
-        setVolumeUniforms(entry.material.frameUniforms, frameVolume, volume);
-        // NOTE 'frame' lighting: the light slots get one phase for all volumes, from frameRenderer.settings
-        getFramePhase(this.settings, entry.material.frameUniforms.framePhase.value);
-        getFrameScatteringOctaves(this.settings, entry.material.frameUniforms.frameScatteringOctaves.value);
-        entry.material.frameUniforms.frameDiffusion.value = isFrameDiffusion(this.settings.multipleScattering) ? 1 : 0;
-        entry.material.frameUniforms.frameRect.value.copy(rect);
-        entry.material.frameUniforms.frameSliceStart.value = first;
-        entry.geometry.instanceCount = count;
-
-        return true;
-      },
-      () =>
-        new FrameDensityMaterial({
-          ...this.froxelUniforms,
-          ...this.froxelTileUniforms,
-          ...this.gridUniforms,
-          ...this.densityShadowUniforms,
-          ...this.environmentUniforms,
-          ...this.environmentGridUniforms,
-        }),
+      this.setupDensityEntry,
+      this.createDensityMaterial,
     );
 
     renderer.setRenderTarget(this.densityTarget);
@@ -1178,23 +1199,20 @@ export class FrameRenderer {
       spectralGroups,
       shadowLightCount,
       uniforms.frameMultipleScattering.value,
-      ...uniforms.frameScatteringOctaves.value.toArray(),
-      ...uniforms.frameSkyDirection.value.toArray(),
     );
+    pushVector(values, uniforms.frameScatteringOctaves.value);
+    pushVector(values, uniforms.frameSkyDirection.value);
 
     for (let group = 0; group < spectralGroups; group++) {
       values.push(this.getSpectralTransmittanceTarget(group).texture.id);
     }
 
     for (let i = 0; i < shadowLightCount; i++) {
-      values.push(...uniforms.frameShadowLights.value[i].toArray());
+      pushVector(values, uniforms.frameShadowLights.value[i]);
     }
 
     const jittered = this.froxelUniforms.frameJitter.value >= 0.0;
-    const same =
-      !jittered &&
-      values.length === this.transmittanceSignature.length &&
-      values.every((value, index) => value === this.transmittanceSignature[index]);
+    const same = !jittered && sameValues(values, this.transmittanceSignature);
 
     // NOTE A jittered draw matches no signature, so the first frame after jitter is turned off draws again
     if (jittered) {
@@ -1231,33 +1249,15 @@ export class FrameRenderer {
     this.shadowDrawnTarget = this.shadowDensityTarget;
 
     const count = this.gridUniforms.frameGridCount.value;
-    const cascadeCasters = [];
-
-    for (let cascade = onlyLast ? count - 1 : 0; cascade < count; cascade++) {
-      casters.forEach((caster) => cascadeCasters.push({ ...caster, cascade }));
-    }
+    const cascadeCasters = getCascadeCasters(casters, onlyLast ? count - 1 : 0, count, this.cascadeCasterPool);
 
     this.updatePool(
       this.shadowPool,
       this.shadowScene,
       cascadeCasters,
       camera,
-      (entry, { frameVolume, volume, cascade }) => {
-        const range = this.getGridRange(volume, cascade);
-
-        if (!range) {
-          return false;
-        }
-
-        entry.material.setSpectral(this.isSpectral());
-        setVolumeUniforms(entry.material.uniforms, frameVolume, volume);
-        entry.material.uniforms.frameRect.value.copy(range.rect);
-        entry.material.uniforms.frameSliceStart.value = range.first;
-        entry.geometry.instanceCount = range.count;
-
-        return true;
-      },
-      () => new FrameShadowDensityMaterial({ ...this.gridUniforms, ...this.gridTileUniforms }),
+      this.setupShadowEntry,
+      this.createShadowDensityMaterial,
     );
 
     renderer.setRenderTarget(this.shadowDensityTarget);
@@ -1271,62 +1271,17 @@ export class FrameRenderer {
   // NOTE castVersion changes only for the last cascade. Returns true when castVersion changed.
   updateGridVersion(casters) {
     const { frameGridMin, frameGridSize, frameGridCount, frameGridResolution } = this.gridUniforms;
-    const count = frameGridCount.value;
-    const same = (a, b) => a.length === b.length && a.every((value, index) => value === b[index]);
-    const casterValues = [];
 
-    casters.forEach(({ frameVolume, volume }) => {
-      casterValues.push(...volume.matrixWorld.elements);
-
-      // NOTE The shadow density pass reads the extinction and the albedo. Mipmaps are made on the textures, so their
-      // versions follow them.
-      [volume.densityMap3D, volume.maskMap3D, volume.baseColorMap3D].forEach((map) => {
-        casterValues.push(map ? map.id : -1, map ? map.version : -1);
-      });
-
-      casterValues.push(
-        ...frameVolume.baseColor.toArray(),
-        frameVolume.densityScale,
-        frameVolume.densityCutoff,
-        frameVolume.extinction,
-        ...getFrameExtinctionSpectrum(frameVolume, extinctionSpectrum).toArray(),
-        frameVolume.absorbance,
-        frameVolume.mipmaps ? 1 : 0,
-        frameVolume.wrap3D,
-        ...frameVolume.offset3D.toArray(),
-      );
-    });
-
-    // NOTE The cascade count changes the atlas layout, so a new count needs a new draw
-    const castValues = [casters.length, count, frameGridResolution.value, this.isSpectral() ? 1 : 0];
-
-    if (count > 0) {
-      castValues.push(...frameGridMin.value[count - 1].toArray(), ...frameGridSize.value[count - 1].toArray());
-    }
-
-    castValues.push(...casterValues);
-
-    const gridValues = [count];
-
-    for (let i = 0; i < count; i++) {
-      gridValues.push(...frameGridMin.value[i].toArray(), ...frameGridSize.value[i].toArray());
-    }
-
-    gridValues.push(...castValues);
-
-    if (!same(gridValues, this.gridSignature)) {
-      this.gridVersion++;
-      this.gridSignature = gridValues;
-    }
-
-    const castChanged = !same(castValues, this.castSignature);
-
-    if (castChanged) {
-      this.castVersion++;
-      this.castSignature = castValues;
-    }
-
-    return castChanged;
+    return updateGridSignatures(
+      this,
+      casters,
+      frameGridCount.value,
+      frameGridResolution.value,
+      this.isSpectral(),
+      frameGridMin.value,
+      frameGridSize.value,
+      pushCasterMaps,
+    );
   }
 
   // NOTE The world shadow grid one time in a render, before the first lit mesh. Returns false with no casters.
@@ -1336,7 +1291,7 @@ export class FrameRenderer {
       return this.gridReady;
     }
 
-    const { casters } = this.collectVolumes(scene, camera);
+    const { casters } = this.collectVolumes(scene, camera, this.gridCollector);
     const currentRenderTarget = renderer.getRenderTarget();
     const currentActiveCubeFace = renderer.getActiveCubeFace();
     const currentActiveMipmapLevel = renderer.getActiveMipmapLevel();
@@ -1364,10 +1319,64 @@ export class FrameRenderer {
   }
 
   // NOTE Pool entries are reused between frames. Unused entries are hidden.
+  // NOTE updatePool setup of the density pass: one instance for each slice of the volume
+  setupDensityEntry = (entry, { frameVolume, volume }, camera) => {
+    const { frameUniforms } = entry.material;
+
+    if (!this.getFroxelRect(volume, camera, frameUniforms.frameRect.value)) {
+      return false;
+    }
+
+    const { first, count } = this.getSliceRange(volume);
+
+    entry.material.setSpectral(this.isSpectral());
+    setVolumeUniforms(frameUniforms, frameVolume, volume);
+    // NOTE 'frame' lighting: the light slots get one phase for all volumes, from frameRenderer.settings
+    getFramePhase(this.settings, frameUniforms.framePhase.value);
+    getFrameScatteringOctaves(this.settings, frameUniforms.frameScatteringOctaves.value);
+    frameUniforms.frameDiffusion.value = isFrameDiffusion(this.settings.multipleScattering) ? 1 : 0;
+    frameUniforms.frameSliceStart.value = first;
+    entry.geometry.instanceCount = count;
+
+    return true;
+  };
+
+  createDensityMaterial = () =>
+    new FrameDensityMaterial({
+      ...this.froxelUniforms,
+      ...this.froxelTileUniforms,
+      ...this.gridUniforms,
+      ...this.densityShadowUniforms,
+      ...this.environmentUniforms,
+      ...this.environmentGridUniforms,
+    });
+
+  // NOTE updatePool setup of the shadow density pass: the voxels of the volume in one cascade
+  setupShadowEntry = (entry, { frameVolume, volume, cascade }) => {
+    const range = this.getGridRange(volume, cascade);
+
+    if (!range) {
+      return false;
+    }
+
+    entry.material.setSpectral(this.isSpectral());
+    setVolumeUniforms(entry.material.uniforms, frameVolume, volume);
+    entry.material.uniforms.frameRect.value.copy(range.rect);
+    entry.material.uniforms.frameSliceStart.value = range.first;
+    entry.geometry.instanceCount = range.count;
+
+    return true;
+  };
+
+  createShadowDensityMaterial = () =>
+    new FrameShadowDensityMaterial({ ...this.gridUniforms, ...this.gridTileUniforms });
+
   updatePool(pool, scene, items, camera, setup, createMaterial) {
     let used = 0;
 
-    items.forEach((item) => {
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+
       if (!pool[used]) {
         const geometry = new Three.InstancedBufferGeometry();
         geometry.setAttribute('position', tileQuadPosition);
@@ -1383,232 +1392,163 @@ export class FrameRenderer {
 
       const entry = pool[used];
 
-      if (setup(entry, item)) {
+      if (setup(entry, item, camera)) {
         entry.mesh.visible = true;
         entry.mesh.layers.mask = camera.layers.mask;
         used++;
       }
-    });
+    }
 
     for (let i = used; i < pool.length; i++) {
       pool[i].mesh.visible = false;
     }
   }
 
-  // NOTE Screen rectangle of the volume in froxel cells, with one cell of padding for the linear filter
-  getFroxelRect(volume, camera) {
+  // NOTE Screen rectangle of the volume in froxel cells. Writes target (Vector4). Returns false when it covers no cell.
+  getFroxelRect(volume, camera, target) {
     const { x: width, y: height } = this.froxelUniforms.froxelGrid.value;
-    let minX = Infinity;
-    let minY = Infinity;
-    let maxX = -Infinity;
-    let maxY = -Infinity;
-    let fullScreen = false;
 
-    clipMatrix.multiplyMatrices(camera.projectionMatrix, volume.localToView);
-
-    for (let i = 0; i < 8 && !fullScreen; i++) {
-      corner
-        .set(i & 1 ? 0.5 : -0.5, i & 2 ? 0.5 : -0.5, i & 4 ? 0.5 : -0.5, 1.0)
-        .applyMatrix4(clipMatrix);
-
-      if (corner.w <= 1e-6) {
-        fullScreen = true;
-      } else {
-        minX = Math.min(minX, corner.x / corner.w);
-        minY = Math.min(minY, corner.y / corner.w);
-        maxX = Math.max(maxX, corner.x / corner.w);
-        maxY = Math.max(maxY, corner.y / corner.w);
-      }
-    }
-
-    if (fullScreen) {
-      return new Three.Vector4(0.0, 0.0, width, height);
-    }
-
-    const x0 = Math.max(0, Math.floor((minX * 0.5 + 0.5) * width) - 1);
-    const y0 = Math.max(0, Math.floor((minY * 0.5 + 0.5) * height) - 1);
-    const x1 = Math.min(width, Math.ceil((maxX * 0.5 + 0.5) * width) + 1);
-    const y1 = Math.min(height, Math.ceil((maxY * 0.5 + 0.5) * height) + 1);
-
-    if (x1 <= x0 || y1 <= y0) {
-      return null;
-    }
-
-    return new Three.Vector4(x0, y0, x1, y1);
+    return getFroxelRect(volume, camera, width, height, target);
   }
 
   getCascadeCount() {
     return Math.min(frameMaxShadowCascades, Math.max(1, Math.round(this.settings.shadowCascades)));
   }
 
-  // NOTE The last cascade fits all casters. Then far volumes get coarse shadows, not no shadows.
-  // Finer cascades are around the camera, in shadowDistance. Each one is half the size of the next.
-  // Power-of-two voxels and snapped bounds keep shadows stable when the camera moves.
+  // NOTE Shadow grid cascades of the casters (core/frameGrid.js). Returns false with no casters.
   updateGrid(casters, camera) {
-    const resolution = this.gridUniforms.frameGridResolution.value;
-    const cascades = this.getCascadeCount();
-    const { frameGridMin, frameGridSize, frameGridVoxel, frameGridCount } = this.gridUniforms;
-
-    casterBox.makeEmpty();
-    casters.forEach(({ volume }) => casterBox.union(volume.worldBox));
-
-    if (casterBox.isEmpty()) {
-      return false;
-    }
-
-    vector3.setFromMatrixPosition(camera.matrixWorld);
-
-    const fineHalfSize = Math.min(
+    const { frameGridMin, frameGridSize, frameGridVoxel, frameGridCount, frameGridResolution } = this.gridUniforms;
+    const count = updateGridCascades(
+      casters,
+      camera,
       this.settings.shadowDistance,
-      0.5 *
-        Math.max(
-          casterBox.max.x - casterBox.min.x,
-          casterBox.max.y - casterBox.min.y,
-          casterBox.max.z - casterBox.min.z,
-        ),
+      frameGridResolution.value,
+      this.getCascadeCount(),
+      frameGridMin.value,
+      frameGridSize.value,
+      frameGridVoxel.value,
     );
 
-    let count = 0;
-
-    for (let cascade = 0; cascade < cascades; cascade++) {
-      if (cascade === cascades - 1) {
-        cascadeBox.copy(casterBox);
-      } else {
-        const halfSize = fineHalfSize / Math.pow(2.0, cascades - 1 - cascade);
-
-        cascadeBox.min.copy(vector3).subScalar(halfSize);
-        cascadeBox.max.copy(vector3).addScalar(halfSize);
-        cascadeBox.intersect(casterBox);
-      }
-
-      // NOTE A fine cascade that covers all casters is the same as the last cascade
-      if (cascadeBox.isEmpty() || (cascade < cascades - 1 && cascadeBox.equals(casterBox))) {
-        continue;
-      }
-
-      ['x', 'y', 'z'].forEach((axis) => {
-        const extent = Math.max(cascadeBox.max[axis] - cascadeBox.min[axis], 1e-6);
-        const voxel = Math.pow(2.0, Math.ceil(Math.log2(extent / (resolution - 1))));
-
-        frameGridVoxel.value[count][axis] = voxel;
-        frameGridMin.value[count][axis] = Math.floor(cascadeBox.min[axis] / voxel) * voxel;
-        frameGridSize.value[count][axis] = voxel * resolution;
-      });
-
-      count++;
+    if (count > 0) {
+      frameGridCount.value = count;
     }
-
-    frameGridCount.value = count;
 
     return count > 0;
   }
 
   // NOTE Voxel rectangle and atlas slices of the volume in one shadow grid cascade
   getGridRange(volume, cascade) {
-    const resolution = this.gridUniforms.frameGridResolution.value;
-    const gridMin = this.gridUniforms.frameGridMin.value[cascade];
-    const voxel = this.gridUniforms.frameGridVoxel.value[cascade];
-    const { min, max } = volume.worldBox;
+    const { frameGridMin, frameGridVoxel, frameGridResolution } = this.gridUniforms;
+    const found = getGridRange(
+      volume,
+      cascade,
+      frameGridResolution.value,
+      frameGridMin.value,
+      frameGridVoxel.value,
+      this.gridRange,
+    );
 
-    const toCell = (value, axis, round) => {
-      return Math.min(resolution, Math.max(0, round((value - gridMin[axis]) / voxel[axis])));
-    };
+    return found ? this.gridRange : null;
+  }
 
-    const x0 = toCell(min.x, 'x', Math.floor);
-    const y0 = toCell(min.y, 'y', Math.floor);
-    const z0 = toCell(min.z, 'z', Math.floor);
-    const x1 = toCell(max.x, 'x', Math.ceil);
-    const y1 = toCell(max.y, 'y', Math.ceil);
-    const z1 = toCell(max.z, 'z', Math.ceil);
-
-    if (x1 <= x0 || y1 <= y0 || z1 <= z0) {
-      return null;
+  // NOTE A pooled shadow light position of updateLightProxies. list.length is the used count.
+  getLightPosition(list) {
+    if (list.length === list.entries.length) {
+      list.entries.push(new Three.Vector4());
     }
 
-    return {
-      rect: new Three.Vector4(x0, y0, x1, y1),
-      first: cascade * resolution + z0,
-      count: z1 - z0,
-    };
+    return list.entries[list.length++];
   }
+
+  // NOTE traverseVisible callback of updateLightProxies. this.lightState holds the state of the current call.
+  visitLight = (light) => {
+    const state = this.lightState;
+
+    if (!light.isLight || !lightProxyFactories[light.type] || !light.layers.test(state.camera.layers)) {
+      return;
+    }
+
+    const index = state.used[light.type] || 0;
+    const proxy = this.getLightProxy(light.type, index);
+
+    state.used[light.type] = index + 1;
+
+    proxy.visible = true;
+    proxy.layers.mask = state.camera.layers.mask;
+    proxy.color.copy(light.color);
+    proxy.intensity = light.intensity;
+    proxy.matrixWorld.copy(light.matrixWorld);
+
+    if (light.target) {
+      proxy.target.matrixWorld.copy(light.target.matrixWorld);
+    }
+
+    if (light.isPointLight || light.isSpotLight) {
+      proxy.distance = light.distance;
+      proxy.decay = light.decay;
+    }
+
+    if (light.isSpotLight) {
+      proxy.angle = light.angle;
+      proxy.penumbra = light.penumbra;
+    }
+
+    if (light.isHemisphereLight) {
+      proxy.groundColor.copy(light.groundColor);
+
+      if (!state.hasSky) {
+        state.skyDirection.setFromMatrixPosition(light.matrixWorld);
+        state.hasSky = state.skyDirection.lengthSq() > 0.0;
+      }
+    }
+
+    if (light.isLightProbe) {
+      proxy.sh.copy(light.sh);
+    }
+
+    lightPosition.setFromMatrixPosition(light.matrixWorld);
+
+    if (light.isDirectionalLight) {
+      lightTarget.setFromMatrixPosition(light.target.matrixWorld);
+      lightPosition.sub(lightTarget).normalize();
+      this.getLightPosition(state.directions).set(lightPosition.x, lightPosition.y, lightPosition.z, 1.0);
+    } else if (light.isSpotLight) {
+      this.getLightPosition(state.spots).set(lightPosition.x, lightPosition.y, lightPosition.z, 2.0);
+    } else if (light.isPointLight) {
+      this.getLightPosition(state.points).set(lightPosition.x, lightPosition.y, lightPosition.z, 2.0);
+    }
+  };
 
   // NOTE The light scene has copies of the scene lights. Then three.js light uniforms work in its passes.
   // Shadow slots follow the order of the three.js light arrays: directional, point, spot.
+  // NOTE Returns this.lightResult, used again in the next call.
   updateLightProxies(scene, camera) {
-    const used = {};
-    const directions = [];
-    const points = [];
-    const spots = [];
-    const skyDirection = new Three.Vector3(0.0, 1.0, 0.0);
-    let hasSky = false;
+    const state = this.lightState;
+    const { used, directions, points, spots, skyDirection } = state;
 
-    scene.traverseVisible((light) => {
-      if (!light.isLight || !lightProxyFactories[light.type] || !light.layers.test(camera.layers)) {
-        return;
+    for (const type in used) {
+      used[type] = 0;
+    }
+
+    state.camera = camera;
+    state.hasSky = false;
+    directions.length = 0;
+    points.length = 0;
+    spots.length = 0;
+    skyDirection.set(0.0, 1.0, 0.0);
+
+    scene.traverseVisible(this.visitLight);
+    state.camera = null;
+
+    for (const type in this.lightProxies) {
+      const proxies = this.lightProxies[type];
+
+      for (let index = used[type] || 0; index < proxies.length; index++) {
+        proxies[index].visible = false;
       }
+    }
 
-      const index = used[light.type] || 0;
-      const proxy = this.getLightProxy(light.type, index);
-
-      used[light.type] = index + 1;
-
-      proxy.visible = true;
-      proxy.layers.mask = camera.layers.mask;
-      proxy.color.copy(light.color);
-      proxy.intensity = light.intensity;
-      proxy.matrixWorld.copy(light.matrixWorld);
-
-      if (light.target) {
-        proxy.target.matrixWorld.copy(light.target.matrixWorld);
-      }
-
-      if (light.isPointLight || light.isSpotLight) {
-        proxy.distance = light.distance;
-        proxy.decay = light.decay;
-      }
-
-      if (light.isSpotLight) {
-        proxy.angle = light.angle;
-        proxy.penumbra = light.penumbra;
-      }
-
-      if (light.isHemisphereLight) {
-        proxy.groundColor.copy(light.groundColor);
-
-        if (!hasSky) {
-          skyDirection.setFromMatrixPosition(light.matrixWorld);
-          hasSky = skyDirection.lengthSq() > 0.0;
-        }
-      }
-
-      if (light.isLightProbe) {
-        proxy.sh.copy(light.sh);
-      }
-
-      const position = new Three.Vector3().setFromMatrixPosition(light.matrixWorld);
-
-      if (light.isDirectionalLight) {
-        const target = new Three.Vector3().setFromMatrixPosition(light.target.matrixWorld);
-
-        directions.push(
-          new Three.Vector4().set(...position.sub(target).normalize().toArray(), 1.0),
-        );
-      } else if (light.isSpotLight) {
-        spots.push(new Three.Vector4().set(...position.toArray(), 2.0));
-      } else if (light.isPointLight) {
-        points.push(new Three.Vector4().set(...position.toArray(), 2.0));
-      }
-    });
-
-    Object.entries(this.lightProxies).forEach(([type, proxies]) => {
-      proxies.forEach((proxy, index) => {
-        if (index >= (used[type] || 0)) {
-          proxy.visible = false;
-        }
-      });
-    });
-
-    if (!hasSky) {
+    if (!state.hasSky) {
       skyDirection.set(0.0, 1.0, 0.0);
     }
 
@@ -1627,41 +1567,65 @@ export class FrameRenderer {
 
     // NOTE 'frame' lighting. Scene lights take the first shadow slots.
     // NOTE The dominant 'directional' environment light (light 0) takes the next free slot. Other environment lights go to the environment grid.
-    const sceneShadowLights = [...directions, ...points, ...spots].slice(0, frameShadowLightSlots);
+    const result = this.lightResult;
+    const { shadowLights, environmentGridLights } = result;
+
+    shadowLights.length = 0;
+    for (let i = 0; i < directions.length && shadowLights.length < frameShadowLightSlots; i++) {
+      shadowLights.push(directions.entries[i]);
+    }
+
+    for (let i = 0; i < points.length && shadowLights.length < frameShadowLightSlots; i++) {
+      shadowLights.push(points.entries[i]);
+    }
+
+    for (let i = 0; i < spots.length && shadowLights.length < frameShadowLightSlots; i++) {
+      shadowLights.push(spots.entries[i]);
+    }
+
+    const sceneShadowCount = shadowLights.length;
     const frameLighting = this.isFrameLighting() && environmentCount > 0;
     const environmentLightCount =
       frameLighting &&
       environment.mode === frameEnvironmentModes.directional &&
-      sceneShadowLights.length < frameShadowLightSlots &&
+      sceneShadowCount < frameShadowLightSlots &&
       // NOTE Diffusion: all environment lights use the environment grid. Then both lights of an opposite pair get the same march.
       !isFrameDiffusion(this.settings.multipleScattering)
         ? 1
         : 0;
-    const environmentGridLights = [];
 
+    if (environmentLightCount > 0) {
+      shadowLights.push(this.environmentShadowLight.fromArray(environment.directions[0]).setW(1.0));
+    }
+
+    environmentGridLights.length = 0;
     frameEnvironmentUnshadowed.value.set(0.0, 0.0, 0.0);
 
     if (frameLighting) {
       for (let i = environmentLightCount; i < environmentCount; i++) {
-        environmentGridLights.push({ direction: environment.directions[i], color: environment.colors[i] });
+        const entries = this.environmentGridLightEntries;
+        const index = environmentGridLights.length;
+
+        if (index === entries.length) {
+          entries.push({ direction: null, color: null });
+        }
+
+        entries[index].direction = environment.directions[i];
+        entries[index].color = environment.colors[i];
+        environmentGridLights.push(entries[index]);
         frameEnvironmentUnshadowed.value.add(frameEnvironmentColors.value[i]);
       }
     }
 
     frameEnvironmentUnshadowed.value.max(vector3.set(0.0, 0.0, 0.0));
 
-    return {
-      skyDirection: skyDirection.normalize(),
-      shadowLights:
-        environmentLightCount > 0
-          ? [...sceneShadowLights, new Three.Vector4(...environment.directions[0], 1.0)]
-          : sceneShadowLights,
-      pointOffset: directions.length,
-      spotOffset: directions.length + points.length,
-      environmentLightCount,
-      environmentShadowSlot: sceneShadowLights.length,
-      environmentGridLights,
-    };
+    result.skyDirection.copy(skyDirection).normalize();
+    result.pointOffset = directions.length;
+    result.spotOffset = directions.length + points.length;
+    result.environmentLightCount = environmentLightCount;
+    result.environmentShadowSlot = sceneShadowCount;
+
+    return result;
   }
 
   getLightProxy(type, index) {
