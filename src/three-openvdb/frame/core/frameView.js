@@ -3,11 +3,120 @@ import * as Three from 'three';
 // NOTE View code of the frame renderer that is the same for all backends. It makes no objects in each frame.
 
 const unitBox = new Three.Box3(new Three.Vector3(-0.5, -0.5, -0.5), new Three.Vector3(0.5, 0.5, 0.5));
-const viewBox = new Three.Box3();
 const frustum = new Three.Frustum();
 const projectionScreenMatrix = new Three.Matrix4();
 const clipMatrix = new Three.Matrix4();
 const corner = new Three.Vector4();
+const viewFrustum = new Three.Frustum();
+const boxCorners = Array.from({ length: 8 }, () => new Three.Vector3());
+const clipPolygons = [
+  Array.from({ length: 12 }, () => new Three.Vector3()),
+  Array.from({ length: 12 }, () => new Three.Vector3()),
+];
+const clipDepths = { near: 0.0, far: 0.0 };
+const frustumCorners = Array.from({ length: 8 }, () => new Three.Vector3());
+const localCorner = new Three.Vector3();
+const crossA = new Three.Vector3();
+const crossB = new Three.Vector3();
+const crossC = new Three.Vector3();
+
+// NOTE Point where three planes meet (normal . p + constant = 0 for each). Writes target.
+const intersectPlanes = (a, b, c, target) => {
+  crossA.crossVectors(b.normal, c.normal);
+  crossB.crossVectors(c.normal, a.normal);
+  crossC.crossVectors(a.normal, b.normal);
+
+  return target
+    .copy(crossA)
+    .multiplyScalar(-a.constant)
+    .addScaledVector(crossB, -b.constant)
+    .addScaledVector(crossC, -c.constant)
+    .divideScalar(a.normal.dot(crossA));
+};
+
+// NOTE Corners of the view space frustum. The planes of Three.Frustum are in pairs: x (0, 1), y (2, 3) and z (4, 5).
+const setFrustumCorners = (planes) => {
+  for (let i = 0; i < 8; i++) {
+    intersectPlanes(planes[i & 1], planes[2 + ((i >> 1) & 1)], planes[4 + ((i >> 2) & 1)], frustumCorners[i]);
+  }
+};
+
+// NOTE Corners of each face of the unit box, in order around the face (corner bits: 1 x, 2 y, 4 z)
+const boxFaces = [
+  [0, 2, 6, 4],
+  [1, 3, 7, 5],
+  [0, 1, 5, 4],
+  [2, 3, 7, 6],
+  [0, 1, 3, 2],
+  [4, 5, 7, 6],
+];
+
+const setBoxCorners = (localToView) => {
+  for (let i = 0; i < 8; i++) {
+    boxCorners[i].set(i & 1 ? 0.5 : -0.5, i & 2 ? 0.5 : -0.5, i & 4 ? 0.5 : -0.5).applyMatrix4(localToView);
+  }
+};
+
+// NOTE View depth range of the part of the box (setBoxCorners) inside the view space frustum (setFrustumCorners). The
+// faces of the box are clipped to the planes, so a box that reaches behind the camera or past the side of the view does
+// not widen the range. The frustum corners inside the box are the other corners of that part: with the camera in the
+// box the range starts at the near plane. Writes clipDepths and returns false when no part of the box is in the frustum.
+const getClippedDepths = (clipFrustum, viewToLocal) => {
+  let near = Infinity;
+  let far = -Infinity;
+
+  for (let i = 0; i < 8; i++) {
+    localCorner.copy(frustumCorners[i]).applyMatrix4(viewToLocal);
+
+    if (unitBox.containsPoint(localCorner)) {
+      near = Math.min(near, -frustumCorners[i].z);
+      far = Math.max(far, -frustumCorners[i].z);
+    }
+  }
+
+  for (let f = 0; f < 6; f++) {
+    let input = clipPolygons[0];
+    let output = clipPolygons[1];
+    let count = 4;
+
+    for (let i = 0; i < 4; i++) {
+      input[i].copy(boxCorners[boxFaces[f][i]]);
+    }
+
+    for (let p = 0; p < 6 && count > 0; p++) {
+      const plane = clipFrustum.planes[p];
+      let outputCount = 0;
+
+      for (let i = 0; i < count; i++) {
+        const a = input[i];
+        const b = input[(i + 1) % count];
+        const da = plane.distanceToPoint(a);
+        const db = plane.distanceToPoint(b);
+
+        if (da >= 0.0) {
+          output[outputCount++].copy(a);
+        }
+
+        if (da >= 0.0 !== db >= 0.0) {
+          output[outputCount++].lerpVectors(a, b, da / (da - db));
+        }
+      }
+
+      count = outputCount;
+      [input, output] = [output, input];
+    }
+
+    for (let i = 0; i < count; i++) {
+      near = Math.min(near, -input[i].z);
+      far = Math.max(far, -input[i].z);
+    }
+  }
+
+  clipDepths.near = near;
+  clipDepths.far = far;
+
+  return near <= far;
+};
 
 // NOTE Finds the ready volumes of the visible FrameVolumes. volumes: in the view. casters: all, when useGrid is true.
 // NOTE The entries ({ frameVolume, volume }) and the arrays are used again in the next collect().
@@ -77,10 +186,14 @@ export class FrameVolumeCollector {
 
     volume.localToView.multiplyMatrices(camera.matrixWorldInverse, volume.matrixWorld);
     volume.viewToLocal.copy(volume.localToView).invert();
-    viewBox.copy(unitBox).applyMatrix4(volume.localToView);
+    setBoxCorners(volume.localToView);
 
-    volume.viewNear = -viewBox.max.z;
-    volume.viewFar = -viewBox.min.z;
+    if (!getClippedDepths(viewFrustum, volume.viewToLocal)) {
+      return;
+    }
+
+    volume.viewNear = clipDepths.near;
+    volume.viewFar = clipDepths.far;
 
     this.near = Math.min(this.near, volume.viewNear);
     this.far = Math.max(this.far, volume.viewFar);
@@ -102,6 +215,8 @@ export class FrameVolumeCollector {
 
     projectionScreenMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     frustum.setFromProjectionMatrix(projectionScreenMatrix);
+    viewFrustum.setFromProjectionMatrix(camera.projectionMatrix, camera.coordinateSystem, camera.reversedDepth);
+    setFrustumCorners(viewFrustum.planes);
 
     scene.traverseVisible(this.visitObject);
 
