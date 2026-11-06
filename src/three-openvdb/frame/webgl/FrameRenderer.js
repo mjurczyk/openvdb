@@ -697,6 +697,18 @@ export class FrameRenderer {
     this.temporalMaterial.setSpectral(spectral);
     this.integrateMaterial.setSpectral(spectral);
 
+    const { froxelGrid, froxelColumns } = this.froxelUniforms;
+
+    // NOTE A new grid layout makes the history unusable, also when the atlas keeps its size (600 x 400 to 400 x 600)
+    if (
+      froxelGrid.value.x !== width ||
+      froxelGrid.value.y !== height ||
+      froxelGrid.value.z !== depth ||
+      froxelColumns.value !== froxelAtlas.columns
+    ) {
+      this.historyValid = false;
+    }
+
     this.froxelUniforms.froxelGrid.value.set(width, height, depth);
     this.froxelUniforms.froxelColumns.value = froxelAtlas.columns;
     this.froxelUniforms.froxelSubSteps.value = Math.max(1, Math.round(subSteps));
