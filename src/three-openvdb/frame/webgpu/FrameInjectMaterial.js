@@ -29,6 +29,8 @@ import {
   frameFragCoord,
   frameGetFroxel,
   getFroxelLod,
+  getSampledLod,
+  getBoxSteps,
   frameNoise,
   frameFullscreenVertex,
   frameShadowAbsorption,
@@ -181,9 +183,13 @@ export class FrameInjectMaterial extends FrameEnvironmentMaterial {
         Discard();
       });
 
-      const subStepCount = float(froxelSubSteps);
-      const subStepLength = length(viewFar.sub(viewNear)).div(subStepCount).toVar();
-      const lod = getFroxelLod(froxelUniforms, froxel, volume, subStepLength, frameWorldScale);
+      const segment = boxSegment.y.sub(boxSegment.x).toVar();
+      const widthLod = getFroxelLod(froxelUniforms, froxel, volume, float(0.0), frameWorldScale);
+      const sampledLod = getSampledLod(volumeUniforms, widthLod, this.mipmaps);
+      const steps = getBoxSteps(volume, localNear, localFar, segment, sampledLod, froxelSubSteps);
+      const subStepCount = float(steps);
+      const subStepLength = length(viewFar.sub(viewNear)).mul(segment).div(subStepCount).toVar();
+      const lod = max(widthLod, volume.getLod(subStepLength.div(frameWorldScale))).toVar();
 
       // NOTE Pre-integrate the slice along the view ray. Light the visibility-weighted mean position, not the froxel center.
       // NOTE Spectral: transmittance of each channel. The visible position uses the mean of the channels.
@@ -192,24 +198,21 @@ export class FrameInjectMaterial extends FrameEnvironmentMaterial {
       const visibleTSum = float(0.0).toVar();
       const jitter = frameNoise(frameJitter, fragCoord).toVar();
 
-      Loop(froxelSubSteps, ({ i }) => {
-        const t = float(i).add(jitter).div(subStepCount).toVar();
+      Loop({ start: int(0), end: steps, type: 'int', condition: '<' }, ({ i }) => {
+        const t = boxSegment.x.add(segment.mul(float(i).add(jitter).div(subStepCount))).toVar();
+        const opticalDepth = volume
+          .sampleExtinction(mix(localNear, localFar, t), lod)
+          .mul(frameOpacity)
+          .mul(subStepLength);
+        const stepTransmittance = exp(
+          (spectral ? frameExtinctionSpectrum.mul(opticalDepth) : opticalDepth).negate(),
+        ).toVar();
+        const stepWeight = transmittance.mul(float(1.0).sub(stepTransmittance));
+        const weight = (spectral ? frameMeanComponent(stepWeight) : stepWeight).toVar();
 
-        If(t.greaterThanEqual(boxSegment.x).and(t.lessThanEqual(boxSegment.y)), () => {
-          const opticalDepth = volume
-            .sampleExtinction(mix(localNear, localFar, t), lod)
-            .mul(frameOpacity)
-            .mul(subStepLength);
-          const stepTransmittance = exp(
-            (spectral ? frameExtinctionSpectrum.mul(opticalDepth) : opticalDepth).negate(),
-          ).toVar();
-          const stepWeight = transmittance.mul(float(1.0).sub(stepTransmittance));
-          const weight = (spectral ? frameMeanComponent(stepWeight) : stepWeight).toVar();
-
-          visibleWeight.addAssign(weight);
-          visibleTSum.addAssign(weight.mul(t));
-          transmittance.mulAssign(stepTransmittance);
-        });
+        visibleWeight.addAssign(weight);
+        visibleTSum.addAssign(weight.mul(t));
+        transmittance.mulAssign(stepTransmittance);
       });
 
       const alpha = (spectral ? vec3(1.0) : float(1.0)).sub(transmittance).toVar();
