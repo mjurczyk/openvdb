@@ -21,11 +21,14 @@ import {
   normalize,
   mat3,
   min,
+  max,
 } from 'three/tsl';
 import {
   frameFragCoord,
   frameGetFroxel,
   getFroxelLod,
+  getSampledLod,
+  getBoxSteps,
   frameNoise,
   frameTileVertex,
   createVolumeUniforms,
@@ -177,9 +180,13 @@ export class FrameDensityMaterial extends FrameEnvironmentMaterial {
         Discard();
       });
 
-      const subStepCount = float(froxelSubSteps);
-      const subStepLength = length(viewFar.sub(viewNear)).div(subStepCount).toVar();
-      const lod = getFroxelLod(froxelUniforms, froxel, volume, subStepLength, frameWorldScale);
+      const segment = boxSegment.y.sub(boxSegment.x).toVar();
+      const widthLod = getFroxelLod(froxelUniforms, froxel, volume, float(0.0), frameWorldScale);
+      const sampledLod = getSampledLod(this.volumeUniforms, widthLod, this.mipmaps);
+      const steps = getBoxSteps(volume, localNear, localFar, segment, sampledLod, froxelSubSteps);
+      const subStepCount = float(steps);
+      const subStepLength = length(viewFar.sub(viewNear)).mul(segment).div(subStepCount).toVar();
+      const lod = max(widthLod, volume.getLod(subStepLength.div(frameWorldScale))).toVar();
 
       // NOTE Mean extinction of the slice. The visibility-weighted mean position is the light position in the lighting pass.
       const extinctionSum = float(0.0).toVar();
@@ -188,25 +195,23 @@ export class FrameDensityMaterial extends FrameEnvironmentMaterial {
       const visibleTSum = float(0.0).toVar();
       const jitter = frameNoise(frameJitter, fragCoord).toVar();
 
-      Loop(froxelSubSteps, ({ i }) => {
-        const t = float(i).add(jitter).div(subStepCount).toVar();
+      Loop({ start: int(0), end: steps, type: 'int', condition: '<' }, ({ i }) => {
+        const t = boxSegment.x.add(segment.mul(float(i).add(jitter).div(subStepCount))).toVar();
+        const extinction = volume
+          .sampleExtinction(mix(localNear, localFar, t), lod)
+          .mul(frameOpacity)
+          .toVar();
+        const stepTransmittance = exp(extinction.mul(subStepLength).negate()).toVar();
+        const weight = transmittance.mul(float(1.0).sub(stepTransmittance)).toVar();
 
-        If(t.greaterThanEqual(boxSegment.x).and(t.lessThanEqual(boxSegment.y)), () => {
-          const extinction = volume
-            .sampleExtinction(mix(localNear, localFar, t), lod)
-            .mul(frameOpacity)
-            .toVar();
-          const stepTransmittance = exp(extinction.mul(subStepLength).negate()).toVar();
-          const weight = transmittance.mul(float(1.0).sub(stepTransmittance)).toVar();
-
-          visibleWeight.addAssign(weight);
-          visibleTSum.addAssign(weight.mul(t));
-          extinctionSum.addAssign(extinction);
-          transmittance.mulAssign(stepTransmittance);
-        });
+        visibleWeight.addAssign(weight);
+        visibleTSum.addAssign(weight.mul(t));
+        extinctionSum.addAssign(extinction);
+        transmittance.mulAssign(stepTransmittance);
       });
 
-      const extinction = extinctionSum.div(subStepCount).toVar();
+      // NOTE The mean over the whole slice: the box part's mean, weighted by its share of the slice
+      const extinction = extinctionSum.div(subStepCount).mul(segment).toVar();
 
       If(extinction.lessThanEqual(0.0), () => {
         Discard();
@@ -394,9 +399,13 @@ export class FrameDensityMaterial extends FrameEnvironmentMaterial {
         Discard();
       });
 
-      const subStepCount = float(froxelSubSteps);
-      const subStepLength = length(viewFar.sub(viewNear)).div(subStepCount).toVar();
-      const lod = getFroxelLod(froxelUniforms, froxel, volume, subStepLength, frameWorldScale);
+      const segment = boxSegment.y.sub(boxSegment.x).toVar();
+      const widthLod = getFroxelLod(froxelUniforms, froxel, volume, float(0.0), frameWorldScale);
+      const sampledLod = getSampledLod(this.volumeUniforms, widthLod, this.mipmaps);
+      const steps = getBoxSteps(volume, localNear, localFar, segment, sampledLod, froxelSubSteps);
+      const subStepCount = float(steps);
+      const subStepLength = length(viewFar.sub(viewNear)).mul(segment).div(subStepCount).toVar();
+      const lod = max(widthLod, volume.getLod(subStepLength.div(frameWorldScale))).toVar();
 
       // NOTE The visible position uses the mean transmittance of the channels
       const extinctionSum = float(0.0).toVar();
@@ -405,29 +414,27 @@ export class FrameDensityMaterial extends FrameEnvironmentMaterial {
       const visibleTSum = float(0.0).toVar();
       const jitter = frameNoise(frameJitter, fragCoord).toVar();
 
-      Loop(froxelSubSteps, ({ i }) => {
-        const t = float(i).add(jitter).div(subStepCount).toVar();
+      Loop({ start: int(0), end: steps, type: 'int', condition: '<' }, ({ i }) => {
+        const t = boxSegment.x.add(segment.mul(float(i).add(jitter).div(subStepCount))).toVar();
+        const extinction = volume
+          .sampleExtinction(mix(localNear, localFar, t), lod)
+          .mul(frameOpacity)
+          .toVar();
+        const stepTransmittance = exp(
+          frameExtinctionSpectrum.mul(extinction).mul(subStepLength).negate(),
+        ).toVar();
+        const weight = frameMeanComponent(
+          transmittance.mul(float(1.0).sub(stepTransmittance)),
+        ).toVar();
 
-        If(t.greaterThanEqual(boxSegment.x).and(t.lessThanEqual(boxSegment.y)), () => {
-          const extinction = volume
-            .sampleExtinction(mix(localNear, localFar, t), lod)
-            .mul(frameOpacity)
-            .toVar();
-          const stepTransmittance = exp(
-            frameExtinctionSpectrum.mul(extinction).mul(subStepLength).negate(),
-          ).toVar();
-          const weight = frameMeanComponent(
-            transmittance.mul(float(1.0).sub(stepTransmittance)),
-          ).toVar();
-
-          visibleWeight.addAssign(weight);
-          visibleTSum.addAssign(weight.mul(t));
-          extinctionSum.addAssign(extinction);
-          transmittance.mulAssign(stepTransmittance);
-        });
+        visibleWeight.addAssign(weight);
+        visibleTSum.addAssign(weight.mul(t));
+        extinctionSum.addAssign(extinction);
+        transmittance.mulAssign(stepTransmittance);
       });
 
-      const extinction = frameExtinctionSpectrum.mul(extinctionSum.div(subStepCount)).toVar();
+      // NOTE The mean over the whole slice: the box part's mean, weighted by its share of the slice
+      const extinction = frameExtinctionSpectrum.mul(extinctionSum.div(subStepCount).mul(segment)).toVar();
       const weight = frameMeanComponent(extinction).toVar();
 
       If(weight.lessThanEqual(0.0), () => {

@@ -236,13 +236,16 @@ const fragmentShader = `
     }
 
     // NOTE Pick the mip level from the froxel width or the sub-step length, the larger one
-    float subStepLength = length(viewFar - viewNear) / float(froxelSubSteps);
+    float segment = boxSegment.y - boxSegment.x;
     float sliceMiddle = (sliceNear + sliceFar) * 0.5;
     float froxelWidth = length(
       frameGetViewPosition(uv + vec2(1.0 / froxelGrid.x, 0.0), sliceMiddle) -
       frameGetViewPosition(uv, sliceMiddle)
     );
-    float lod = frameLod(max(froxelWidth, subStepLength) / frameWorldScale);
+    float widthLod = frameLod(froxelWidth / frameWorldScale);
+    int steps = frameBoxSteps(localNear, localFar, segment, widthLod, froxelSubSteps);
+    float subStepLength = length(viewFar - viewNear) * segment / float(steps);
+    float lod = max(widthLod, frameLod(subStepLength / frameWorldScale));
 
     // NOTE Pre-integrate the slice along the view ray. Light the visibility-weighted mean position, not the froxel center.
     // NOTE Spectral: transmittance of each channel. The visible position uses the mean of the channels.
@@ -251,13 +254,8 @@ const fragmentShader = `
     float visibleTSum = 0.0;
     float jitter = frameNoise(gl_FragCoord.xy);
 
-    for (int i = 0; i < froxelSubSteps; i++) {
-      float t = (float(i) + jitter) / float(froxelSubSteps);
-
-      if (t < boxSegment.x || t > boxSegment.y) {
-        continue;
-      }
-
+    for (int i = 0; i < steps; i++) {
+      float t = boxSegment.x + segment * (float(i) + jitter) / float(steps);
       vec3 probe = mix(localNear, localFar, t);
       float opticalDepth = frameSampleExtinction(probe, lod) * frameOpacity * subStepLength;
       #ifdef FRAME_SPECTRAL

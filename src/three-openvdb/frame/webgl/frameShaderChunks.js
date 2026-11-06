@@ -462,6 +462,8 @@ export const volumePars = `
   uniform bool frameUseEmissiveMap;
   uniform bool frameUseBaseColorMap;
   uniform bool frameUseMaskMap;
+  // NOTE Whether the density and mask textures have mipmaps. Without them textureLod reads level 0 at any lod.
+  uniform bool frameMipmaps;
 
   uniform vec3 frameBaseColor;
   uniform vec3 frameScatterColor;
@@ -503,6 +505,15 @@ export const volumePars = `
     vec3 texels = vec3(textureSize(frameDensityMap, 0));
 
     return max(0.0, log2(localSize * max(texels.x, max(texels.y, texels.z))));
+  }
+
+  // NOTE Sub-steps for the part of a slice inside the volume box: two for each voxel of the mip level that is read, at
+  // most maxSteps. That level is the froxel width's with mipmaps and 0 without, as textureLod then reads level 0.
+  int frameBoxSteps(vec3 localNear, vec3 localFar, float segment, float widthLod, int maxSteps) {
+    float sampledLod = frameMipmaps ? widthLod : 0.0;
+    float steps = ceil(exp2(frameLod(length(localFar - localNear) * segment) - sampledLod) * 2.0);
+
+    return int(clamp(steps, 1.0, float(maxSteps)));
   }
 
   // NOTE Returns extinction for each world unit
@@ -819,6 +830,7 @@ export const createVolumeUniforms = () => ({
   frameUseEmissiveMap: { value: false },
   frameUseBaseColorMap: { value: false },
   frameUseMaskMap: { value: false },
+  frameMipmaps: { value: false },
   frameBaseColor: { value: new Three.Color(0xffffff) },
   frameScatterColor: { value: new Three.Color(0x000000) },
   frameExtinction: { value: 100.0 },
@@ -849,6 +861,10 @@ export const setVolumeUniforms = (uniforms, frameVolume, volume) => {
   uniforms.frameUseEmissiveMap.value = !!volume.emissiveMap3D;
   uniforms.frameUseBaseColorMap.value = !!volume.baseColorMap3D;
   uniforms.frameUseMaskMap.value = !!volume.maskMap3D;
+  // NOTE Read from the textures, since frameVolume.mipmaps only reaches them in updateMipmaps
+  uniforms.frameMipmaps.value =
+    !!volume.densityMap3D?.generateMipmaps &&
+    (!volume.maskMap3D || volume.maskMap3D.generateMipmaps);
   uniforms.frameBaseColor.value.copy(frameVolume.baseColor);
   uniforms.frameScatterColor.value.copy(frameVolume.scatterColor);
   uniforms.frameExtinction.value = frameVolume.extinction;

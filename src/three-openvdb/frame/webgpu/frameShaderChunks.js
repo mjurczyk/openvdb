@@ -127,6 +127,29 @@ export const getFroxelLod = (froxel, cell, volume, subStepLength, worldScale) =>
   return volume.getLod(max(froxelWidth, subStepLength).div(worldScale)).toVar();
 };
 
+// NOTE The mip level the extinction is read from for this froxel width: level 0 without mipmaps, and no level past the
+// ones the density grid and the mask grid have, which are 0 while their mipmaps are not built yet.
+export const getSampledLod = (volumeUniforms, widthLod, mipmaps) => {
+  if (!mipmaps) {
+    return float(0.0);
+  }
+
+  const { frameDensityMipLevels, frameMaskMipLevels, frameUseMaskMap } = volumeUniforms;
+  const maskLevels = select(frameUseMaskMap.equal(1), frameMaskMipLevels, widthLod);
+
+  return min(widthLod, min(frameDensityMipLevels, maskLevels));
+};
+
+// NOTE Sub-steps for the part of a slice inside the volume box: two for each voxel of the mip level that is read, at
+// most froxelSubSteps. A thin slice or a far volume needs fewer than froxelSubSteps, and the steps outside the box are
+// not taken at all.
+export const getBoxSteps = (volume, localNear, localFar, segment, sampledLod, froxelSubSteps) => {
+  const boxLength = localFar.sub(localNear).length().mul(segment);
+  const steps = ceil(exp2(volume.getLod(boxLength).sub(sampledLod)).mul(2.0));
+
+  return int(clamp(steps, 1.0, float(froxelSubSteps))).toVar();
+};
+
 // NOTE Per-pixel noise that changes each frame. Jitter turns banding into noise, temporal accumulation removes the noise.
 // Interleaved gradient noise - https://www.iryoku.com/next-generation-post-processing-in-call-of-duty-advanced-warfare
 // NOTE Returns 0.5 when jitter is off (frameJitter is negative).

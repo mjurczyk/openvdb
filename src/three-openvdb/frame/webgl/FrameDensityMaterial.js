@@ -96,13 +96,16 @@ const fragmentShader = `
       }
 
       // NOTE Pick the mip level from the froxel width or the sub-step length, the larger one
-      float subStepLength = length(viewFar - viewNear) / float(froxelSubSteps);
+      float segment = boxSegment.y - boxSegment.x;
       float sliceMiddle = (sliceNear + sliceFar) * 0.5;
       float froxelWidth = length(
         frameGetViewPosition(uv + vec2(1.0 / froxelGrid.x, 0.0), sliceMiddle) -
         frameGetViewPosition(uv, sliceMiddle)
       );
-      float lod = frameLod(max(froxelWidth, subStepLength) / frameWorldScale);
+      float widthLod = frameLod(froxelWidth / frameWorldScale);
+      int steps = frameBoxSteps(localNear, localFar, segment, widthLod, froxelSubSteps);
+      float subStepLength = length(viewFar - viewNear) * segment / float(steps);
+      float lod = max(widthLod, frameLod(subStepLength / frameWorldScale));
 
       // NOTE The visible position uses the mean transmittance of the channels
       float extinctionSum = 0.0;
@@ -111,13 +114,8 @@ const fragmentShader = `
       float visibleTSum = 0.0;
       float jitter = frameNoise(gl_FragCoord.xy);
 
-      for (int i = 0; i < froxelSubSteps; i++) {
-        float t = (float(i) + jitter) / float(froxelSubSteps);
-
-        if (t < boxSegment.x || t > boxSegment.y) {
-          continue;
-        }
-
+      for (int i = 0; i < steps; i++) {
+        float t = boxSegment.x + segment * (float(i) + jitter) / float(steps);
         float extinction = frameSampleExtinction(mix(localNear, localFar, t), lod) * frameOpacity;
         vec3 stepTransmittance = exp(-frameExtinctionSpectrum * extinction * subStepLength);
         float weight = frameMeanComponent(transmittance * (1.0 - stepTransmittance));
@@ -128,7 +126,8 @@ const fragmentShader = `
         transmittance *= stepTransmittance;
       }
 
-      vec3 extinction = frameExtinctionSpectrum * (extinctionSum / float(froxelSubSteps));
+      // NOTE The mean over the whole slice: the box part's mean, weighted by its share of the slice
+      vec3 extinction = frameExtinctionSpectrum * (extinctionSum / float(steps) * segment);
       float weight = frameMeanComponent(extinction);
 
       if (weight <= 0.0) {
@@ -224,13 +223,16 @@ const fragmentShader = `
       }
 
       // NOTE Pick the mip level from the froxel width or the sub-step length, the larger one
-      float subStepLength = length(viewFar - viewNear) / float(froxelSubSteps);
+      float segment = boxSegment.y - boxSegment.x;
       float sliceMiddle = (sliceNear + sliceFar) * 0.5;
       float froxelWidth = length(
         frameGetViewPosition(uv + vec2(1.0 / froxelGrid.x, 0.0), sliceMiddle) -
         frameGetViewPosition(uv, sliceMiddle)
       );
-      float lod = frameLod(max(froxelWidth, subStepLength) / frameWorldScale);
+      float widthLod = frameLod(froxelWidth / frameWorldScale);
+      int steps = frameBoxSteps(localNear, localFar, segment, widthLod, froxelSubSteps);
+      float subStepLength = length(viewFar - viewNear) * segment / float(steps);
+      float lod = max(widthLod, frameLod(subStepLength / frameWorldScale));
 
       // NOTE Mean extinction of the slice. The visibility-weighted mean position is the light position in the lighting pass.
       float extinctionSum = 0.0;
@@ -239,13 +241,8 @@ const fragmentShader = `
       float visibleTSum = 0.0;
       float jitter = frameNoise(gl_FragCoord.xy);
 
-      for (int i = 0; i < froxelSubSteps; i++) {
-        float t = (float(i) + jitter) / float(froxelSubSteps);
-
-        if (t < boxSegment.x || t > boxSegment.y) {
-          continue;
-        }
-
+      for (int i = 0; i < steps; i++) {
+        float t = boxSegment.x + segment * (float(i) + jitter) / float(steps);
         float extinction = frameSampleExtinction(mix(localNear, localFar, t), lod) * frameOpacity;
         float stepTransmittance = exp(-extinction * subStepLength);
         float weight = transmittance * (1.0 - stepTransmittance);
@@ -256,7 +253,8 @@ const fragmentShader = `
         transmittance *= stepTransmittance;
       }
 
-      float extinction = extinctionSum / float(froxelSubSteps);
+      // NOTE The mean over the whole slice: the box part's mean, weighted by its share of the slice
+      float extinction = extinctionSum / float(steps) * segment;
 
       if (extinction <= 0.0) {
         discard;
