@@ -38,6 +38,10 @@ const init = () => {
   renderer.shadowMap.enabled = true;
 
   controls = new OrbitControls(camera, renderer.domElement);
+  // NOTE Without damping the camera moves on each pointer event, and on a high refresh display some frames get two
+  // events and some none: the background steps. With damping the motion is spread over the frames by controls.update().
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.15;
   document.body.appendChild(renderer.domElement);
 
   window.addEventListener('resize', () => {
@@ -50,8 +54,9 @@ const init = () => {
 
 const animate = () => {
   stats.begin();
-  
-  renderer.render(scene, camera); 
+
+  controls.update();
+  renderer.render(scene, camera);
   readFurnace(renderer);
 
   stats.end();
