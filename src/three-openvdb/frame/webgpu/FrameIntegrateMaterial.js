@@ -26,13 +26,9 @@ import {
   pow,
   max,
   vec4,
+  positionGeometry,
 } from 'three/tsl';
-import {
-  frameSample,
-  frameSliceDepth,
-  frameFullscreenVertex,
-  maxComponent,
-} from './frameShaderChunks.js';
+import { frameSample, frameSliceDepth, maxComponent } from './frameShaderChunks.js';
 
 const maxSlices = 1024;
 
@@ -50,11 +46,19 @@ export class FrameIntegrateMaterial extends Three.NodeMaterial {
     this.frameCameraNear = uniform(0.1);
     this.frameCameraFar = uniform(1000.0);
     this.frameCameraOrthographic = uniform(0, 'int');
+    // NOTE Screen rectangle (clip x0, y0, x1, y1) and slices (first, end) of the froxel area. Other froxels are empty.
+    this.frameScreenRect = uniform(new Three.Vector4(-1.0, -1.0, 1.0, 1.0));
+    this.frameSliceRange = uniform(new Three.Vector2(0.0, 1.0));
     this.froxelUniforms = froxelUniforms;
     this.srgbBlending = null;
     this.srgbClamp = null;
 
-    this.vertexNode = frameFullscreenVertex;
+    // NOTE A quad over the screen rectangle of the froxel area (FrameVolume proxy geometry)
+    this.vertexNode = vec4(
+      mix(this.frameScreenRect.xy, this.frameScreenRect.zw, positionGeometry.xy.mul(0.5).add(0.5)),
+      0.0,
+      1.0,
+    );
     this.setSrgbBlending(true, true);
 
     this.side = Three.DoubleSide;
@@ -138,7 +142,7 @@ export class FrameIntegrateMaterial extends Three.NodeMaterial {
   createSpectralFragmentNode() {
     const { froxelUniforms, srgbBlending } = this;
     const srgbColor = this.createSrgbColor();
-    const { froxelGrid, froxelColumns, froxelRange, froxelAtlasSize } = froxelUniforms;
+    const { froxelGrid, froxelColumns, froxelAtlasSize } = froxelUniforms;
     const sceneDepth = this.createSceneDepth();
 
     return Fn(() => {
@@ -149,14 +153,14 @@ export class FrameIntegrateMaterial extends Three.NodeMaterial {
 
       const radiance = vec3(0.0).toVar();
       const transmittance = vec3(1.0).toVar();
-      const sliceStart = froxelRange.x.toVar();
+      const sliceStart = frameSliceDepth(froxelUniforms, this.frameSliceRange.x.div(sliceCount)).toVar();
 
       Loop(maxSlices, ({ i }) => {
-        const slice = float(i);
+        const slice = this.frameSliceRange.x.add(float(i));
 
         If(
           slice
-            .greaterThanEqual(sliceCount)
+            .greaterThanEqual(this.frameSliceRange.y)
             .or(sliceStart.greaterThanEqual(depth))
             .or(maxComponent(transmittance).lessThan(0.001)),
           () => {
@@ -214,7 +218,7 @@ export class FrameIntegrateMaterial extends Three.NodeMaterial {
 
   createFragmentNode() {
     const { froxelUniforms, srgbBlending } = this;
-    const { froxelGrid, froxelColumns, froxelRange, froxelAtlasSize } = froxelUniforms;
+    const { froxelGrid, froxelColumns, froxelAtlasSize } = froxelUniforms;
     const srgbColor = this.createSrgbColor();
 
     const sceneDepth = this.createSceneDepth();
@@ -227,14 +231,14 @@ export class FrameIntegrateMaterial extends Three.NodeMaterial {
 
       const radiance = vec3(0.0).toVar();
       const transmittance = float(1.0).toVar();
-      const sliceStart = froxelRange.x.toVar();
+      const sliceStart = frameSliceDepth(froxelUniforms, this.frameSliceRange.x.div(sliceCount)).toVar();
 
       Loop(maxSlices, ({ i }) => {
-        const slice = float(i);
+        const slice = this.frameSliceRange.x.add(float(i));
 
         If(
           slice
-            .greaterThanEqual(sliceCount)
+            .greaterThanEqual(this.frameSliceRange.y)
             .or(sliceStart.greaterThanEqual(depth))
             .or(transmittance.lessThan(0.001)),
           () => {

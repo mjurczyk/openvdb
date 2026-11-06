@@ -10,14 +10,9 @@ import {
   spectralScatteringPars,
   environmentPars,
   createVolumeUniforms,
+  tileQuadVertexShader,
 } from './frameShaderChunks.js';
 import { frameLights } from '../core/frameLights.js';
-
-const vertexShader = `
-  void main() {
-    gl_Position = vec4(position.xy, 0.0, 1.0);
-  }
-`;
 
 const fragmentShader = `
   precision highp float;
@@ -464,6 +459,9 @@ export class FrameInjectMaterial extends Three.MeshStandardMaterial {
       frameMultipleScattering: { value: 0.0 },
       // NOTE Scattering octaves of frameRenderer.settings (core/framePhase.js). Count 0 is off.
       frameScatteringOctaves: { value: new Three.Vector4() },
+      // NOTE The froxel rectangle and the slices of the volume of this draw. One instance for each slice.
+      frameRect: { value: new Three.Vector4() },
+      frameSliceStart: { value: 0.0 },
     };
 
     this.transparent = true;
@@ -482,7 +480,7 @@ export class FrameInjectMaterial extends Three.MeshStandardMaterial {
     this.onBeforeCompile = (shader) => {
       Object.assign(shader.uniforms, this.frameUniforms);
 
-      shader.vertexShader = vertexShader;
+      shader.vertexShader = tileQuadVertexShader;
       shader.fragmentShader = fragmentShader;
     };
   }

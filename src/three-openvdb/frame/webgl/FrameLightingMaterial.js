@@ -1,5 +1,6 @@
 import * as Three from 'three';
 import {
+  tileQuadVertexShader,
   froxelPars,
   phasePars,
   shadowPars,
@@ -11,12 +12,6 @@ import {
   frameMieTexture,
 } from './frameShaderChunks.js';
 import { frameSpectralGroupCount } from '../core/frameSpectrum.js';
-
-const vertexShader = `
-  void main() {
-    gl_Position = vec4(position.xy, 0.0, 1.0);
-  }
-`;
 
 const fragmentShader = `
   precision highp float;
@@ -455,7 +450,8 @@ export class FrameLightingMaterial extends Three.MeshStandardMaterial {
     this.onBeforeCompile = (shader) => {
       Object.assign(shader.uniforms, this.frameUniforms);
 
-      shader.vertexShader = vertexShader;
+      // NOTE Only the froxel area of the volumes (frameRect, frameSliceStart). Other froxels have no density.
+      shader.vertexShader = tileQuadVertexShader;
       shader.fragmentShader = fragmentShader;
     };
   }
