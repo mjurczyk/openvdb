@@ -317,6 +317,12 @@ export class FrameRenderer {
   gridSignature = [];
   castVersion = 0;
   castSignature = [];
+  // NOTE What the shadow grid and the transmittance targets were last drawn from. While it stays the same, the
+  // targets still hold it and the passes are not drawn again: a still volume under still lights costs nothing.
+  shadowDrawnVersion = -1;
+  shadowDrawnTarget = null;
+  transmittanceSignature = [];
+  nextTransmittanceSignature = [];
 
   cachedFrame = -1;
   cachedCamera = null;
@@ -1024,7 +1030,9 @@ export class FrameRenderer {
 
       this.transmittanceMesh.layers.mask = camera.layers.mask;
 
-      if (spectral) {
+      const unchanged = this.transmittanceUnchanged(lights.shadowLights.length, spectral ? spectralGroups : 0);
+
+      if (!unchanged && spectral) {
         // NOTE One pass for each slot group in use, each into its own targets
         for (let group = 0; group < spectralGroups; group++) {
           transmittanceUniforms.frameSpectralGroup.value = group;
@@ -1032,7 +1040,7 @@ export class FrameRenderer {
           renderer.setRenderTarget(this.getSpectralTransmittanceTarget(group));
           renderer.render(this.transmittanceScene, camera);
         }
-      } else {
+      } else if (!unchanged) {
         renderer.setRenderTarget(this.transmittanceTarget);
         renderer.render(this.transmittanceScene, camera);
       }
@@ -1155,6 +1163,50 @@ export class FrameRenderer {
     renderer.render(this.injectScene, camera);
   }
 
+  // NOTE Whether the transmittance targets already hold what this render would draw: the same grid content, targets,
+  // shadow lights and settings. A jittered grid changes in each frame, so it is always drawn.
+  transmittanceUnchanged(shadowLightCount, spectralGroups) {
+    const uniforms = this.transmittanceMaterial.uniforms;
+    const values = this.nextTransmittanceSignature;
+
+    values.length = 0;
+    values.push(
+      this.gridVersion,
+      this.shadowDensityTarget.texture.id,
+      // NOTE Spectral rendering has no single transmittance target, only the targets of its groups below
+      this.transmittanceTarget ? this.transmittanceTarget.texture.id : -1,
+      spectralGroups,
+      shadowLightCount,
+      uniforms.frameMultipleScattering.value,
+      ...uniforms.frameScatteringOctaves.value.toArray(),
+      ...uniforms.frameSkyDirection.value.toArray(),
+    );
+
+    for (let group = 0; group < spectralGroups; group++) {
+      values.push(this.getSpectralTransmittanceTarget(group).texture.id);
+    }
+
+    for (let i = 0; i < shadowLightCount; i++) {
+      values.push(...uniforms.frameShadowLights.value[i].toArray());
+    }
+
+    const jittered = this.froxelUniforms.frameJitter.value >= 0.0;
+    const same =
+      !jittered &&
+      values.length === this.transmittanceSignature.length &&
+      values.every((value, index) => value === this.transmittanceSignature[index]);
+
+    // NOTE A jittered draw matches no signature, so the first frame after jitter is turned off draws again
+    if (jittered) {
+      values.length = 0;
+    }
+
+    this.nextTransmittanceSignature = this.transmittanceSignature;
+    this.transmittanceSignature = values;
+
+    return same;
+  }
+
   // NOTE Extinction of all casters in the world shadow grid cascades. Returns false with no casters.
   // NOTE onlyLast: only the last cascade (all volumes), drawn only when castVersion changed.
   // NOTE Volume shadows on meshes read only the last cascade. 'frame' lighting needs all cascades.
@@ -1169,6 +1221,14 @@ export class FrameRenderer {
     if (onlyLast && !castChanged) {
       return true;
     }
+
+    if (!onlyLast && this.shadowDrawnVersion === this.gridVersion && this.shadowDrawnTarget === this.shadowDensityTarget) {
+      return true;
+    }
+
+    // NOTE The clear below empties every cascade, so a draw of the last one alone leaves no full grid to keep
+    this.shadowDrawnVersion = onlyLast ? -1 : this.gridVersion;
+    this.shadowDrawnTarget = this.shadowDensityTarget;
 
     const count = this.gridUniforms.frameGridCount.value;
     const cascadeCasters = [];
@@ -1218,11 +1278,14 @@ export class FrameRenderer {
     casters.forEach(({ frameVolume, volume }) => {
       casterValues.push(...volume.matrixWorld.elements);
 
-      [volume.densityMap3D, volume.maskMap3D].forEach((map) => {
+      // NOTE The shadow density pass reads the extinction and the albedo. Mipmaps are made on the textures, so their
+      // versions follow them.
+      [volume.densityMap3D, volume.maskMap3D, volume.baseColorMap3D].forEach((map) => {
         casterValues.push(map ? map.id : -1, map ? map.version : -1);
       });
 
       casterValues.push(
+        ...frameVolume.baseColor.toArray(),
         frameVolume.densityScale,
         frameVolume.densityCutoff,
         frameVolume.extinction,
