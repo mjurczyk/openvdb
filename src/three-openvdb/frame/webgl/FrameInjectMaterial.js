@@ -185,9 +185,9 @@ const fragmentShader = `
       return frameShadowTotal(frameTransmittance(origin, localDirection, maxLocalDistance, lod, albedo).y);
     }
 
-    // NOTE Light of a directional, point or spot light, divided by the light color.
+    // NOTE Light of a directional, point or spot light of each channel, divided by the light color.
     // Two-sided: diffusion of the slab between the light side and the far side (frameTwoSidedDiffusion).
-    float frameDirectLight(vec3 rayDirection, vec3 lightDirection, vec3 origin, vec3 localDirection, float maxLocalDistance, float lod, vec3 albedo) {
+    vec3 frameDirectLight(vec3 rayDirection, vec3 lightDirection, vec3 origin, vec3 localDirection, float maxLocalDistance, float lod, vec3 albedo) {
       vec4 front = frameTransmittanceDepths(origin, localDirection, maxLocalDistance, lod, albedo);
       vec2 shadow = front.xy;
 

@@ -52,6 +52,7 @@ export const createDensityShadowUniforms = () => ({
   frameShadowSceneLightCount: uniform(0, 'int'),
   // NOTE One phase for all volumes, from frameRenderer.settings
   framePhase: uniform(new Three.Vector4()),
+  framePhaseSpectrum: uniform(new Three.Vector3()),
   // NOTE Scattering octaves of frameRenderer.settings (core/framePhase.js). Count 0 is off.
   frameScatteringOctaves: uniform(new Three.Vector4()),
   // NOTE 1 with diffusion multiple scattering. Then sky up and down have two-sided totals (frameIsotropicDiffusion).
@@ -253,7 +254,8 @@ export class FrameDensityMaterial extends FrameEnvironmentMaterial {
         direct1.assign(shadows[3]);
       });
 
-      // NOTE Scene light slots store phase * direct + scattered (frameShadowedLight).
+      // NOTE Scene light slots store phase * direct + scattered (frameShadowedLight), green channel.
+      // Phases of each channel: the lighting pass adds the red and blue phase.
       // NOTE Other slots (sky up and down, the environment light) store the isotropic total transmittance.
       const rayDirection = normalize(mat3(frameCameraMatrixWorld).mul(viewFar.sub(viewNear))).toVar();
       const lightSlots = [
@@ -274,11 +276,12 @@ export class FrameDensityMaterial extends FrameEnvironmentMaterial {
           shadow[channel].assign(
             frameShadowedLight(
               densityShadowUniforms.framePhase,
+              densityShadowUniforms.framePhaseSpectrum,
               frameScatteringOctaves,
               rayDirection,
               select(light.w.lessThan(1.5), light.xyz, normalize(light.xyz.sub(visibleWorldPosition))),
               vec2(direct, shadow[channel]),
-            ),
+            ).g,
           );
         }).Else(() => {
           shadow[channel].assign(frameShadowTotal(shadow[channel], frameScatteringOctaves));

@@ -6,6 +6,7 @@ export const phaseParams = {
   phaseG: 0.8,
   phaseBackG: -0.3,
   phaseBackWeight: 0.2,
+  phaseGExponent: 0.0,
 };
 
 // NOTE All demos start with 2HG for 'frame' (Combined) lighting too
@@ -22,6 +23,7 @@ const createFields = (values, setValue, idPrefix = '', namePrefix = '') => [
       HG: 'henyey-greenstein',
       '2HG': 'dual-lobe',
       MIE: 'lorenz-mie',
+      'MIE RGB': 'lorenz-mie-rgb',
     },
     onChange: setValue('phase'),
   },
@@ -49,6 +51,14 @@ const createFields = (values, setValue, idPrefix = '', namePrefix = '') => [
     max: 1.0,
     onChange: setValue('phaseBackWeight'),
   },
+  {
+    id: `${idPrefix}phaseGExponent`,
+    name: `${namePrefix}Phase G Exponent`,
+    defaultValue: values.phaseGExponent,
+    min: 0.0,
+    max: 1.0,
+    onChange: setValue('phaseGExponent'),
+  },
 ];
 
 // NOTE Volume folder fields: the phase of each FrameVolume, used by 'volume' (Per-volume) lighting.
@@ -73,4 +83,5 @@ export const applyPhaseParams = (volume, params) => {
   volume.phaseG = params.phaseG;
   volume.phaseBackG = params.phaseBackG;
   volume.phaseBackWeight = params.phaseBackWeight;
+  volume.phaseGExponent = params.phaseGExponent;
 };

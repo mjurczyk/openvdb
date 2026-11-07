@@ -1,6 +1,13 @@
 import * as Three from 'three';
-import { getFramePhase, frameMieAsymmetry, frameMaxScatteringOctaves } from '../core/framePhase.js';
-import { frameMieTable, frameMieTableSize } from '../core/frameMieTable.js';
+import {
+  getFramePhase,
+  getFramePhaseSpectrum,
+  getFrameMieTexels,
+  frameMieAsymmetry,
+  frameMieRgbMode,
+  frameMaxScatteringOctaves,
+} from '../core/framePhase.js';
+import { frameMieTableSize } from '../core/frameMieTable.js';
 import {
   getFrameBlackbodyTable,
   getFrameEmissionSpectrum,
@@ -54,12 +61,12 @@ export const noisePars = `
   }
 `;
 
-// NOTE Lorenz-Mie phase table, see core/frameMieTable.js. Float values, read with texelFetch and a linear blend.
+// NOTE Lorenz-Mie phase tables, see getFrameMieTexels. Float values, read with texelFetch and a linear blend.
 export const frameMieTexture = new Three.DataTexture(
-  frameMieTable,
+  getFrameMieTexels(),
   frameMieTableSize,
   1,
-  Three.RedFormat,
+  Three.RGBAFormat,
   Three.FloatType,
 );
 
@@ -86,8 +93,8 @@ const blackbodyTemperatureScale = Math.log(
 const blackbodyColumns = (frameBlackbodyTableSize - 1).toFixed(1);
 const blackbodyRows = (frameBlackbodyTableRows - 1).toFixed(1);
 
-// NOTE Phase function of direct lights. framePhase is (forward g, back g, back weight, Lorenz-Mie weight).
-// See core/framePhase.js.
+// NOTE Phase function of direct lights. framePhase is (forward g, back g, back weight, Lorenz-Mie mode).
+// framePhaseSpectrum is (red g scale, blue g scale, flag). Flag 0.0: the same phase for all channels. See core/framePhase.js.
 // NOTE Multiple scattering in shadow marches. frameMultipleScattering is 1 - g (core/framePhase.js), 0.0 is single scattering.
 // NOTE frameScatteringOctaves is (count N, extinction a, contribution b, phase c) of the indirect light octaves. N 0 is off.
 export const shadowPars = `
@@ -252,7 +259,10 @@ export const shadowPars = `
 `;
 
 export const phasePars = `
+  #define FRAME_MIE_RGB_THRESHOLD ${(frameMieRgbMode - 0.5).toFixed(1)}
+
   uniform vec4 framePhase;
+  uniform vec3 framePhaseSpectrum;
   uniform sampler2D frameMieMap;
 
   // NOTE Henyey-Greenstein phase divided by the isotropic phase 1 / (4 PI). g = 0 gives 1.
@@ -262,15 +272,30 @@ export const phasePars = `
     return (1.0 - g2) / pow(max(1.0 + g2 - 2.0 * g * cosTheta, 1e-4), 1.5);
   }
 
-  // NOTE Table texel u is at the scattering angle PI * u^2
-  float frameMiePhase(float cosTheta) {
+  // NOTE Henyey-Greenstein phase of each channel, g of each channel
+  vec3 frameHenyeyGreenstein(float cosTheta, vec3 g) {
+    vec3 g2 = g * g;
+
+    return (1.0 - g2) / pow(max(1.0 + g2 - 2.0 * g * cosTheta, vec3(1e-4)), vec3(1.5));
+  }
+
+  // NOTE Table texel u is at the scattering angle PI * u^2. Red, green, blue: 'lorenz-mie-rgb'. Alpha: 'lorenz-mie'.
+  vec4 frameMieTexel(float cosTheta) {
     float u = sqrt(acos(clamp(cosTheta, -1.0, 1.0)) * 0.3183098862);
     float texel = u * float(${frameMieTableSize - 1});
     int index = min(int(texel), ${frameMieTableSize - 2});
-    float a = texelFetch(frameMieMap, ivec2(index, 0), 0).r;
-    float b = texelFetch(frameMieMap, ivec2(index + 1, 0), 0).r;
+    vec4 a = texelFetch(frameMieMap, ivec2(index, 0), 0);
+    vec4 b = texelFetch(frameMieMap, ivec2(index + 1, 0), 0);
 
     return mix(a, b, texel - float(index));
+  }
+
+  float frameMiePhase(float cosTheta) {
+    return frameMieTexel(cosTheta).a;
+  }
+
+  vec3 frameMieRgbPhase(float cosTheta) {
+    return frameMieTexel(cosTheta).rgb;
   }
 
   // NOTE rayDirection: from the camera to the sample. lightDirection: from the sample to the light.
@@ -289,7 +314,29 @@ export const phasePars = `
     return weight;
   }
 
+  // NOTE Phase of each channel (red, green, blue)
+  vec3 framePhaseColor(vec3 rayDirection, vec3 lightDirection) {
+    if (framePhaseSpectrum.z < 0.5) {
+      return vec3(framePhaseWeight(rayDirection, lightDirection));
+    }
+
+    float cosTheta = dot(rayDirection, lightDirection);
+
+    if (framePhase.w > FRAME_MIE_RGB_THRESHOLD) {
+      return frameMieRgbPhase(cosTheta);
+    }
+
+    vec3 scale = vec3(framePhaseSpectrum.x, 1.0, framePhaseSpectrum.y);
+
+    return mix(
+      frameHenyeyGreenstein(cosTheta, clamp(scale * framePhase.x, -0.99, 0.99)),
+      frameHenyeyGreenstein(cosTheta, clamp(scale * framePhase.y, -0.99, 0.99)),
+      framePhase.z
+    );
+  }
+
   // NOTE Phase with all g multiplied by gScale. Lorenz-Mie uses Henyey-Greenstein with the table asymmetry g.
+  // 'lorenz-mie-rgb' too: it is the same for all channels.
   float framePhaseWeightScaled(float cosTheta, float gScale) {
     float weight = mix(
       frameHenyeyGreenstein(cosTheta, framePhase.x * gScale),
@@ -298,7 +345,7 @@ export const phasePars = `
     );
 
     if (framePhase.w > 0.0) {
-      weight = mix(weight, frameHenyeyGreenstein(cosTheta, ${frameMieAsymmetry} * gScale), framePhase.w);
+      weight = mix(weight, frameHenyeyGreenstein(cosTheta, ${frameMieAsymmetry} * gScale), min(framePhase.w, 1.0));
     }
 
     return weight;
@@ -307,14 +354,14 @@ export const phasePars = `
 
 // NOTE Light of a shadowed directional, point or spot light. Needs phasePars and shadowPars before it.
 export const scatteringPars = `
-  // NOTE Light divided by the light color: phase * direct + scattered.
+  // NOTE Light of each channel divided by the light color: phase * direct + scattered.
   // Diffusion or single scattering: the scattered light (total - direct) is isotropic.
   // Octaves: sum of b^n * phase(g * c^n) * exp(-a^n * optical depth), n 1 to N.
-  float frameShadowedLight(vec3 rayDirection, vec3 lightDirection, vec2 shadow) {
-    float light = framePhaseWeight(rayDirection, lightDirection) * shadow.x;
+  vec3 frameShadowedLight(vec3 rayDirection, vec3 lightDirection, vec2 shadow) {
+    vec3 light = framePhaseColor(rayDirection, lightDirection) * shadow.x;
 
     if (frameScatteringOctaves.x <= 0.0) {
-      return light + shadow.y - shadow.x;
+      return light + (shadow.y - shadow.x);
     }
 
     float cosTheta = dot(rayDirection, lightDirection);
@@ -493,7 +540,7 @@ export const spectralScatteringPars = `
 
     // NOTE Light of a shadowed light of each channel, the same as frameShadowedLight
     vec3 frameSpectralShadowedLight(vec3 rayDirection, vec3 lightDirection, FrameSpectralShadow shadow, vec3 albedo) {
-      vec3 light = framePhaseWeight(rayDirection, lightDirection) * shadow.direct;
+      vec3 light = framePhaseColor(rayDirection, lightDirection) * shadow.direct;
 
       if (frameScatteringOctaves.x <= 0.0) {
         return light + shadow.total - shadow.direct;
@@ -909,6 +956,8 @@ export const createVolumeUniforms = () => ({
   frameOffset3D: { value: new Three.Vector3() },
   frameWrap3D: { value: Three.ClampToEdgeWrapping },
   framePhase: { value: new Three.Vector4() },
+  // NOTE Phase of each channel (core/framePhase.js getFramePhaseSpectrum)
+  framePhaseSpectrum: { value: new Three.Vector3() },
   frameMieMap: { value: frameMieTexture },
 });
 
@@ -942,4 +991,5 @@ export const setVolumeUniforms = (uniforms, frameVolume, volume) => {
   uniforms.frameOffset3D.value.copy(frameVolume.offset3D);
   uniforms.frameWrap3D.value = frameVolume.wrap3D;
   getFramePhase(frameVolume, uniforms.framePhase.value);
+  getFramePhaseSpectrum(frameVolume, uniforms.framePhaseSpectrum.value);
 };

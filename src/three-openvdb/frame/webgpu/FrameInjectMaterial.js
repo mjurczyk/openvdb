@@ -495,6 +495,7 @@ export class FrameInjectMaterial extends FrameEnvironmentMaterial {
           const light = spectral
             ? frameSpectralShadowedLight(
                 volumeUniforms.framePhase,
+                volumeUniforms.framePhaseSpectrum,
                 this.frameScatteringOctaves,
                 rayDirection,
                 lightDirection,
@@ -503,6 +504,7 @@ export class FrameInjectMaterial extends FrameEnvironmentMaterial {
               )
             : frameShadowedLight(
                 volumeUniforms.framePhase,
+                volumeUniforms.framePhaseSpectrum,
                 this.frameScatteringOctaves,
                 rayDirection,
                 lightDirection,
