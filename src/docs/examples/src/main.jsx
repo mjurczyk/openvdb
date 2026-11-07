@@ -10,6 +10,7 @@ import { readFurnace } from './utils/furnace';
 import { isPhone } from './utils/device';
 import { updateShadowMaps } from './utils/shadowMaps';
 import { updateTransformMode } from './utils/transform';
+import { updateFroxelCap } from './utils/froxelCap';
 
 export const camera = new Three.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.01, 10000.0);
 export const scene = new Three.Scene();
@@ -60,6 +61,7 @@ const init = () => {
 
 const animate = () => {
   stats.begin();
+  updateFroxelCap();
 
   // NOTE Transform mode turns off the orbit controls and moves the camera (utils/transform.js)
   if (controls.enabled) {
