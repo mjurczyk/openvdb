@@ -182,6 +182,8 @@ export class FrameRenderer {
   settings = {
     width: 512,
     height: 512,
+    // NOTE N above 0: at most one froxel for each N x N canvas (CSS) pixels, for small screens. 0: no cap.
+    pixelsPerFroxel: 0,
     depth: 24,
     subSteps: 32,
     near: 0.1,
@@ -231,6 +233,8 @@ export class FrameRenderer {
 
   // NOTE TSL uniform nodes. Passes share them, the CPU writes .value.
   froxelUniforms = createFroxelUniforms();
+  // NOTE Canvas and drawing buffer sizes that settings.pixelsPerFroxel holds (core/frameLayout.js getFroxelSize)
+  froxelHeldSize = { canvasX: 0, canvasY: 0, bufferX: 0, bufferY: 0 };
   froxelTileUniforms = createTileUniforms();
   // NOTE Froxel area of the volumes in this frame. The density clear, lighting and temporal passes draw only it.
   froxelAreaUniforms = createAreaUniforms();
@@ -634,7 +638,7 @@ export class FrameRenderer {
 
   updateTargets(renderer) {
     const { depth, subSteps } = this.settings;
-    const { width, height } = getFroxelSize(this.settings, renderer, froxelSize);
+    const { width, height } = getFroxelSize(this.settings, renderer, froxelSize, this.froxelHeldSize);
     const spectral = this.isSpectral();
     const froxelAtlas = getAtlasLayout(width, height, depth);
 
@@ -664,6 +668,18 @@ export class FrameRenderer {
     this.lightingMaterial.setSpectral(spectral);
     this.temporalMaterial.setSpectral(spectral);
     this.integrateMaterial.setSpectral(spectral);
+
+    const { froxelGrid, froxelColumns } = this.froxelUniforms;
+
+    // NOTE A new grid layout makes the history unusable, also when the atlas keeps its size (600 x 400 to 400 x 600)
+    if (
+      froxelGrid.value.x !== width ||
+      froxelGrid.value.y !== height ||
+      froxelGrid.value.z !== depth ||
+      froxelColumns.value !== froxelAtlas.columns
+    ) {
+      this.historyValid = false;
+    }
 
     this.froxelUniforms.froxelGrid.value.set(width, height, depth);
     this.froxelUniforms.froxelColumns.value = froxelAtlas.columns;

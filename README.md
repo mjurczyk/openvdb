@@ -296,6 +296,7 @@ Limits: no specular light, no shadows of meshes, and the smoke of one volume doe
 Froxel grid settings are global, in `frameRenderer.settings`:
 
 * `width`, `height` - (default: `512`, `512`) froxels on the screen axes. Not more than the pixels of the canvas (drawing buffer) on each axis.
+* `pixelsPerFroxel` - (default: `0`) with `N` above `0`, at most one froxel for each `N` × `N` canvas pixels (CSS pixels, `renderer.getSize`), for small screens. Each pass costs per froxel, and a phone canvas (for example 392 × 740) gets many more froxels for each pixel than a desktop one. `0` keeps only the drawing buffer limit. A canvas that changes by less than 15% (the address bar of a mobile browser) keeps its grid, because a new grid drops the temporal history.
 * `depth` - (default: `24`) depth slices. Slices are exponential: thin near the camera, thick far away. Slices fit the visible volumes.
 * `subSteps` - (default: `32`) density samples along the view ray in each slice. Each froxel is lit at the visibility-weighted mean position of its samples, then stored as slice color and alpha.
 * `near`, `far` - (default: `0.1`, `512.0`) limits of the slice range in view depth.

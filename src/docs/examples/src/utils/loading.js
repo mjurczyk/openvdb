@@ -12,3 +12,5 @@ export const setLoading = (key, loading) => {
 
   loadingElement.style.display = loadingKeys.size > 0 ? '' : 'none';
 };
+
+export const isLoading = () => loadingKeys.size > 0;
