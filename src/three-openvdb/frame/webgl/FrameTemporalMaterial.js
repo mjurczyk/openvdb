@@ -47,7 +47,8 @@ const fragmentShader = `
     float slice0,
     float slice1,
     float sliceBlend,
-    vec2 previousUv
+    vec2 previousUv,
+    float blend
   ) {
     vec4 current = texelFetch(currentMap, ivec2(gl_FragCoord.xy), 0);
     vec4 history = mix(
@@ -85,7 +86,7 @@ const fragmentShader = `
       }
     }
 
-    return mix(clamp(history, neighborMin, neighborMax), current, frameTemporalBlend);
+    return mix(clamp(history, neighborMin, neighborMax), current, blend);
   }
 
   // NOTE The current froxels of all targets, with no history
@@ -138,7 +139,24 @@ const fragmentShader = `
     float slice1 = min(slice0 + 1.0, froxelGrid.z - 1.0);
     float sliceBlend = clamp(previousSlice - slice0, 0.0, 1.0);
 
-    frameResolved = frameResolve(frameCurrentMap, frameHistoryMap, tile, cell, slice, slice0, slice1, sliceBlend, previousUv);
+    // NOTE The history counts less as the froxel moves: a quarter of a cell of motion in a frame uses only the current
+    // froxel. The reprojected history of a moving froxel is resampled and lags, which shows as the volume fading in and
+    // out. A still camera moves no froxel, so the history still gathers the jittered samples.
+    float motion = length(vec3((previousUv - uv) * froxelGrid.xy, previousSlice - slice));
+    float blend = mix(frameTemporalBlend, 1.0, clamp(motion * 4.0, 0.0, 1.0));
+
+    frameResolved = frameResolve(
+      frameCurrentMap,
+      frameHistoryMap,
+      tile,
+      cell,
+      slice,
+      slice0,
+      slice1,
+      sliceBlend,
+      previousUv,
+      blend
+    );
 
     #ifdef FRAME_SPECTRAL
       frameResolvedAlpha = frameResolve(
@@ -150,7 +168,8 @@ const fragmentShader = `
         slice0,
         slice1,
         sliceBlend,
-        previousUv
+        previousUv,
+        blend
       );
     #endif
   }

@@ -4,7 +4,9 @@ import {
   If,
   ivec2,
   vec2,
+  vec3,
   vec4,
+  length,
   uniform,
   texture,
   property,
@@ -146,6 +148,13 @@ export class FrameTemporalMaterial extends Three.NodeMaterial {
             const slice0 = clamp(floor(previousSlice), 0.0, froxelGrid.z.sub(1.0)).toVar();
             const slice1 = min(slice0.add(1.0), froxelGrid.z.sub(1.0));
             const sliceBlend = clamp(previousSlice.sub(slice0), 0.0, 1.0).toVar();
+
+            // NOTE The history counts less as the froxel moves: a quarter of a cell of motion in a frame uses only the
+            // current froxel. The reprojected history of a moving froxel is resampled and lags, which shows as the
+            // volume fading in and out. A still camera moves no froxel, so the history still gathers the jittered
+            // samples.
+            const motion = length(vec3(previousUv.sub(uv).mul(froxelGrid.xy), previousSlice.sub(slice)));
+            const blend = mix(this.frameTemporalBlend, 1.0, clamp(motion.mul(4.0), 0.0, 1.0)).toVar();
             const histories = maps.map(([, historyMap]) =>
               mix(
                 sampleHistory(historyMap, slice0, previousUv),
@@ -189,7 +198,7 @@ export class FrameTemporalMaterial extends Three.NodeMaterial {
                 mix(
                   clamp(histories[index], neighborMins[index], neighborMaxs[index]),
                   currents[index],
-                  this.frameTemporalBlend,
+                  blend,
                 ),
               ),
             );
