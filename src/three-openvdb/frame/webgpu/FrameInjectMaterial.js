@@ -39,6 +39,7 @@ import {
   frameShadowTransmittance,
   frameShadowTotal,
   frameIsotropicDiffusion,
+  frameTwoSidedDiffusion,
   frameShadowedLight,
   frameMeanComponent,
   minComponent,
@@ -70,6 +71,8 @@ export class FrameInjectMaterial extends FrameEnvironmentMaterial {
     this.frameMultipleScattering = uniform(0.0);
     // NOTE Scattering octaves of frameRenderer.settings (core/framePhase.js). Count 0 is off.
     this.frameScatteringOctaves = uniform(new Three.Vector4());
+    // NOTE multipleScattering 'two-sided' (core/framePhase.js): scene light shadows also march away from the light
+    this.frameTwoSided = uniform(0.0);
     this.frameCameraMatrixWorld = uniform(new Three.Matrix4());
     this.mipmaps = false;
     // NOTE frameRenderer.settings.spectral: extinction and multiple scattering of each channel, two atlas targets
@@ -479,13 +482,23 @@ export class FrameInjectMaterial extends FrameEnvironmentMaterial {
           );
           const maxDistance = select(isDirectional, float(1e6), length(toLight));
           const lightDirection = select(isDirectional, position.xyz, normalize(position.xyz.sub(worldPosition)));
+          const march = spectral ? spectralVolumeTransmittance : volumeTransmittance;
+          const shadow = march(localDirection, maxDistance);
+
+          // NOTE Two-sided: diffusion of the slab between the light side and the far side (frameTwoSidedDiffusion)
+          If(this.frameTwoSided.greaterThan(0.5), () => {
+            const back = march(localDirection.negate(), float(1e6));
+
+            shadow.y.assign(frameTwoSidedDiffusion(shadow.x, shadow.z, shadow.w, back.z));
+          });
+
           const light = spectral
             ? frameSpectralShadowedLight(
                 volumeUniforms.framePhase,
                 this.frameScatteringOctaves,
                 rayDirection,
                 lightDirection,
-                spectralVolumeTransmittance(localDirection, maxDistance),
+                shadow,
                 albedo,
               )
             : frameShadowedLight(
@@ -493,7 +506,7 @@ export class FrameInjectMaterial extends FrameEnvironmentMaterial {
                 this.frameScatteringOctaves,
                 rayDirection,
                 lightDirection,
-                volumeTransmittance(localDirection, maxDistance).xy.toVar(),
+                shadow.xy.toVar(),
               );
 
           irradiance.addAssign(color.rgb.mul(light).mul(spotAttenuation));

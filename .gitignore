@@ -10,3 +10,6 @@ session-notes/
 
 # Test results
 tests/results
+
+# Neural indirect light training data (scripts/neural-indirect/dataset.mjs)
+scripts/neural-indirect/.data

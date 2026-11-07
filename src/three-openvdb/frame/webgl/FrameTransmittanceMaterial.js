@@ -1,5 +1,7 @@
 import * as Three from 'three';
 import { gridPars, noisePars, shadowPars, spectralPars } from './frameShaderChunks.js';
+import { neuralPars } from './frameNeuralChunks.js';
+import { frameNeuralLevels } from '../core/frameNeuralIndirect.js';
 
 // NOTE Light slots: sky up, sky down, then 6 lights. Targets 0 and 1: total transmittance of all slots.
 // NOTE Targets 2 and 3: direct transmittance of the 6 lights. Then the lighting gives the phase only to the direct light.
@@ -13,7 +15,8 @@ const vertexShader = `
   }
 `;
 
-const fragmentShader = `
+// NOTE The network code is in the source only when it is used (neural)
+const createFragmentShader = (neural) => `
   precision highp float;
 
   #define FRAME_SHADOW_SLOTS ${frameShadowLightSlots}
@@ -37,6 +40,16 @@ const fragmentShader = `
   uniform vec3 frameSkyDirection;
   uniform vec4 frameShadowLights[FRAME_SHADOW_SLOTS];
   uniform int frameShadowLightCount;
+
+  // NOTE multipleScattering 'neural' (not spectral): scattered light of the light slots from the network.
+  // frameMarch writes the direct optical depth to frameMarchOpticalDepth. Local inputs are the same for all slots.
+  #ifdef FRAME_NEURAL
+    ${neural ? neuralPars : ''}
+
+    float frameMarchOpticalDepth;
+    vec4 frameNeuralLocal0;
+    vec4 frameNeuralLocal1;
+  #endif
 
   // NOTE (extinction, absorption)
   vec2 frameGridExtinction(vec3 worldPosition) {
@@ -76,6 +89,10 @@ const fragmentShader = `
       traveled += stepLength;
     }
 
+    #ifdef FRAME_NEURAL
+      frameMarchOpticalDepth = depths.x;
+    #endif
+
     return vec4(frameShadowTransmittance(depths), depths.z, depths.y);
   }
 
@@ -94,15 +111,26 @@ const fragmentShader = `
     }
 
     vec4 light = frameShadowLights[slot];
-
+    vec3 toLight = light.xyz - worldPosition;
     // NOTE w is 1.0 for a light direction, 2.0 for a light position
-    if (light.w < 1.5) {
-      return frameMarch(worldPosition, normalize(light.xyz), 1e20, jitter).xy;
+    bool isDirection = light.w < 1.5;
+    vec3 direction = isDirection ? normalize(light.xyz) : normalize(toLight);
+    vec4 front = frameMarch(worldPosition, direction, isDirection ? 1e20 : length(toLight), jitter);
+    vec2 shadow = front.xy;
+
+    // NOTE Two-sided: diffusion of the slab between the light side and the far side (frameTwoSidedDiffusion)
+    if (frameTwoSided > 0.5) {
+      vec4 back = frameMarch(worldPosition, -direction, 1e20, jitter);
+
+      shadow.y = frameTwoSidedDiffusion(front.x, front.z, front.w, back.z);
     }
 
-    vec3 toLight = light.xyz - worldPosition;
+    // NOTE Neural: total is direct + the network light
+    #ifdef FRAME_NEURAL
+      shadow.y = shadow.x + frameNeuralLight(worldPosition, direction, frameMarchOpticalDepth, frameNeuralLocal0, frameNeuralLocal1);
+    #endif
 
-    return frameMarch(worldPosition, normalize(toLight), length(toLight), jitter).xy;
+    return shadow;
   }
 
   #ifdef FRAME_SPECTRAL
@@ -175,15 +203,21 @@ const fragmentShader = `
       }
 
       vec4 light = frameShadowLights[slot];
-
+      vec3 toLight = light.xyz - worldPosition;
       // NOTE w is 1.0 for a light direction, 2.0 for a light position
-      if (light.w < 1.5) {
-        return frameSpectralMarch(true, worldPosition, normalize(light.xyz), 1e20, jitter);
+      bool isDirection = light.w < 1.5;
+      vec3 direction = isDirection ? normalize(light.xyz) : normalize(toLight);
+      FrameSpectralDepths front = frameSpectralMarchDepths(worldPosition, direction, isDirection ? 1e20 : length(toLight), jitter);
+      FrameSpectralShadow shadow = frameSpectralShadowTransmittance(front);
+
+      // NOTE Two-sided: diffusion of the slab between the light side and the far side, for each channel
+      if (frameTwoSided > 0.5) {
+        FrameSpectralDepths back = frameSpectralMarchDepths(worldPosition, -direction, 1e20, jitter);
+
+        shadow.total = frameTwoSidedDiffusion(shadow.direct, front.reduced, front.effective, back.reduced);
       }
 
-      vec3 toLight = light.xyz - worldPosition;
-
-      return frameSpectralMarch(true, worldPosition, normalize(toLight), length(toLight), jitter);
+      return shadow;
     }
 
     void main() {
@@ -282,6 +316,10 @@ const fragmentShader = `
 
       float jitter = frameNoise(gl_FragCoord.xy);
 
+      #ifdef FRAME_NEURAL
+        frameNeuralLocalInputs(worldPosition, frameNeuralLocal0, frameNeuralLocal1);
+      #endif
+
       vec2 light0 = frameLightTransmittance(0, worldPosition, jitter);
       vec2 light1 = frameLightTransmittance(1, worldPosition, jitter);
       vec2 light2 = frameLightTransmittance(2, worldPosition, jitter);
@@ -321,9 +359,15 @@ export class FrameTransmittanceMaterial extends Three.ShaderMaterial {
         frameMultipleScattering: { value: 0.0 },
         // NOTE Scattering octaves of frameRenderer.settings (core/framePhase.js). Count 0 is off.
         frameScatteringOctaves: { value: new Three.Vector4() },
+        // NOTE multipleScattering 'two-sided' (core/framePhase.js). 1.0 marches the light slots both ways.
+        frameTwoSided: { value: 0.0 },
+        // NOTE multipleScattering 'neural': mips of the last cascade (FrameGridMipMaterial), levels 1 and up
+        ...Object.fromEntries(
+          Array.from({ length: frameNeuralLevels - 1 }, (_, i) => [`frameNeuralMipMap${i + 1}`, { value: null }]),
+        ),
       },
       vertexShader,
-      fragmentShader,
+      fragmentShader: createFragmentShader(false),
       depthTest: false,
       depthWrite: false,
       blending: Three.NoBlending,
@@ -331,13 +375,30 @@ export class FrameTransmittanceMaterial extends Three.ShaderMaterial {
 
     // NOTE frameRenderer.settings.spectral: one pass for each slot group in use
     this.spectral = false;
+    // NOTE multipleScattering 'neural' (not spectral): the network gives the scattered light of the light slots
+    this.neural = false;
+  }
+
+  updateDefines() {
+    this.fragmentShader = createFragmentShader(this.neural && !this.spectral);
+    this.defines = {
+      ...(this.spectral ? { FRAME_SPECTRAL: '' } : {}),
+      ...(this.neural && !this.spectral ? { FRAME_NEURAL: '' } : {}),
+    };
+    this.needsUpdate = true;
   }
 
   setSpectral(spectral) {
     if (spectral !== this.spectral) {
       this.spectral = spectral;
-      this.defines = spectral ? { FRAME_SPECTRAL: '' } : {};
-      this.needsUpdate = true;
+      this.updateDefines();
+    }
+  }
+
+  setNeural(neural) {
+    if (neural !== this.neural) {
+      this.neural = neural;
+      this.updateDefines();
     }
   }
 }

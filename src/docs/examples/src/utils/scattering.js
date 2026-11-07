@@ -5,7 +5,8 @@ const setFrameSetting = (key) => (value) => {
 };
 
 // NOTE Rendering folder fields of frameRenderer.settings.multipleScattering.
-// Off is single scattering: dense volumes get dark inside. Octave fields are used only by Octaves.
+// Off is single scattering: dense volumes get dark inside. 1D: diffusion toward the light. 2D: diffusion toward and
+// away from the light. OCT: octaves (the octave fields are used only by it). N: neural network.
 export const createMultipleScatteringFields = () => [
   {
     id: 'multipleScattering',
@@ -13,8 +14,10 @@ export const createMultipleScatteringFields = () => [
     defaultValue: OpenVDB.frameRenderer.settings.multipleScattering,
     options: {
       Off: false,
-      Diffusion: true,
-      Octaves: 'octaves',
+      '1D': true,
+      '2D': 'two-sided',
+      OCT: 'octaves',
+      N: 'neural',
     },
     onChange: setFrameSetting('multipleScattering'),
   },

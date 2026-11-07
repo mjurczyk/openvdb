@@ -1,5 +1,10 @@
 # Unreleased
 
+- Breaking: `frameRenderer.settings.multipleScattering` default is `'neural'` (was `true`)
+- `frameRenderer.settings.multipleScattering: 'two-sided'` (2D diffusion): the shadows of scene lights also march away from the light, diffusion of the volume between the light side and the far side, with light that leaves at the sides. Light that scatters back out is not lost, so lit sides are brighter. Path tracer, held-out scenes: mean error 59%, bias +10%. Cost: one more shadow march for each scene light. `'frame'` and `'volume'` lighting, spectral. Both `three-openvdb` and `three-openvdb/webgl`
+- Experimental neural multiple scattering: `frameRenderer.settings.multipleScattering: 'neural'`. A small network (20 inputs, 2 hidden layers of 32) gives the scattered light of the scene lights at each world shadow grid voxel, from 6 mip levels of the grid, the direct optical depth and the albedo. Trained on a path tracer (`scripts/neural-indirect`). On held-out scenes the mean error of the scattered light is 37% (`true` 65%, `'two-sided'` 59%, `'octaves'` 127%, `scripts/neural-indirect/compare.mjs`). Grey `'frame'` lighting only, other cases use `true`. Both `three-openvdb` and `three-openvdb/webgl`
+- Examples: the Multiple Scattering field of Rendering Frame and Custom VDB has the options Off, 1D, 2D, OCT and N (default)
+
 - Performance: the density clear, lighting, temporal and per-volume inject passes draw only the froxel area of the volumes (their rectangles and slices), not the full froxel atlas. The integrate pass draws only the screen rectangle of that area and marches only its slices. The image does not change. Both `three-openvdb` and `three-openvdb/webgl`
 - Performance: the froxel grid is not larger than the canvas pixels (`settings.width` and `settings.height` are upper limits). Both `three-openvdb` and `three-openvdb/webgl`
 - Performance: `three-openvdb` reads the mask, base color and emissive grids only when a volume has them (the placeholder textures were also sampled). `three-openvdb/webgl` already did this

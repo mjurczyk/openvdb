@@ -94,6 +94,8 @@ export const shadowPars = `
   #define FRAME_MAX_SCATTERING_OCTAVES ${frameMaxScatteringOctaves}
 
   uniform float frameMultipleScattering;
+  // NOTE multipleScattering 'two-sided' (core/framePhase.js): scene light shadows also march away from the light
+  uniform float frameTwoSided;
   uniform vec4 frameScatteringOctaves;
 
   // NOTE Absorption of the shadow extinction: the part of the light that the albedo (linear luminance) does not scatter
@@ -178,6 +180,67 @@ export const shadowPars = `
     const float z0 = 2.0 / 3.0;
 
     return 2.0 * (backReduced + z0) / (frontReduced + backReduced + 2.0 * z0) * exp(-frontEffective);
+  }
+
+  // NOTE multipleScattering 'two-sided': total transmittance of a light direction (direct and scattered light).
+  // Diffusion with a collimated source in the volume between the light side and the far side: front reduced depth f
+  // (toward the light), back reduced depth b (away from the light), L = f + b. Light also leaves at the sides: the volume
+  // is as wide as it is deep (L), so phi'' - k^2 phi = -3 exp(-x) with k^2 = 2 (PI / (L + 2 z0))^2, the lowest side mode.
+  // Robin boundaries phi = z0 phi' at x = 0 and phi = -z0 phi' at x = L, z0 = 2/3. Then the reduced beam exp(-f),
+  // times exp(-effective front) for absorption, never less than the direct light. 4.442882938 is sqrt(2) PI.
+  float frameTwoSidedDiffusion(float direct, float frontReduced, float frontEffective, float backReduced) {
+    const float z0 = 2.0 / 3.0;
+    float slab = frontReduced + backReduced;
+    float k = 4.442882938 / (slab + 2.0 * z0);
+
+    // NOTE k = 1 has no particular solution of this form. A small shift keeps the result continuous.
+    k += (1.0 - step(0.01, abs(1.0 - k * k))) * 0.01;
+
+    float p = -3.0 / (1.0 - k * k);
+    float kl = k * slab;
+    float coshKl = 0.5 * (exp(kl) + exp(-kl));
+    float sinhKl = 0.5 * (exp(kl) - exp(-kl));
+    float c12 = -z0 * k;
+    float r1 = -p * (1.0 + z0);
+    float c21 = coshKl + z0 * k * sinhKl;
+    float c22 = sinhKl + z0 * k * coshKl;
+    float r2 = -p * exp(-slab) * (1.0 - z0);
+    float det = c22 - c12 * c21;
+    float c = (r1 * c22 - c12 * r2) / det;
+    float d = (r2 - c21 * r1) / det;
+    float kf = k * frontReduced;
+    float beam = exp(-frontReduced);
+    float diffuse = p * beam + c * 0.5 * (exp(kf) + exp(-kf)) + d * 0.5 * (exp(kf) - exp(-kf));
+
+    return max(direct, (diffuse + beam) * exp(-frontEffective));
+  }
+
+  // NOTE Spectral: the same for each channel
+  vec3 frameTwoSidedDiffusion(vec3 direct, vec3 frontReduced, vec3 frontEffective, vec3 backReduced) {
+    const float z0 = 2.0 / 3.0;
+    vec3 slab = frontReduced + backReduced;
+    vec3 k = 4.442882938 / (slab + 2.0 * z0);
+
+    // NOTE k = 1 has no particular solution of this form. A small shift keeps the result continuous.
+    k += (1.0 - step(0.01, abs(1.0 - k * k))) * 0.01;
+
+    vec3 p = -3.0 / (1.0 - k * k);
+    vec3 kl = k * slab;
+    vec3 coshKl = 0.5 * (exp(kl) + exp(-kl));
+    vec3 sinhKl = 0.5 * (exp(kl) - exp(-kl));
+    vec3 c12 = -z0 * k;
+    vec3 r1 = -p * (1.0 + z0);
+    vec3 c21 = coshKl + z0 * k * sinhKl;
+    vec3 c22 = sinhKl + z0 * k * coshKl;
+    vec3 r2 = -p * exp(-slab) * (1.0 - z0);
+    vec3 det = c22 - c12 * c21;
+    vec3 c = (r1 * c22 - c12 * r2) / det;
+    vec3 d = (r2 - c21 * r1) / det;
+    vec3 kf = k * frontReduced;
+    vec3 beam = exp(-frontReduced);
+    vec3 diffuse = p * beam + c * 0.5 * (exp(kf) + exp(-kf)) + d * 0.5 * (exp(kf) - exp(-kf));
+
+    return max(direct, (diffuse + beam) * exp(-frontEffective));
   }
 
   // NOTE Spectral: the same for each channel

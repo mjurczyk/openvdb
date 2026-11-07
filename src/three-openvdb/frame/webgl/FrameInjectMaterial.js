@@ -165,14 +165,19 @@ const fragmentShader = `
       return frameSpectralShadowTotal(frameSpectralTransmittance(origin, localDirection, maxLocalDistance, lod, albedo).total, albedo);
     }
 
-    // NOTE Light of a directional, point or spot light, divided by the light color
+    // NOTE Light of a directional, point or spot light, divided by the light color.
+    // Two-sided: diffusion of the slab between the light side and the far side, for each channel (frameTwoSidedDiffusion).
     vec3 frameDirectLight(vec3 rayDirection, vec3 lightDirection, vec3 origin, vec3 localDirection, float maxLocalDistance, float lod, vec3 albedo) {
-      return frameSpectralShadowedLight(
-        rayDirection,
-        lightDirection,
-        frameSpectralTransmittance(origin, localDirection, maxLocalDistance, lod, albedo),
-        albedo
-      );
+      FrameSpectralDepths front = frameSpectralTransmittanceDepths(origin, localDirection, maxLocalDistance, lod, albedo);
+      FrameSpectralShadow shadow = frameSpectralShadowTransmittance(front);
+
+      if (frameTwoSided > 0.5) {
+        FrameSpectralDepths back = frameSpectralTransmittanceDepths(origin, -localDirection, 1e6, lod, albedo);
+
+        shadow.total = frameTwoSidedDiffusion(shadow.direct, front.reduced, front.effective, back.reduced);
+      }
+
+      return frameSpectralShadowedLight(rayDirection, lightDirection, shadow, albedo);
     }
   #else
     // NOTE Isotropic light (no phase): total transmittance
@@ -180,9 +185,19 @@ const fragmentShader = `
       return frameShadowTotal(frameTransmittance(origin, localDirection, maxLocalDistance, lod, albedo).y);
     }
 
-    // NOTE Light of a directional, point or spot light, divided by the light color
+    // NOTE Light of a directional, point or spot light, divided by the light color.
+    // Two-sided: diffusion of the slab between the light side and the far side (frameTwoSidedDiffusion).
     float frameDirectLight(vec3 rayDirection, vec3 lightDirection, vec3 origin, vec3 localDirection, float maxLocalDistance, float lod, vec3 albedo) {
-      return frameShadowedLight(rayDirection, lightDirection, frameTransmittance(origin, localDirection, maxLocalDistance, lod, albedo));
+      vec4 front = frameTransmittanceDepths(origin, localDirection, maxLocalDistance, lod, albedo);
+      vec2 shadow = front.xy;
+
+      if (frameTwoSided > 0.5) {
+        vec4 back = frameTransmittanceDepths(origin, -localDirection, 1e6, lod, albedo);
+
+        shadow.y = frameTwoSidedDiffusion(front.x, front.z, front.w, back.z);
+      }
+
+      return frameShadowedLight(rayDirection, lightDirection, shadow);
     }
 
     // NOTE Diffusion: two-sided totals for the direction and the opposite direction (frameDiffusionPair)
@@ -457,6 +472,8 @@ export class FrameInjectMaterial extends Three.MeshStandardMaterial {
       frameShadowSteps: { value: 32 },
       // NOTE Multiple scattering of this volume (core/framePhase.js). 0.0 is single scattering.
       frameMultipleScattering: { value: 0.0 },
+      // NOTE multipleScattering 'two-sided' (core/framePhase.js): scene light shadows also march away from the light
+      frameTwoSided: { value: 0.0 },
       // NOTE Scattering octaves of frameRenderer.settings (core/framePhase.js). Count 0 is off.
       frameScatteringOctaves: { value: new Three.Vector4() },
       // NOTE The froxel rectangle and the slices of the volume of this draw. One instance for each slice.

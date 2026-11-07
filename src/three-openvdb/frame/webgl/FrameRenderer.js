@@ -4,6 +4,7 @@ import { FrameIntegrateMaterial, FrameIntegrateTransmittanceMaterial } from './F
 import { FrameDensityMaterial, frameDensityEnvironment } from './FrameDensityMaterial.js';
 import { FrameShadowDensityMaterial } from './FrameShadowDensityMaterial.js';
 import { FrameTransmittanceMaterial, frameShadowLightSlots } from './FrameTransmittanceMaterial.js';
+import { FrameGridMipMaterial } from './FrameGridMipMaterial.js';
 import { FrameLightingMaterial } from './FrameLightingMaterial.js';
 import { FrameTemporalMaterial } from './FrameTemporalMaterial.js';
 import { FrameVolumeShadows } from './FrameVolumeShadows.js';
@@ -19,9 +20,11 @@ import {
   getFramePhase,
   getFrameMultipleScattering,
   getFrameScatteringOctaves,
+  getFrameTwoSidedDiffusion,
   isFrameDiffusion,
 } from '../core/framePhase.js';
 import { getAtlasLayout, getFroxelSize } from '../core/frameLayout.js';
+import { frameNeuralLevels } from '../core/frameNeuralIndirect.js';
 import { FrameVolumeCollector, getFroxelSliceRange, getFroxelRect, getFroxelArea } from '../core/frameView.js';
 import {
   updateGridCascades,
@@ -204,9 +207,10 @@ export class FrameRenderer {
     environmentLighting: 'directional',
     environmentSamples: 8,
     environmentShOrder: 1,
-    // NOTE Multiple scattering in the shadows of all lights (core/framePhase.js). true: diffusion approximation.
-    // 'octaves': indirect light octaves (experimental). false: single scattering.
-    multipleScattering: true,
+    // NOTE Multiple scattering in the shadows of all lights (core/framePhase.js). 'neural': scattered light of the
+    // scene lights from a network (core/frameNeuralIndirect.js), diffusion elsewhere. true: diffusion toward the light
+    // (1D). 'two-sided': diffusion toward and away from the light (2D). 'octaves': indirect light octaves. false: single scattering.
+    multipleScattering: 'neural',
     scatteringOctaves: 4,
     scatteringOctaveExtinction: 0.5,
     scatteringOctaveContribution: 0.5,
@@ -329,6 +333,13 @@ export class FrameRenderer {
   transmittanceScene = createScene();
   transmittanceMesh = new Three.Mesh(createFullscreenGeometry(), this.transmittanceMaterial);
 
+  // NOTE multipleScattering 'neural': mips of the last grid cascade, levels 1 and up (FrameGridMipMaterial)
+  gridMipMaterial = new FrameGridMipMaterial();
+  gridMipScene = createScene();
+  gridMipMesh = new Three.Mesh(createFullscreenGeometry(), this.gridMipMaterial);
+  gridMipTargets = [];
+  gridMipSignature = [];
+
   temporalMaterial = new FrameTemporalMaterial({
     ...this.froxelUniforms,
     ...this.froxelTileUniforms,
@@ -436,6 +447,7 @@ export class FrameRenderer {
       this.injectMesh,
       this.lightingMesh,
       this.transmittanceMesh,
+      this.gridMipMesh,
       this.temporalMesh,
       this.environmentMapMesh,
       this.environmentGridMesh,
@@ -449,6 +461,7 @@ export class FrameRenderer {
 
     this.injectScene.add(this.injectMesh, this.lightingMesh);
     this.transmittanceScene.add(this.transmittanceMesh);
+    this.gridMipScene.add(this.gridMipMesh);
     this.environmentMapScene.add(this.environmentMapMesh);
     this.environmentGridScene.add(this.environmentGridMesh);
   }
@@ -646,6 +659,62 @@ export class FrameRenderer {
 
   isSpectral() {
     return this.settings.spectral === true;
+  }
+
+  // NOTE multipleScattering 'neural' uses the network only with grey 'frame' lighting. Other cases use diffusion.
+  isNeural() {
+    return this.settings.multipleScattering === 'neural' && !this.isSpectral();
+  }
+
+  // NOTE Mips of the last grid cascade for the network. Drawn again only when the grid changes.
+  renderGridMips(renderer, camera) {
+    const { frameGridResolution, frameGridColumns, frameGridCount } = this.gridUniforms;
+    const resolution = frameGridResolution.value;
+    const source = this.shadowDensityTarget;
+    const signature = [this.gridVersion, source.texture.id, resolution, frameGridCount.value, frameGridColumns.value];
+
+    if (sameValues(signature, this.gridMipSignature)) {
+      return;
+    }
+
+    this.gridMipSignature = signature;
+
+    const { uniforms } = this.gridMipMaterial;
+
+    for (let level = 1; level < frameNeuralLevels; level++) {
+      const side = Math.max(1, resolution >> level);
+      let target = this.gridMipTargets[level - 1];
+
+      if (!target || target.width !== side * side || target.height !== side) {
+        target?.dispose();
+        target = createRenderTarget(side * side, side, { format: Three.RGFormat });
+        this.gridMipTargets[level - 1] = target;
+      }
+
+      if (level === 1) {
+        uniforms.frameMipSource.value = source.texture;
+        uniforms.frameMipSourceResolution.value = resolution;
+        uniforms.frameMipSourceColumns.value = frameGridColumns.value;
+        uniforms.frameMipSourceTile.value = (frameGridCount.value - 1) * resolution;
+      } else {
+        const previous = this.gridMipTargets[level - 2];
+
+        uniforms.frameMipSource.value = previous.texture;
+        uniforms.frameMipSourceResolution.value = previous.height;
+        uniforms.frameMipSourceColumns.value = previous.height;
+        uniforms.frameMipSourceTile.value = 0;
+      }
+
+      uniforms.frameMipResolution.value = side;
+      renderer.setRenderTarget(target);
+      renderer.render(this.gridMipScene, camera);
+    }
+
+    const transmittanceUniforms = this.transmittanceMaterial.uniforms;
+
+    this.gridMipTargets.forEach((target, index) => {
+      transmittanceUniforms[`frameNeuralMipMap${index + 1}`].value = target.texture;
+    });
   }
 
   // NOTE The 3 transmittance targets of a spectral slot group, the same size as the shadow grid
@@ -1054,6 +1123,7 @@ export class FrameRenderer {
         frameVolume,
       );
       getFrameScatteringOctaves(this.settings, uniforms.frameScatteringOctaves.value);
+      uniforms.frameTwoSided.value = getFrameTwoSidedDiffusion(this.settings.multipleScattering);
 
       renderer.setRenderTarget(atlasTarget);
       renderer.render(injectScene, camera);
@@ -1088,12 +1158,19 @@ export class FrameRenderer {
         this.settings,
       );
       getFrameScatteringOctaves(this.settings, transmittanceUniforms.frameScatteringOctaves.value);
+      transmittanceUniforms.frameTwoSided.value = getFrameTwoSidedDiffusion(this.settings.multipleScattering);
 
       for (let index = 0; index < lights.shadowLights.length; index++) {
         transmittanceUniforms.frameShadowLights.value[index].copy(lights.shadowLights[index]);
       }
 
       this.transmittanceMesh.layers.mask = camera.layers.mask;
+      this.transmittanceMaterial.setNeural(this.isNeural());
+
+      if (this.isNeural()) {
+        this.gridMipMesh.layers.mask = camera.layers.mask;
+        this.renderGridMips(renderer, camera);
+      }
 
       const unchanged = this.transmittanceUnchanged(lights.shadowLights.length, spectral ? spectralGroups : 0);
 
@@ -1215,6 +1292,8 @@ export class FrameRenderer {
       spectralGroups,
       shadowLightCount,
       uniforms.frameMultipleScattering.value,
+      this.transmittanceMaterial.neural ? 1 : 0,
+      uniforms.frameTwoSided.value,
     );
     pushVector(values, uniforms.frameScatteringOctaves.value);
     pushVector(values, uniforms.frameSkyDirection.value);
@@ -1688,6 +1767,9 @@ export class FrameRenderer {
 
     this.spectralTransmittanceTargets.forEach((target) => target.dispose());
     this.spectralTransmittanceTargets = [];
+    this.gridMipTargets.forEach((target) => target.dispose());
+    this.gridMipTargets = [];
+    this.gridMipSignature = [];
 
     this.environmentLights = new FrameEnvironmentLights((renderer, scene) =>
       this.renderEnvironmentMap(renderer, scene),
@@ -1716,6 +1798,7 @@ export class FrameRenderer {
       this.integrateTransmittanceMaterial,
       this.lightingMaterial,
       this.transmittanceMaterial,
+      this.gridMipMaterial,
       this.temporalMaterial,
       this.depthMaterial,
       this.environmentMapMaterial,
@@ -1726,6 +1809,7 @@ export class FrameRenderer {
       this.injectMesh,
       this.lightingMesh,
       this.transmittanceMesh,
+      this.gridMipMesh,
       this.environmentMapMesh,
       this.environmentGridMesh,
       this.integrateTransmittanceMesh,
