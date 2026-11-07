@@ -3,6 +3,7 @@ import * as OpenVDB from 'three-openvdb';
 import { gui, setGuiFields } from '../utils/gui';
 import { loaders, setEnvironmentLights } from '../utils/resources';
 import { setLoading } from '../utils/loading';
+import { createTransformFolder } from '../utils/transform';
 
 // NOTE Longest side of the mesh and of the volume in scene units
 const displaySize = 100.0;
@@ -77,6 +78,7 @@ export const exampleMesh = ({ scene }) => {
     edgeNoise: 4.0,
     edgeSamples: 1,
     showMesh: true,
+    upAxis: 'y',
   };
 
   let entry = null;
@@ -92,6 +94,13 @@ export const exampleMesh = ({ scene }) => {
 
   const setStatus = (text) => {
     getController('status')?.setValue(text);
+  };
+
+  // NOTE Z-up turns each half -90 degrees on X around its center
+  const applyUpAxis = () => {
+    entry?.pivot.children.forEach((slot) => {
+      slot.rotation.x = params.upAxis === 'z' ? -Math.PI / 2.0 : 0.0;
+    });
   };
 
   const removeVolume = () => {
@@ -146,7 +155,7 @@ export const exampleMesh = ({ scene }) => {
 
         const meshHalf = new Three.Group();
         meshHalf.scale.setScalar(scale);
-        meshHalf.position.copy(offset).x -= displaySpacing / 2.0;
+        meshHalf.position.copy(offset);
         meshHalf.visible = params.showMesh;
         meshHalf.add(model);
 
@@ -178,12 +187,22 @@ export const exampleMesh = ({ scene }) => {
 
         const volumeHalf = new Three.Group();
         volumeHalf.scale.setScalar(scale);
-        volumeHalf.position.copy(offset).x += displaySpacing / 2.0;
+        volumeHalf.position.copy(offset);
         volumeHalf.add(volume);
 
         entry.volume = volume;
         entry.meshHalf = meshHalf;
-        entry.pivot.add(meshHalf, volumeHalf);
+
+        // NOTE Each half has a slot at its center. The up axis turns the slots.
+        const meshSlot = new Three.Group();
+        const volumeSlot = new Three.Group();
+
+        meshSlot.position.x = -displaySpacing / 2.0;
+        volumeSlot.position.x = displaySpacing / 2.0;
+        meshSlot.add(meshHalf);
+        volumeSlot.add(volumeHalf);
+        entry.pivot.add(meshSlot, volumeSlot);
+        applyUpAxis();
       })
       .catch((error) => {
         stopLoading();
@@ -281,6 +300,14 @@ export const exampleMesh = ({ scene }) => {
     {
       folder: 'Scene',
       children: [
+        createTransformFolder({
+          upAxis: params.upAxis,
+          onUpAxisChange: (value) => {
+            params.upAxis = value;
+
+            applyUpAxis();
+          },
+        }),
         {
           id: 'lightSetup',
           name: 'Lights',

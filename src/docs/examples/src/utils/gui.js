@@ -6,6 +6,7 @@ import { exampleMesh } from "../examples/mesh";
 import { scene } from "../main";
 import { isPhone } from "./device";
 import { loadEnvironment } from "./resources";
+import { resetTransformMode } from "./transform";
 
 export let gui = new GUI();
 export const dropTarget = document.querySelector('#dropzone');
@@ -41,6 +42,8 @@ const guiBaseFields = () => [
           }
 
           activeDemo = value;
+
+          resetTransformMode();
 
           scene.traverse(child => {
             if (child.material) {
@@ -137,7 +140,8 @@ export const showGui = () => {
         return;
       }
 
-      guiState[field.id] = field.defaultValue;
+      // NOTE A field with onClick is a button
+      guiState[field.id] = field.onClick ? () => field.onClick() : field.defaultValue;
     });
 
     fields.forEach(field => {
@@ -152,6 +156,16 @@ export const showGui = () => {
 
         traverse(folder, field.children);
       } else {
+        if (field.onClick) {
+          const button = level.add(guiState, field.id).name(field.name);
+
+          if (field.disabled) {
+            button.disable();
+          }
+
+          return;
+        }
+
         let input;
 
         if (guiState[field.id] && guiState[field.id][0] === '#') {
