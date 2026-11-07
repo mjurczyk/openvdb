@@ -216,8 +216,8 @@ export class FrameRenderer {
     spectral: false,
   };
 
-  // NOTE Froxel cap of settings.pixelsPerFroxel from the last frame (core/frameLayout.js getFroxelSize)
-  froxelCap = { x: 0, y: 0 };
+  // NOTE Canvas and drawing buffer sizes that settings.pixelsPerFroxel holds (core/frameLayout.js getFroxelSize)
+  froxelHeldSize = { canvasX: 0, canvasY: 0, bufferX: 0, bufferY: 0 };
   froxelUniforms = {
     froxelGrid: { value: new Three.Vector3(1.0, 1.0, 1.0) },
     froxelColumns: { value: 1.0 },
@@ -670,7 +670,7 @@ export class FrameRenderer {
 
   updateTargets(renderer) {
     const { depth, subSteps } = this.settings;
-    const { width, height } = getFroxelSize(this.settings, renderer, froxelSize, this.froxelCap);
+    const { width, height } = getFroxelSize(this.settings, renderer, froxelSize, this.froxelHeldSize);
     const spectral = this.isSpectral();
     const froxelAtlas = getAtlasLayout(width, height, depth);
 

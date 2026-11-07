@@ -233,8 +233,8 @@ export class FrameRenderer {
 
   // NOTE TSL uniform nodes. Passes share them, the CPU writes .value.
   froxelUniforms = createFroxelUniforms();
-  // NOTE Froxel cap of settings.pixelsPerFroxel from the last frame (core/frameLayout.js getFroxelSize)
-  froxelCap = { x: 0, y: 0 };
+  // NOTE Canvas and drawing buffer sizes that settings.pixelsPerFroxel holds (core/frameLayout.js getFroxelSize)
+  froxelHeldSize = { canvasX: 0, canvasY: 0, bufferX: 0, bufferY: 0 };
   froxelTileUniforms = createTileUniforms();
   // NOTE Froxel area of the volumes in this frame. The density clear, lighting and temporal passes draw only it.
   froxelAreaUniforms = createAreaUniforms();
@@ -638,7 +638,7 @@ export class FrameRenderer {
 
   updateTargets(renderer) {
     const { depth, subSteps } = this.settings;
-    const { width, height } = getFroxelSize(this.settings, renderer, froxelSize, this.froxelCap);
+    const { width, height } = getFroxelSize(this.settings, renderer, froxelSize, this.froxelHeldSize);
     const spectral = this.isSpectral();
     const froxelAtlas = getAtlasLayout(width, height, depth);
 
