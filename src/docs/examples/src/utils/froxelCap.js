@@ -1,4 +1,5 @@
 import { frameRenderer } from 'three-openvdb';
+import { isLoading } from './loading';
 
 // NOTE The examples start with the full froxel grid on every device. When the frames stay slow, at most one froxel for
 // each 2 x 2 canvas pixels (settings.pixelsPerFroxel), one time. Desktops and phones that draw the volumes fast keep
@@ -15,6 +16,14 @@ let capped = false;
 // validation tests) keep the full grid, so their pictures don't depend on the speed of the machine.
 export const updateFroxelCap = () => {
   if (capped || navigator.webdriver || frameRenderer.settings.pixelsPerFroxel > 0) {
+    return;
+  }
+
+  // NOTE While an asset loads (a WVDB sequence, a custom VDB), slow frames come from the loading: they don't count
+  if (isLoading()) {
+    frameCount = 0;
+    lastTime = null;
+
     return;
   }
 
