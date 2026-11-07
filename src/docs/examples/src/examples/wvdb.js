@@ -5,6 +5,7 @@ import { setLoading } from '../utils/loading';
 import { renderer } from '../main';
 import { isPhone } from '../utils/device';
 import { firstEnvironment, setEnvironmentLights } from '../utils/resources';
+import { createTransformFolder } from '../utils/transform';
 
 // NOTE Longest side of each volume in scene units
 const displaySize = 100.0;
@@ -47,6 +48,7 @@ export const exampleWVDB = ({ scene }) => {
   const params = {
     asset: 'bunny_cloud',
     instances: 1,
+    upAxis: 'y',
   };
 
   let entry = null;
@@ -96,8 +98,15 @@ export const exampleWVDB = ({ scene }) => {
     entry = null;
   };
 
+  // NOTE Z-up volumes turn -90 degrees on X. Each slot has one up group.
+  const applyUpAxis = () => {
+    entry?.pivot.children.forEach((slot) => {
+      slot.children[0].rotation.x = params.upAxis === 'z' ? -Math.PI / 2.0 : 0.0;
+    });
+  };
+
   // NOTE The source and its instances stand in a row on X. Each box fits displaySize.
-  // Z-up volumes turn -90 degrees on X. Sequence instances start at different frames.
+  // Sequence instances start at different frames.
   const placeVolumes = () => {
     if (!entry?.box) {
       return;
@@ -126,7 +135,6 @@ export const exampleWVDB = ({ scene }) => {
       const up = new Three.Group();
 
       slot.position.x = (index - (params.instances - 1) / 2.0) * instanceSpacing;
-      up.rotation.x = box.upAxis === 'z' ? -Math.PI / 2.0 : 0.0;
       each.scale.setScalar(scale);
       each.position.copy(box.bbox.getCenter(new Three.Vector3())).multiplyScalar(-scale);
 
@@ -134,14 +142,16 @@ export const exampleWVDB = ({ scene }) => {
       slot.add(up);
       entry.pivot.add(slot);
     });
+
+    applyUpAxis();
   };
 
   // NOTE Instances copy the props of the source, so the props are set first
-  const addVolume = (volume, bbox, upAxis = 'y') => {
+  const addVolume = (volume, bbox) => {
     volume.extinction = getExtinction(params.asset);
 
     entry.volume = volume;
-    entry.box = { bbox, upAxis };
+    entry.box = { bbox };
     placeVolumes();
   };
 
@@ -177,7 +187,7 @@ export const exampleWVDB = ({ scene }) => {
                 return;
               }
 
-              addVolume(animation, animation.bbox, sequence.upAxis);
+              addVolume(animation, animation.bbox);
               animation.play();
             },
             ({ lod, loadedFrames, totalFrames }) => {
@@ -285,11 +295,11 @@ export const exampleWVDB = ({ scene }) => {
 
   setGuiFields([
     {
-      folder: 'Streaming',
+      folder: 'General',
       children: [
         {
           id: 'asset',
-          name: 'Asset',
+          name: 'VDB',
           defaultValue: params.asset,
           options: {
             'Ground Explosion (sequence, EmberGen)': 'ground_explosion',
@@ -301,10 +311,28 @@ export const exampleWVDB = ({ scene }) => {
           onChange: (value) => {
             params.asset = value;
 
+            // NOTE Each asset starts with its own up axis
+            getController('upAxis')?.setValue(sequences[value]?.upAxis ?? 'y');
+
             if (ready) {
               rebuild();
             }
           },
+        },
+      ],
+    },
+    {
+      folder: 'Streaming',
+      children: [
+        {
+          id: 'status',
+          name: 'Status',
+          defaultValue: '',
+        },
+        {
+          id: 'textures',
+          name: 'Textures',
+          defaultValue: '',
         },
         {
           id: 'instances',
@@ -316,21 +344,19 @@ export const exampleWVDB = ({ scene }) => {
             placeVolumes();
           },
         },
-        {
-          id: 'status',
-          name: 'Status',
-          defaultValue: '',
-        },
-        {
-          id: 'textures',
-          name: 'Textures',
-          defaultValue: '',
-        },
       ],
     },
     {
       folder: 'Scene',
       children: [
+        createTransformFolder({
+          upAxis: params.upAxis,
+          onUpAxisChange: (value) => {
+            params.upAxis = value;
+
+            applyUpAxis();
+          },
+        }),
         {
           id: 'lightSetup',
           name: 'Lights',

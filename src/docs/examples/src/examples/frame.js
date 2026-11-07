@@ -13,6 +13,7 @@ import {
 import { createToneMappingField } from '../utils/toneMapping';
 import { createMultipleScatteringFields } from '../utils/scattering';
 import { isPhone } from '../utils/device';
+import { createTransformFolder } from '../utils/transform';
 
 // NOTE Stress test: one bunny is converted one time, in a cube box.
 // All grid volumes use its raw density data.
@@ -23,6 +24,7 @@ let bunnyGridData = null;
 // NOTE The Ground Explosion sequence of the Streaming demo. Z-up, scaled to explosionSize units.
 const explosion = {
   frames: './assets/ground_explosion/frames.json',
+  upAxis: 'z',
   emissiveGrid: 'flames',
   // NOTE Approximately the 99th percentile of the flames grid
   emissiveScale: 6.0,
@@ -87,6 +89,7 @@ const getBunnyGridData = (vdb, center, size) => {
 export const exampleFrame = ({ scene }) => {
   const params = {
     source: 'bunny',
+    upAxis: 'y',
     format: 'wvdb',
     baseColor: '#ffffff',
     absorbance: 1.0,
@@ -131,9 +134,24 @@ export const exampleFrame = ({ scene }) => {
 
   // NOTE The volumes and the floor stand on the environment ground, the same as the Streaming demo
   const volumeStage = new Three.Group();
+  // NOTE Z-up volumes turn -90 degrees on X around the stage center
+  const volumeUp = new Three.Group();
+  volumeStage.add(volumeUp);
   scene.add(volumeStage);
 
-  const placeMeshes = (height, width, groundScale) => {
+  // NOTE The box size of the volumes before the up axis turn. A new up axis places the floor again.
+  let stage = null;
+
+  const applyUpAxis = () => {
+    volumeUp.rotation.x = params.upAxis === 'z' ? -Math.PI / 2.0 : 0.0;
+  };
+
+  const placeMeshes = (size, groundScale) => {
+    const height = params.upAxis === 'z' ? size.z : size.y;
+    const width = Math.max(size.x, params.upAxis === 'z' ? size.y : size.z);
+
+    stage = { size, groundScale };
+    applyUpAxis();
     emission.placeMeshes(height, width, groundScale);
     volumeStage.position.y = groundLevel + height / 2.0;
     emission.meshes.position.y = groundLevel;
@@ -332,7 +350,7 @@ export const exampleFrame = ({ scene }) => {
     pivot.add(volume);
 
     applyVolumeParams(volume);
-    volumeStage.add(pivot);
+    volumeUp.add(pivot);
     entries.push({ pivot, volume });
 
     return pivot;
@@ -383,8 +401,7 @@ export const exampleFrame = ({ scene }) => {
                 animation.visible = true;
                 animation.play();
 
-                // NOTE Z-up: the height is the Z side of the box
-                placeMeshes(size.z * scale, Math.max(size.x, size.y) * scale);
+                placeMeshes(size.multiplyScalar(scale));
                 fitSunShadow();
                 onBuilt();
               },
@@ -397,10 +414,9 @@ export const exampleFrame = ({ scene }) => {
 
           animation.fps = explosion.fps;
           animation.visible = false;
-          pivot.rotation.x = -Math.PI / 2.0;
           pivot.add(animation);
           applyVolumeParams(animation);
-          volumeStage.add(pivot);
+          volumeUp.add(pivot);
           entries.push({ pivot, volume: animation });
         })
         .catch(onError);
@@ -419,7 +435,7 @@ export const exampleFrame = ({ scene }) => {
 
       pivot.position.set(0.0, 0.0, 0.0);
       pivot.scale.setScalar(scale);
-      placeMeshes(size.y * scale, Math.max(size.x, size.z) * scale);
+      placeMeshes(size.clone().multiplyScalar(scale));
       fitSunShadow();
     };
 
@@ -431,7 +447,7 @@ export const exampleFrame = ({ scene }) => {
       // NOTE Center the first bunny at the scene origin
       const firstPivot = addVolume(createBunny(), center);
       firstPivot.position.set(0.0, 0.0, 0.0);
-      placeMeshes(size.y, Math.max(size.x, size.z));
+      placeMeshes(size);
       fitSunShadow();
 
       if (params.source !== 'twoBunnies') {
@@ -456,7 +472,7 @@ export const exampleFrame = ({ scene }) => {
 
 
       // NOTE The ground covers the grid
-      placeMeshes(side, side, (bunnyGridSize * 1.1 + 4.0) / 8.0);
+      placeMeshes(new Three.Vector3(side, side, side), (bunnyGridSize * 1.1 + 4.0) / 8.0);
       fitSunShadow();
 
       const createBunny = () => {
@@ -610,7 +626,7 @@ export const exampleFrame = ({ scene }) => {
       children: [
         {
           id: 'source',
-          name: 'Source',
+          name: 'VDB',
           defaultValue: params.source,
           options: {
             'Bunny Cloud': 'bunny',
@@ -621,6 +637,9 @@ export const exampleFrame = ({ scene }) => {
           },
           onChange: (value) => {
             params.source = value;
+
+            // NOTE Each VDB starts with its own up axis
+            getController('upAxis')?.setValue(value === 'explosion' ? explosion.upAxis : 'y');
 
             // NOTE The explosion turns on its emission light. The floor stays as it is.
             if (value === 'explosion') {
@@ -650,6 +669,19 @@ export const exampleFrame = ({ scene }) => {
       folder: 'Scene',
       closed: true,
       children: [
+        createTransformFolder({
+          upAxis: params.upAxis,
+          onUpAxisChange: (value) => {
+            params.upAxis = value;
+
+            applyUpAxis();
+
+            if (stage) {
+              placeMeshes(stage.size, stage.groundScale);
+              fitSunShadow();
+            }
+          },
+        }),
         {
           id: 'lightSetup',
           name: 'Lights',

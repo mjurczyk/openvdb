@@ -14,8 +14,10 @@ import {
 import { createToneMappingField } from '../utils/toneMapping';
 import { createMultipleScatteringFields } from '../utils/scattering';
 import { groundLevel, setEnvironmentLights } from '../utils/resources';
+import { createTransformFolder, setTransformTarget } from '../utils/transform';
 
-let animation, volumePivot, targetScene;
+// NOTE volumeGround stands on the ground. The gizmo moves volumeTransform. volumePivot turns the up axis.
+let animation, volumeGround, volumeTransform, volumePivot, targetScene;
 // NOTE Instances of the animation, for the Copies field. Disposed before the animation.
 let copies = [];
 let dropId = 0;
@@ -116,7 +118,8 @@ const removeAnimation = () => {
     return;
   }
 
-  if (volumePivot.parent) volumePivot.parent.remove(volumePivot);
+  volumeGround.removeFromParent();
+  setTransformTarget(null);
 
   // NOTE Instances first, then the animation
   removeCopies();
@@ -127,6 +130,8 @@ const removeAnimation = () => {
   wvdbUrls = [];
 
   animation = null;
+  volumeGround = null;
+  volumeTransform = null;
   volumePivot = null;
 
   setLoading('vdb', false);
@@ -144,12 +149,17 @@ const showAnimation = () => {
   applyPlaybackParams();
 
   // NOTE The pivot turns the volume around its center
+  volumeGround = new Three.Group();
+  volumeTransform = new Three.Group();
   volumePivot = new Three.Group();
   volumePivot.add(animation);
+  volumeTransform.add(volumePivot);
+  volumeGround.add(volumeTransform);
   applyUpAxis();
+  setTransformTarget(volumeTransform);
 
   if (targetScene) {
-    targetScene.add(volumePivot);
+    targetScene.add(volumeGround);
   }
 };
 
@@ -370,7 +380,13 @@ dropTarget.addEventListener(
   true,
 );
 
-const dropzone = new SimpleDropzone(dropTarget, document.createElement('input'));
+// NOTE The VDB button of the General folder opens this file input
+const fileInput = document.createElement('input');
+fileInput.type = 'file';
+fileInput.multiple = true;
+fileInput.accept = '.vdb,.wvdb,.zip';
+
+const dropzone = new SimpleDropzone(dropTarget, fileInput);
 
 dropTarget.innerHTML = '[Drop .VDB / .WVDB / .ZIP here]';
 
@@ -464,7 +480,7 @@ export const exampleVDB = ({ scene }) => {
 
     const { height, width } = getGroundSize();
 
-    volumePivot.position.y = groundLevel + height / 2.0;
+    volumeGround.position.y = groundLevel + height / 2.0;
 
     // NOTE The ground covers the copies, which are 1.5 box widths apart
     emission.placeMeshes(height, width, Math.max(1.0, (Math.ceil(Math.sqrt(params.copies)) * 1.5 + 4.0) / 8.0));
@@ -600,8 +616,32 @@ export const exampleVDB = ({ scene }) => {
 
   setGuiFields([
     {
-      folder: 'Scene',
+      folder: 'General',
       children: [
+        {
+          id: 'vdbFile',
+          name: 'VDB',
+          onClick: () => {
+            // NOTE Without a reset, the same file selected again does not send a change event
+            fileInput.value = '';
+            fileInput.click();
+          },
+        },
+      ],
+    },
+    {
+      folder: 'Scene',
+      closed: true,
+      children: [
+        createTransformFolder({
+          upAxis: params.upAxis,
+          onUpAxisChange: (value) => {
+            params.upAxis = value;
+
+            applyUpAxis();
+          },
+          enabled: true,
+        }),
         {
           id: 'lightSetup',
           name: 'Lights',
@@ -679,6 +719,7 @@ export const exampleVDB = ({ scene }) => {
     },
     {
       folder: 'Rendering',
+      closed: true,
       children: [
         ...createMultipleScatteringFields(),
         createToneMappingField(),
@@ -751,22 +792,7 @@ export const exampleVDB = ({ scene }) => {
     },
     {
       folder: 'Volume',
-      closed: true,
       children: [
-        {
-          id: 'upAxis',
-          name: 'Up Axis',
-          defaultValue: params.upAxis,
-          options: {
-            Y: 'y',
-            Z: 'z',
-          },
-          onChange: (value) => {
-            params.upAxis = value;
-
-            applyUpAxis();
-          },
-        },
         {
           id: 'emissiveGrid',
           name: 'Emissive Grid',
