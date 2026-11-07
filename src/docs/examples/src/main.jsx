@@ -3,7 +3,6 @@ import { WebGPURenderer } from 'three/webgpu';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import Stats from 'stats.js'
 import { exampleVDB } from './examples/vdb';
-import { frameRenderer } from 'three-openvdb';
 import packageInfo from '../../../three-openvdb/package.json';
 import { setActiveDemo } from './utils/gui';
 import { exampleWVDB } from './examples/wvdb';
@@ -11,15 +10,13 @@ import { readFurnace } from './utils/furnace';
 import { isPhone } from './utils/device';
 import { updateShadowMaps } from './utils/shadowMaps';
 import { updateTransformMode } from './utils/transform';
+import { updateFroxelCap } from './utils/froxelCap';
 
 export const camera = new Three.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.01, 10000.0);
 export const scene = new Three.Scene();
 // NOTE npm run dev:webgl uses WebGLRenderer and three-openvdb/webgl. ?webgl uses the WebGL2 fallback of WebGPURenderer.
 // NOTE No MSAA on phones. The volume pass copies the scene color and depth in each frame, and MSAA makes this 4 times larger.
 const antialias = !isPhone;
-
-// NOTE Phones: at most one froxel for each 2 x 2 CSS pixels. A phone canvas is small, and each pass costs per froxel.
-frameRenderer.settings.pixelsPerFroxel = isPhone ? 2 : 0;
 
 export const renderer =
   import.meta.env.VITE_FRAME_RENDERER === 'webgl'
@@ -64,6 +61,7 @@ const init = () => {
 
 const animate = () => {
   stats.begin();
+  updateFroxelCap();
 
   // NOTE Transform mode turns off the orbit controls and moves the camera (utils/transform.js)
   if (controls.enabled) {
