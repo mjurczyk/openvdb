@@ -169,6 +169,8 @@ export class FrameRenderer {
   settings = {
     width: 512,
     height: 512,
+    // NOTE N above 0: at most one froxel for each N x N canvas (CSS) pixels, for small screens. 0: no cap.
+    pixelsPerFroxel: 0,
     depth: 24,
     subSteps: 32,
     near: 0.1,
@@ -214,6 +216,8 @@ export class FrameRenderer {
     spectral: false,
   };
 
+  // NOTE Froxel cap of settings.pixelsPerFroxel from the last frame (core/frameLayout.js getFroxelSize)
+  froxelCap = { x: 0, y: 0 };
   froxelUniforms = {
     froxelGrid: { value: new Three.Vector3(1.0, 1.0, 1.0) },
     froxelColumns: { value: 1.0 },
@@ -666,7 +670,7 @@ export class FrameRenderer {
 
   updateTargets(renderer) {
     const { depth, subSteps } = this.settings;
-    const { width, height } = getFroxelSize(this.settings, renderer, froxelSize);
+    const { width, height } = getFroxelSize(this.settings, renderer, froxelSize, this.froxelCap);
     const spectral = this.isSpectral();
     const froxelAtlas = getAtlasLayout(width, height, depth);
 
