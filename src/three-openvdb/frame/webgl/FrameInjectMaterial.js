@@ -180,8 +180,8 @@ const fragmentShader = `
       return frameShadowTotal(frameTransmittance(origin, localDirection, maxLocalDistance, lod, albedo).y);
     }
 
-    // NOTE Light of a directional, point or spot light, divided by the light color
-    float frameDirectLight(vec3 rayDirection, vec3 lightDirection, vec3 origin, vec3 localDirection, float maxLocalDistance, float lod, vec3 albedo) {
+    // NOTE Light of a directional, point or spot light of each channel, divided by the light color
+    vec3 frameDirectLight(vec3 rayDirection, vec3 lightDirection, vec3 origin, vec3 localDirection, float maxLocalDistance, float lod, vec3 albedo) {
       return frameShadowedLight(rayDirection, lightDirection, frameTransmittance(origin, localDirection, maxLocalDistance, lod, albedo));
     }
 

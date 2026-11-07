@@ -1,5 +1,9 @@
 # Unreleased
 
+- Experimental RGB Lorenz-Mie phase: `FrameVolume` `phase` and `frameRenderer.settings.phase` `'lorenz-mie-rgb'`. Lorenz-Mie tables at 650 / 550 / 450 nm for the direct light of each color channel (red edge near the light, blue fogbow, red glory). Indirect light is the same as `'lorenz-mie'`. `'lorenz-mie'` does not change. Both `three-openvdb` and `three-openvdb/webgl`
+- Experimental phase of each color channel for `'henyey-greenstein'` and `'dual-lobe'`: `FrameVolume` `phaseGExponent` and `frameRenderer.settings.phaseGExponent` (default `0.0`). `g` of each channel is `g * (wavelength / 550 nm)^-phaseGExponent`, for the direct light. Both `three-openvdb` and `three-openvdb/webgl`
+- Examples: the Combined Phase Function field has a MIE RGB option. Phase fields have a Phase G Exponent field
+
 - Performance: the density clear, lighting, temporal and per-volume inject passes draw only the froxel area of the volumes (their rectangles and slices), not the full froxel atlas. The integrate pass draws only the screen rectangle of that area and marches only its slices. The image does not change. Both `three-openvdb` and `three-openvdb/webgl`
 - Performance: the froxel grid is not larger than the canvas pixels (`settings.width` and `settings.height` are upper limits). Both `three-openvdb` and `three-openvdb/webgl`
 - Performance: `three-openvdb` reads the mask, base color and emissive grids only when a volume has them (the placeholder textures were also sampled). `three-openvdb/webgl` already did this

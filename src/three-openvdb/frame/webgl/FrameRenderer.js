@@ -17,6 +17,7 @@ import {
 } from './frameShaderChunks.js';
 import {
   getFramePhase,
+  getFramePhaseSpectrum,
   getFrameMultipleScattering,
   getFrameScatteringOctaves,
   isFrameDiffusion,
@@ -187,6 +188,7 @@ export class FrameRenderer {
     phaseG: 0.8,
     phaseBackG: -0.3,
     phaseBackWeight: 0.2,
+    phaseGExponent: 0.0,
     // NOTE Volumes cast shadows on meshes, for directional, point and spot lights with castShadow
     castShadows: false,
     // NOTE Texels on each side of a volume shadow map (of each cascade tile and cube face)
@@ -1185,6 +1187,10 @@ export class FrameRenderer {
     } else {
       lightingUniforms.frameDensityShadowMap0.value = this.densityTarget.textures[2];
       lightingUniforms.frameDensityShadowMap1.value = this.densityTarget.textures[3];
+      lightingUniforms.frameUseShadows.value = useShadows;
+      lightingUniforms.frameCameraMatrixWorld.value.copy(camera.matrixWorld);
+      lightingUniforms.frameTransmittanceMap2.value = this.transmittanceTarget.textures[2];
+      lightingUniforms.frameTransmittanceMap3.value = this.transmittanceTarget.textures[3];
     }
     lightingUniforms.frameSkyDirection.value.copy(lights.skyDirection);
     lightingUniforms.frameShadowLightCount.value = lights.shadowLights.length;
@@ -1193,6 +1199,7 @@ export class FrameRenderer {
     lightingUniforms.frameEnvironmentLightCount.value = useShadows ? lights.environmentLightCount : 0;
     lightingUniforms.frameEnvironmentShadowSlot.value = lights.environmentShadowSlot;
     getFramePhase(this.settings, lightingUniforms.framePhase.value);
+    getFramePhaseSpectrum(this.settings, lightingUniforms.framePhaseSpectrum.value);
     getFrameScatteringOctaves(this.settings, lightingUniforms.frameScatteringOctaves.value);
 
     renderer.setRenderTarget(this.atlasTarget);
@@ -1349,6 +1356,7 @@ export class FrameRenderer {
     setVolumeUniforms(frameUniforms, frameVolume, volume);
     // NOTE 'frame' lighting: the light slots get one phase for all volumes, from frameRenderer.settings
     getFramePhase(this.settings, frameUniforms.framePhase.value);
+    getFramePhaseSpectrum(this.settings, frameUniforms.framePhaseSpectrum.value);
     getFrameScatteringOctaves(this.settings, frameUniforms.frameScatteringOctaves.value);
     frameUniforms.frameDiffusion.value = isFrameDiffusion(this.settings.multipleScattering) ? 1 : 0;
     frameUniforms.frameSliceStart.value = first;
