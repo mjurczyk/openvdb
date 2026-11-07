@@ -33,6 +33,7 @@ import {
   frameGetFroxel,
   frameTileVertex,
   frameShadowedLight,
+  framePhaseColor,
   createGridNodes,
   frameSpectralShadowedLight,
   frameSpectralShadowTotal,
@@ -66,6 +67,7 @@ export class FrameLightingMaterial extends Three.NodeMaterial {
     this.frameCameraMatrixWorld = uniform(new Three.Matrix4());
     // NOTE One phase for all volumes, from frameRenderer.settings
     this.framePhase = uniform(new Three.Vector4());
+    this.framePhaseSpectrum = uniform(new Three.Vector3());
     // NOTE Scattering octaves of frameRenderer.settings (core/framePhase.js). Count 0 is off.
     this.frameScatteringOctaves = uniform(new Three.Vector4());
     // NOTE Environment lights with a shadow slot (0 or 1). Light i has slot frameEnvironmentShadowSlot + i.
@@ -235,6 +237,7 @@ export class FrameLightingMaterial extends Three.NodeMaterial {
         // NOTE Directional position xyz is the direction to the light
         const light = frameSpectralShadowedLight(
           this.framePhase,
+          this.framePhaseSpectrum,
           octaves,
           rayDirection,
           select(position.w.lessThan(1.5), position.xyz, normalize(lightVector)),
@@ -273,7 +276,7 @@ export class FrameLightingMaterial extends Three.NodeMaterial {
 
   // NOTE spectralOutputs: { color, alpha } property nodes of the spectral targets. null: one target.
   createFragmentNode(spectralOutputs = null) {
-    const { froxelUniforms, lightUniforms } = this;
+    const { froxelUniforms, lightUniforms, densityShadowUniforms } = this;
     const {
       frameAmbientColor,
       frameLightProbe,
@@ -287,6 +290,7 @@ export class FrameLightingMaterial extends Three.NodeMaterial {
       frameLightFalloffs,
       frameEnvironmentColors,
     } = lightUniforms;
+    const grid = createGridNodes(this.gridUniforms);
     const atlasSize = froxelUniforms.froxelAtlasSize;
 
     return Fn(() => {
@@ -318,6 +322,23 @@ export class FrameLightingMaterial extends Three.NodeMaterial {
       const shadow1 = frameLoad(this.frameDensityShadowMap1, texel, atlasSize).div(extinction).toVar();
       const shadowSlots = [shadow0.z, shadow0.w, shadow1.x, shadow1.y, shadow1.z, shadow1.w];
 
+      // NOTE Phases of each channel: slots hold the green phase. Direct transmittance from the shadow grid adds the red and blue difference.
+      const colorPhase = this.framePhaseSpectrum.z.greaterThan(0.5).toVar();
+      const direct0 = vec4(1.0).toVar();
+      const direct1 = vec4(1.0).toVar();
+
+      If(colorPhase.and(densityShadowUniforms.frameUseShadows.equal(1)), () => {
+        const directs = grid.sampleShadows(
+          [densityShadowUniforms.frameTransmittanceMap2, densityShadowUniforms.frameTransmittanceMap3],
+          worldPosition,
+        );
+
+        direct0.assign(directs[0]);
+        direct1.assign(directs[1]);
+      });
+
+      const directSlots = [direct0.x, direct0.y, direct0.z, direct0.w, direct1.x, direct1.y];
+
       const skyDirection = normalize(frameSkyDirection).toVar();
       const skyUp = shadow0.x.mul(0.5);
       const skyDown = shadow0.y.mul(0.5);
@@ -337,11 +358,12 @@ export class FrameLightingMaterial extends Three.NodeMaterial {
         const lightVector = position.xyz.sub(worldPosition).toVar();
 
         let shadow = float(1.0);
+        let direct = float(1.0);
 
         shadowSlots.forEach((slot, index) => {
           shadow = select(i.equal(index), slot, shadow);
+          direct = select(i.equal(index), directSlots[index], direct);
         });
-
 
         const spotAttenuation = select(
           position.w.greaterThan(2.5),
@@ -360,17 +382,26 @@ export class FrameLightingMaterial extends Three.NodeMaterial {
         );
 
         // NOTE Directional position xyz is the direction to the light
+        const lightDirection = select(position.w.lessThan(1.5), position.xyz, normalize(lightVector)).toVar();
         const unshadowed = frameShadowedLight(
           this.framePhase,
+          this.framePhaseSpectrum,
           this.frameScatteringOctaves,
           rayDirection,
-          select(position.w.lessThan(1.5), position.xyz, normalize(lightVector)),
+          lightDirection,
           vec2(1.0),
         );
+        const hasSlot = i.lessThan(this.frameShadowLightCount).toVar();
 
         // NOTE A light with a shadow slot: the density pass stored phase * direct + scattered light.
         // A light with no shadow slot: no shadow, then octaves still add their light.
-        const lightFactor = select(i.lessThan(this.frameShadowLightCount), shadow, unshadowed);
+        const lightFactor = select(hasSlot, vec3(shadow), unshadowed).toVar();
+
+        If(colorPhase.and(hasSlot), () => {
+          const phase = framePhaseColor(this.framePhase, this.framePhaseSpectrum, rayDirection, lightDirection).toVar();
+
+          lightFactor.addAssign(phase.sub(phase.g).mul(direct));
+        });
 
         irradiance.addAssign(
           color.rgb.mul(lightFactor).mul(spotAttenuation).mul(distanceAttenuation),

@@ -30,19 +30,20 @@ const fragmentShader = `
   ${spectralScatteringPars}
   ${environmentPars}
 
+  ${gridPars}
+
+  uniform bool frameUseShadows;
+  uniform mat4 frameCameraMatrixWorld;
+
   // NOTE Spectral: extinction of each channel (density target 2), and the 3 transmittance targets of each slot group
   // (core/frameSpectrum.js), in group order. Groups from frameSpectralGroups are not read.
   #ifdef FRAME_SPECTRAL
-    ${gridPars}
-
     #define FRAME_SHADOW_SLOTS 6
     #define FRAME_SPECTRAL_GROUPS ${frameSpectralGroupCount}
 
     uniform sampler2D frameDensityExtinctionMap;
     uniform sampler2D frameSpectralTransmittanceMaps[FRAME_SPECTRAL_GROUPS * 3];
     uniform int frameSpectralGroups;
-    uniform bool frameUseShadows;
-    uniform mat4 frameCameraMatrixWorld;
 
     // NOTE Total and direct transmittance of each channel of the 6 light slots
     vec3 frameSlotTotal[FRAME_SHADOW_SLOTS];
@@ -78,15 +79,41 @@ const fragmentShader = `
     return 1.0;
   }
 
-  // NOTE A scene light with a shadow slot: the density pass stored phase * direct + scattered light.
-  // A light with no shadow slot: no shadow, then octaves still add their light.
-  float frameLightFactor(int slot, vec3 rayDirection, vec3 lightDirection, vec4 shadow0, vec4 shadow1) {
-    if (slot < frameShadowLightCount) {
-      return frameShadowSlot(slot, shadow0, shadow1);
+  #ifndef FRAME_SPECTRAL
+    // NOTE Direct transmittance of the 6 light slots in the shadow grid, for phases of each channel
+    uniform sampler2D frameTransmittanceMap2;
+    uniform sampler2D frameTransmittanceMap3;
+
+    float frameDirectSlot(int slot, vec4 direct0, vec4 direct1) {
+      if (slot == 0) return direct0.x;
+      if (slot == 1) return direct0.y;
+      if (slot == 2) return direct0.z;
+      if (slot == 3) return direct0.w;
+      if (slot == 4) return direct1.x;
+      if (slot == 5) return direct1.y;
+
+      return 1.0;
     }
 
-    return frameShadowedLight(rayDirection, lightDirection, vec2(1.0));
-  }
+    // NOTE A scene light with a shadow slot: the density pass stored phase * direct + scattered light.
+    // Phases of each channel: the density pass stored the green phase. The direct transmittance adds the red and blue phase.
+    // A light with no shadow slot: no shadow, then octaves still add their light.
+    vec3 frameLightFactor(int slot, vec3 rayDirection, vec3 lightDirection, vec4 shadow0, vec4 shadow1, vec4 direct0, vec4 direct1) {
+      if (slot < frameShadowLightCount) {
+        vec3 light = vec3(frameShadowSlot(slot, shadow0, shadow1));
+
+        if (framePhaseSpectrum.z > 0.5) {
+          vec3 phase = framePhaseColor(rayDirection, lightDirection);
+
+          light += (phase - phase.g) * frameDirectSlot(slot, direct0, direct1);
+        }
+
+        return light;
+      }
+
+      return frameShadowedLight(rayDirection, lightDirection, vec2(1.0));
+    }
+  #endif
 
   #ifdef FRAME_SPECTRAL
     // NOTE A light with a shadow slot: phase * direct + scattered light of each channel.
@@ -339,6 +366,28 @@ const fragmentShader = `
     vec4 shadow0 = texelFetch(frameDensityShadowMap0, texel, 0) / extinction;
     vec4 shadow1 = texelFetch(frameDensityShadowMap1, texel, 0) / extinction;
 
+    // NOTE Phases of each channel: direct transmittance of the light slots, from the shadow grid at the froxel
+    vec4 direct0 = vec4(1.0);
+    vec4 direct1 = vec4(1.0);
+
+    if (framePhaseSpectrum.z > 0.5 && frameUseShadows) {
+      vec3 worldPosition = (frameCameraMatrixWorld * vec4(viewPosition, 1.0)).xyz;
+      vec4 unused0;
+      vec4 unused1;
+
+      frameSampleShadows(
+        frameTransmittanceMap2,
+        frameTransmittanceMap3,
+        frameTransmittanceMap3,
+        frameTransmittanceMap3,
+        worldPosition,
+        direct0,
+        direct1,
+        unused0,
+        unused1
+      );
+    }
+
     vec3 skyDirection = normalize(mat3(viewMatrix) * frameSkyDirection);
     vec3 irradiance = getAmbientLightIrradiance(ambientLightColor);
 
@@ -360,7 +409,7 @@ const fragmentShader = `
       for (int i = 0; i < NUM_DIR_LIGHTS; i++) {
         DirectionalLight directionalLight = directionalLights[i];
 
-        irradiance += directionalLight.color * frameLightFactor(i, rayDirection, directionalLight.direction, shadow0, shadow1);
+        irradiance += directionalLight.color * frameLightFactor(i, rayDirection, directionalLight.direction, shadow0, shadow1, direct0, direct1);
       }
     #endif
 
@@ -370,7 +419,7 @@ const fragmentShader = `
         vec3 lightVector = pointLight.position - viewPosition;
         float distanceAttenuation = getDistanceAttenuation(length(lightVector), pointLight.distance, pointLight.decay);
 
-        irradiance += pointLight.color * distanceAttenuation * frameLightFactor(frameShadowPointOffset + i, rayDirection, normalize(lightVector), shadow0, shadow1);
+        irradiance += pointLight.color * distanceAttenuation * frameLightFactor(frameShadowPointOffset + i, rayDirection, normalize(lightVector), shadow0, shadow1, direct0, direct1);
       }
     #endif
 
@@ -382,7 +431,7 @@ const fragmentShader = `
         float spotAttenuation = getSpotAttenuation(spotLight.coneCos, spotLight.penumbraCos, angleCos);
         float distanceAttenuation = getDistanceAttenuation(length(lightVector), spotLight.distance, spotLight.decay);
 
-        irradiance += spotLight.color * spotAttenuation * distanceAttenuation * frameLightFactor(frameShadowSpotOffset + i, rayDirection, normalize(lightVector), shadow0, shadow1);
+        irradiance += spotLight.color * spotAttenuation * distanceAttenuation * frameLightFactor(frameShadowSpotOffset + i, rayDirection, normalize(lightVector), shadow0, shadow1, direct0, direct1);
       }
     #endif
 
@@ -431,6 +480,7 @@ export class FrameLightingMaterial extends Three.MeshStandardMaterial {
       frameEnvironmentShadowSlot: { value: 0 },
       // NOTE One phase for all volumes, from frameRenderer.settings
       framePhase: { value: new Three.Vector4() },
+      framePhaseSpectrum: { value: new Three.Vector3() },
       frameMieMap: { value: frameMieTexture },
       // NOTE Scattering octaves of frameRenderer.settings (core/framePhase.js). Count 0 is off.
       frameScatteringOctaves: { value: new Three.Vector4() },
@@ -440,6 +490,9 @@ export class FrameLightingMaterial extends Three.MeshStandardMaterial {
       frameSpectralGroups: { value: 0 },
       frameUseShadows: { value: false },
       frameCameraMatrixWorld: { value: new Three.Matrix4() },
+      // NOTE Phases of each channel, spectral off: direct transmittance of the light slots
+      frameTransmittanceMap2: { value: null },
+      frameTransmittanceMap3: { value: null },
     };
 
     this.depthTest = false;

@@ -42,6 +42,7 @@ import {
 } from '../core/frameGrid.js';
 import {
   getFramePhase,
+  getFramePhaseSpectrum,
   getFrameMultipleScattering,
   getFrameScatteringOctaves,
   isFrameDiffusion,
@@ -200,6 +201,7 @@ export class FrameRenderer {
     phaseG: 0.8,
     phaseBackG: -0.3,
     phaseBackWeight: 0.2,
+    phaseGExponent: 0.0,
     // NOTE Blend the volumes over the scene in sRGB, the same as WebGLRenderer. false blends in linear space.
     srgbBlending: true,
     // NOTE Volumes cast shadows on meshes, for directional, point and spot lights with castShadow
@@ -1035,6 +1037,7 @@ export class FrameRenderer {
     }
     densityShadowUniforms.frameShadowSceneLightCount.value = lights.environmentShadowSlot;
     getFramePhase(this.settings, densityShadowUniforms.framePhase.value);
+    getFramePhaseSpectrum(this.settings, densityShadowUniforms.framePhaseSpectrum.value);
     getFrameScatteringOctaves(this.settings, densityShadowUniforms.frameScatteringOctaves.value);
     densityShadowUniforms.frameDiffusion.value = isFrameDiffusion(this.settings.multipleScattering) ? 1 : 0;
     densityShadowUniforms.frameEnvironmentGridMap.value = this.environmentGridTarget.texture;
@@ -1103,6 +1106,7 @@ export class FrameRenderer {
     lightingMaterial.frameEnvironmentShadowSlot.value = lights.environmentShadowSlot;
     lightingMaterial.frameCameraMatrixWorld.value.copy(camera.matrixWorld);
     getFramePhase(this.settings, lightingMaterial.framePhase.value);
+    getFramePhaseSpectrum(this.settings, lightingMaterial.framePhaseSpectrum.value);
     getFrameScatteringOctaves(this.settings, lightingMaterial.frameScatteringOctaves.value);
 
     renderer.setRenderTarget(this.atlasTarget);

@@ -96,6 +96,7 @@ const getProps = (frameVolume) => ({
   phaseG: frameVolume.phaseG,
   phaseBackG: frameVolume.phaseBackG,
   phaseBackWeight: frameVolume.phaseBackWeight,
+  phaseGExponent: frameVolume.phaseGExponent,
   densityScale: frameVolume.densityScale,
   densityCutoff: frameVolume.densityCutoff,
   absorbance: frameVolume.absorbance,
@@ -144,11 +145,13 @@ export class FrameVolume extends Three.Group {
       // NOTE frameRenderer.settings.spectral only: extinction * (wavelength / 550 nm)^-angstromExponent.
       // A preset name of frameAngstromExponents ('cloud', 'dust', 'smoke', 'air') or a number.
       angstromExponent = 'cloud',
-      // NOTE Phase of direct lights: 'isotropic', 'henyey-greenstein', 'dual-lobe' or 'lorenz-mie'
+      // NOTE Phase of direct lights: 'isotropic', 'henyey-greenstein', 'dual-lobe', 'lorenz-mie' or 'lorenz-mie-rgb'
       phase = 'henyey-greenstein',
       phaseG = 0.8,
       phaseBackG = -0.3,
       phaseBackWeight = 0.2,
+      // NOTE 'henyey-greenstein' and 'dual-lobe': g of each channel is g * (wavelength / 550 nm)^-phaseGExponent
+      phaseGExponent = 0.0,
       densityScale = 1.0,
       densityCutoff = 0.0,
       absorbance = 1.0,
@@ -182,6 +185,7 @@ export class FrameVolume extends Three.Group {
     this.phaseG = phaseG;
     this.phaseBackG = phaseBackG;
     this.phaseBackWeight = phaseBackWeight;
+    this.phaseGExponent = phaseGExponent;
     this.densityScale = densityScale;
     this.densityCutoff = densityCutoff;
     this.absorbance = absorbance;

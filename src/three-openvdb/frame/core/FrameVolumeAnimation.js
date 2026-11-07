@@ -11,6 +11,7 @@ const sharedParams = [
   'phaseG',
   'phaseBackG',
   'phaseBackWeight',
+  'phaseGExponent',
   'densityScale',
   'densityCutoff',
   'absorbance',

@@ -287,7 +287,8 @@ const fragmentShader = `
         );
       }
 
-      // NOTE Scene light slots store phase * direct + scattered (frameShadowedLight).
+      // NOTE Scene light slots store phase * direct + scattered (frameShadowedLight), green channel.
+      // Phases of each channel: the lighting pass adds the red and blue phase.
       // NOTE Other slots (sky up and down, the environment light) store the isotropic total transmittance.
       vec3 rayDirection = normalize(mat3(frameCameraMatrixWorld) * (viewFar - viewNear));
       float slotTotal[FRAME_SHADOW_SLOTS] = float[](shadow0.z, shadow0.w, shadow1.x, shadow1.y, shadow1.z, shadow1.w);
@@ -303,7 +304,7 @@ const fragmentShader = `
         vec4 light = frameShadowLights[i];
         vec3 lightDirection = light.w < 1.5 ? light.xyz : normalize(light.xyz - visibleWorldPosition);
 
-        slotTotal[i] = frameShadowedLight(rayDirection, lightDirection, vec2(slotDirect[i], slotTotal[i]));
+        slotTotal[i] = frameShadowedLight(rayDirection, lightDirection, vec2(slotDirect[i], slotTotal[i])).g;
       }
 
       shadow0 = vec4(frameShadowTotal(shadow0.x), frameShadowTotal(shadow0.y), slotTotal[0], slotTotal[1]);
