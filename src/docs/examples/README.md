@@ -17,3 +17,7 @@ node ./build/webvdb/cli.mjs ground_explosion_VDB.zip -o src/docs/examples/public
 ```
 
 `frames.json` lists the frames in order. The examples have no `.vdb` files of this sequence.
+
+## Cloud Pack
+
+`public/assets/CloudPackVDB_wvdb` is the Cloud Pack VDB set by [JangaFX](https://jangafx.com) (EmberGen), CC0 (see `LICENSE.txt` and `README.txt` in that folder). The Sky demo uses it. The files are Z-up. The examples have no `.vdb` files of this set.
