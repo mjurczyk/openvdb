@@ -162,6 +162,7 @@ export const exampleMesh = ({ scene }) => {
         // NOTE The volume box is the MeshVolume sampler box: size and center in model space
         const volume = new OpenVDB.FrameVolume(
           meshVolume,
+          // NOTE Mesh density is 0 or 1, so the mean is 1 and normalizeDensity does not change it
           { resolution: params.resolution, progressive: true, extinction: 350.0 },
           () => {
             stopLoading();

@@ -515,7 +515,7 @@ export class FrameRenderer {
 
       signature.push(frameVolume.extinction);
       pushVector(signature, getFrameExtinctionSpectrum(frameVolume, extinctionSpectrum));
-      signature.push(frameVolume.densityScale, frameVolume.densityCutoff, frameVolume.absorbance);
+      signature.push(frameVolume.getDensityScale(), frameVolume.densityCutoff, frameVolume.absorbance);
       pushColor(signature, frameVolume.baseColor);
       signature.push(frameVolume.wrap3D);
       pushVector(signature, frameVolume.offset3D);

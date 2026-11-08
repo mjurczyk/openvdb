@@ -178,7 +178,7 @@ export const updateGridSignatures = (state, casters, count, resolution, spectral
     pushElements(casterValues, volume.matrixWorld.elements);
     pushCasterMaps(casterValues, volume);
     pushColor(casterValues, frameVolume.baseColor);
-    casterValues.push(frameVolume.densityScale, frameVolume.densityCutoff, frameVolume.extinction);
+    casterValues.push(frameVolume.getDensityScale(), frameVolume.densityCutoff, frameVolume.extinction);
     pushVector(casterValues, getFrameExtinctionSpectrum(frameVolume, extinctionSpectrum));
     casterValues.push(frameVolume.absorbance, frameVolume.mipmaps ? 1 : 0, frameVolume.wrap3D);
     pushVector(casterValues, frameVolume.offset3D);

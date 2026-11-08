@@ -452,6 +452,12 @@ export class WVDBReader {
         class: grid.class,
         channels: grid.channels || 1,
         bbox: grid.bbox,
+        // NOTE Baked stats of the finest LOD (sum and count of the non-zero texels), for normalizeDensity.
+        // null for files baked before them, and for scaled grids.
+        densityStats:
+          typeof grid.meanDensity === 'number' && getScale(grid) === 1.0
+            ? { sum: grid.meanDensity * grid.nonZeroVoxels, count: grid.nonZeroVoxels }
+            : null,
         texelSize: backgroundTexel.length,
         // NOTE One background texel until LOD 0 arrives
         dimensions: [1, 1, 1],

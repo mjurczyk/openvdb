@@ -1,5 +1,10 @@
 # Unreleased
 
+- Density normalization: `FrameVolume` `normalizeDensity` (default `true`). Density is divided by the mean density of the non-zero voxels, so `extinction * densityScale` is the optical depth of the longest box side at the mean density. The same settings give about the same opacity for each VDB. The mean is calculated one time, when the 3D texture is made. A `FrameVolumeAnimation` uses one mean for all frames. Both `three-openvdb` and `three-openvdb/webgl`
+- `FrameVolume` default `extinction` is `100.0` (was `350.0`). With `normalizeDensity` the Bunny Cloud looks the same. Volumes with other densities change. For the earlier look, set `normalizeDensity: false` and `extinction: 350`
+- `wvdb` writes `meanDensity` and `nonZeroVoxels` of the finest LOD to each scalar grid of the header. Then the mean does not change between LODs. `WVDBLoader` and `WVDBAnimationLoader` use them. Files with no mean use the data of each LOD
+- Examples: the `.wvdb` assets have `meanDensity` and `nonZeroVoxels` in the header. The data did not change. Rendering Frame has a Normalize Density field (Volume folder), on by default. On: extinction 100, off: 350. Streaming WVDB and Custom VDB use extinction 100. Mesh Volume keeps 350 (mesh density is 0 or 1)
+
 - Experimental RGB Lorenz-Mie phase: `FrameVolume` `phase` and `frameRenderer.settings.phase` `'lorenz-mie-rgb'`. Lorenz-Mie tables at 650 / 550 / 450 nm for the direct light of each color channel (red edge near the light, blue fogbow, red glory). Indirect light is the same as `'lorenz-mie'`. `'lorenz-mie'` does not change. Both `three-openvdb` and `three-openvdb/webgl`
 - Experimental phase of each color channel for `'henyey-greenstein'` and `'dual-lobe'`: `FrameVolume` `phaseGExponent` and `frameRenderer.settings.phaseGExponent` (default `0.0`). `g` of each channel is `g * (wavelength / 550 nm)^-phaseGExponent`, for the direct light. Both `three-openvdb` and `three-openvdb/webgl`
 - Examples: the Combined Phase Function field has a MIE RGB option. Phase fields have a Phase G Exponent field

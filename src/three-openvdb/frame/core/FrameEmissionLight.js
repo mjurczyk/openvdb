@@ -157,7 +157,7 @@ export class FrameEmissionLightBase extends Three.Light {
             .map((mip) => mip.texture.id)
             .join(':'),
           object.extinction,
-          object.densityScale,
+          object.getDensityScale(),
           object.densityCutoff,
           object.absorbance,
           object.emissiveIntensity,

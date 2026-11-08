@@ -39,7 +39,7 @@ const params = {
   absorbance: 1.0,
   densityScale: 1.0,
   opacity: 1.0,
-  extinction: 350.0,
+  extinction: 100.0,
   angstromExponent: 'cloud',
   ...phaseParams,
   shadowSteps: 32,

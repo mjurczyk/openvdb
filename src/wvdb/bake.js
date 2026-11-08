@@ -292,6 +292,27 @@ const downsamplePlane = (values, [width, height, depth], result, [outWidth, outH
   }
 };
 
+// NOTE Mean and count of the non-zero texels. Same texels as the reader: level sets 1.0 in the band, else 8-bit clamp(value).
+const getDensityStats = (values, background, isLevelSet) => {
+  let sum = 0;
+  let count = 0;
+
+  for (let i = 0; i < values.length; i++) {
+    const texel = isLevelSet
+      ? Math.abs(values[i]) < background
+        ? 255
+        : 0
+      : (Math.min(Math.max(values[i], 0.0), 1.0) * 255.0) | 0;
+
+    if (texel > 0) {
+      sum += texel;
+      count++;
+    }
+  }
+
+  return { meanDensity: count > 0 ? sum / 255.0 / count : 0.0, nonZeroVoxels: count };
+};
+
 // NOTE Voxels outside the LOD copy the nearest edge voxel. Then they do not change the brick range.
 const getBrickValues = (values, dimensions, index, channels) => {
   const [width, height, depth] = dimensions;
@@ -422,6 +443,7 @@ export const bakeWVDB = (vdb, options, { compress, source }) => {
   const encodedGrids = grids.map((grid, gridIndex) => {
     const channels = getChannels(grid);
     const background = getBackground(grid);
+    const gridClass = grid.metadata?.class?.value || 'unknown';
 
     const levels = [];
     levels[lods - 1] = {
@@ -435,7 +457,12 @@ export const bakeWVDB = (vdb, options, { compress, source }) => {
 
     return {
       name: names[gridIndex],
-      class: grid.metadata?.class?.value || 'unknown',
+      class: gridClass,
+      // NOTE Finest LOD only. Coarse LODs spread density into empty texels, so their mean is lower.
+      stats:
+        channels === 1
+          ? getDensityStats(levels[lods - 1].values, background[0], gridClass === 'level set')
+          : null,
       channels,
       background: channels === 1 ? background[0] : background,
       bbox,
@@ -482,6 +509,7 @@ export const bakeWVDB = (vdb, options, { compress, source }) => {
       channels: grid.channels,
       background: grid.background,
       bbox: grid.bbox,
+      ...grid.stats,
       lods: headerLods[gridIndex],
     })),
   };
