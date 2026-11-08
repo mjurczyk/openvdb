@@ -100,7 +100,24 @@ const environmentLights = new EnvironmentShadowLights([], {
   maxShadowMaps: environmentLightQuality.maxShadowMaps,
   mapSize: environmentLightQuality.mapSize,
 });
-environmentLights.bounds.radius = 600.0;
+// NOTE The Sky demo sets a larger radius, for its cloud shadows. Other demos use the default.
+export const defaultEnvironmentShadowRadius = 600.0;
+environmentLights.bounds.radius = defaultEnvironmentShadowRadius;
+
+export const setEnvironmentShadowRadius = (radius) => {
+  environmentLights.bounds.radius = radius;
+};
+
+// NOTE The lights found in the current environment map
+let environmentSources = [];
+
+// NOTE Shadow lights for each found light. The Sky demo uses 1, because each shadow light costs a march in each grid voxel.
+export const defaultEnvironmentShadowSamples = environmentLightQuality.samples;
+
+export const setEnvironmentShadowSamples = (samples) => {
+  environmentLights.samples = samples;
+  environmentLights.setLights(environmentSources);
+};
 
 // NOTE "Environment" lights use the map without the found lights. Then the scene does not get the same light two times.
 let environmentMaps = null;
@@ -291,7 +308,8 @@ export const loadEnvironment = (scene, name) => {
     const previousMaps = environmentMaps;
 
     environmentMaps = { full: env, withoutLights: extraction?.texture ?? env };
-    environmentLights.setLights(extraction?.lights ?? []);
+    environmentSources = extraction?.lights ?? [];
+    environmentLights.setLights(environmentSources);
     applyEnvironmentMap(scene);
     scene.environmentIntensity = intensity;
 

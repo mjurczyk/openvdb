@@ -2,10 +2,10 @@ import * as Three from 'three';
 import { WebGPURenderer } from 'three/webgpu';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import Stats from 'stats.js'
-import { exampleVDB } from './examples/vdb';
+// NOTE examples/vdb.js loads before utils/gui.js. Its module code uses values of gui.js.
+import './examples/vdb';
 import packageInfo from '../../../three-openvdb/package.json';
-import { setActiveDemo } from './utils/gui';
-import { exampleWVDB } from './examples/wvdb';
+import { setActiveDemo, demos } from './utils/gui';
 import { readFurnace } from './utils/furnace';
 import { isPhone } from './utils/device';
 import { updateShadowMaps } from './utils/shadowMaps';
@@ -76,8 +76,12 @@ const animate = () => {
   stats.end();
 };
 
-setActiveDemo('wvdb');
+// NOTE ?demo=<id> starts with that demo, for example ?demo=sky. The default is the Streaming WVDB demo.
+const requestedDemo = new URLSearchParams(window.location.search).get('demo');
+const startDemo = demos[requestedDemo] ? requestedDemo : 'wvdb';
+
+setActiveDemo(startDemo);
 
 init();
 renderer.setAnimationLoop(animate);
-exampleWVDB({ scene });
+demos[startDemo]({ scene });

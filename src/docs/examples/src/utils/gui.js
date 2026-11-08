@@ -3,6 +3,7 @@ import { exampleVDB } from "../examples/vdb";
 import { exampleFrame } from "../examples/frame";
 import { exampleWVDB } from "../examples/wvdb";
 import { exampleMesh } from "../examples/mesh";
+import { exampleSky } from "../examples/sky";
 import { scene } from "../main";
 import { isPhone } from "./device";
 import { loadEnvironment } from "./resources";
@@ -13,11 +14,33 @@ export const dropTarget = document.querySelector('#dropzone');
 
 export let activeDemo = 'vdb';
 
+// NOTE The examples import this module, so the functions are read only when a demo starts
+export const demos = {
+  vdb: (options) => exampleVDB(options),
+  frame: (options) => exampleFrame(options),
+  wvdb: (options) => exampleWVDB(options),
+  mesh: (options) => exampleMesh(options),
+  sky: (options) => exampleSky(options),
+};
+
 // NOTE All demos share the environment. A demo change keeps it.
 let activeEnvironment = 'desert';
 
+// NOTE These demos start with their own environment
+const demoEnvironments = {
+  sky: 'desert',
+};
+
+// NOTE A demo can set a function that undoes its global changes. A demo change calls it.
+let demoCleanup = null;
+
+export const setDemoCleanup = (cleanup) => {
+  demoCleanup = cleanup;
+};
+
 export const setActiveDemo = (id) => {
   activeDemo = id;
+  activeEnvironment = demoEnvironments[id] ?? activeEnvironment;
 
   dropTarget.style.display = id === 'vdb' ? '' : 'none';
 };
@@ -34,6 +57,7 @@ const guiBaseFields = () => [
           'Custom VDB': 'vdb',
           'Streaming WVDB': 'wvdb',
           'Mesh Volume': 'mesh',
+          Sky: 'sky',
         },
         defaultValue: activeDemo,
         onChange: (value) => {
@@ -42,6 +66,10 @@ const guiBaseFields = () => [
           }
 
           activeDemo = value;
+          activeEnvironment = demoEnvironments[value] ?? activeEnvironment;
+
+          demoCleanup?.();
+          demoCleanup = null;
 
           resetTransformMode();
 
@@ -58,16 +86,7 @@ const guiBaseFields = () => [
 
           dropTarget.style.display = value === 'vdb' ? '' : 'none';
 
-          switch (value) {
-            case 'vdb':
-              return exampleVDB({ scene });
-            case 'frame':
-              return exampleFrame({ scene });
-            case 'wvdb':
-              return exampleWVDB({ scene });
-            case 'mesh':
-              return exampleMesh({ scene });
-          }
+          return demos[value]?.({ scene });
         }
       },
       {
@@ -92,7 +111,7 @@ const guiBaseFields = () => [
 
           loadEnvironment(scene, value);
         }
-      }
+      },
     ]
   }
 ];
