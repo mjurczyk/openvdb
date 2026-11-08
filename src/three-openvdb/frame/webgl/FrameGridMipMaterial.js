@@ -1,9 +1,10 @@
 import * as Three from 'three';
 
 // NOTE Box filter mips of the last world shadow grid cascade, for multipleScattering 'neural' (core/frameNeuralIndirect.js).
-// Level k (1 to frameNeuralLevels - 1) has resolution / 2^k voxels on each side. Its z slices are in one row:
-// the target is (side * side) x side. Each texel is the mean of 2 x 2 x 2 texels of the level before it.
-// The source is the grid atlas (level 1) or the row of the level before. The same as webgpu/FrameGridMipMaterial.js.
+// Level k (1 to frameNeuralLevels - 1) has resolution / 2^k voxels on each side. Its z slices are tiles in an atlas
+// (core/frameLayout.js getAtlasLayout), the same as the grid atlas. Each texel is the mean of 2 x 2 x 2 texels of the
+// level before it. The source is the grid atlas (level 1) or the atlas of the level before. The same as
+// webgpu/FrameGridMipMaterial.js.
 
 const vertexShader = `
   void main() {
@@ -19,7 +20,9 @@ const fragmentShader = `
   uniform float frameMipSourceResolution;
   uniform float frameMipSourceColumns;
   uniform float frameMipSourceTile;
+  // NOTE Target: voxels on each side, tile columns
   uniform float frameMipResolution;
+  uniform float frameMipColumns;
 
   // NOTE Source texel of voxel (x, y, z), edge voxels clamped
   vec2 frameLoadSource(float x, float y, float z) {
@@ -35,9 +38,10 @@ const fragmentShader = `
 
   void main() {
     vec2 fragCoord = floor(gl_FragCoord.xy);
-    float z = floor(fragCoord.x / frameMipResolution);
-    float x = fragCoord.x - z * frameMipResolution;
-    float y = fragCoord.y;
+    vec2 tile = floor(fragCoord / frameMipResolution);
+    float z = tile.y * frameMipColumns + tile.x;
+    float x = fragCoord.x - tile.x * frameMipResolution;
+    float y = fragCoord.y - tile.y * frameMipResolution;
     vec2 sum = vec2(0.0);
 
     for (int i = 0; i < 8; i++) {
@@ -64,6 +68,7 @@ export class FrameGridMipMaterial extends Three.ShaderMaterial {
         frameMipSourceColumns: { value: 1.0 },
         frameMipSourceTile: { value: 0.0 },
         frameMipResolution: { value: 1.0 },
+        frameMipColumns: { value: 1.0 },
       },
       vertexShader,
       fragmentShader,

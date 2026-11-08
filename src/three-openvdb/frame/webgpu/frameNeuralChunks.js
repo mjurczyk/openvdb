@@ -1,5 +1,5 @@
-import { Fn, float, vec2, vec4, max, min, mix, clamp, floor, exp, log, sqrt, dot, select } from 'three/tsl';
-import { frameSample, minComponent, maxComponent } from './frameShaderChunks.js';
+import { Fn, float, vec2, vec4, max, min, clamp, floor, exp, log, sqrt, dot, select } from 'three/tsl';
+import { minComponent, maxComponent } from './frameShaderChunks.js';
 import {
   frameNeuralLevels,
   frameNeuralInputs,
@@ -10,7 +10,7 @@ import {
 // NOTE multipleScattering 'neural': scattered light of a shadow slot from a small network
 // (core/frameNeuralIndirect.js, made by scripts/neural-indirect). The inputs are the same as getFeatures of
 // scripts/neural-indirect/features.mjs. Level 0 is the last cascade of the grid atlas, levels 1 and up are the
-// rows of FrameGridMipMaterial. Values outside the last cascade are 0.0.
+// atlases of FrameGridMipMaterial. Values outside the last cascade are 0.0. The same as webgl/frameNeuralChunks.js.
 
 const inputVectors = frameNeuralInputs / 4;
 const hiddenVectors = frameNeuralHidden / 4;
@@ -42,8 +42,9 @@ const dense = (inputs, weightOffset, biasOffset) => {
   return outputs;
 };
 
-// NOTE gridUniforms, grid nodes (createGridNodes), the grid atlas texture node and the mip texture nodes (levels 1 and up)
-export const createNeuralNodes = (gridUniforms, grid, densityMap, mipMaps) => {
+// NOTE gridUniforms, grid nodes (createGridNodes), the grid atlas texture node, the mip texture nodes (levels 1 and up)
+// and their atlas layout uniforms (columns, width, height)
+export const createNeuralNodes = (gridUniforms, grid, densityMap, mipMaps, mipLayouts) => {
   const { frameGridCount, frameGridVoxel, frameGridResolution } = gridUniforms;
   const lastCascade = () => frameGridCount.sub(1);
 
@@ -58,15 +59,9 @@ export const createNeuralNodes = (gridUniforms, grid, densityMap, mipMaps) => {
       value = grid.sampleGrid(densityMap, cascade, uvw).rg;
     } else {
       const resolution = max(floor(frameGridResolution.div(2 ** level)), 1.0);
-      const z = uvw.z.mul(resolution).sub(0.5);
-      const z0 = clamp(floor(z), 0.0, resolution.sub(1.0));
-      const z1 = min(z0.add(1.0), resolution.sub(1.0));
-      const blend = clamp(z.sub(z0), 0.0, 1.0);
-      const xy = clamp(uvw.xy.mul(resolution), vec2(0.5), vec2(resolution.sub(0.5)));
-      const size = vec2(resolution.mul(resolution), resolution);
-      const sliceUv = (slice) => vec2(slice.mul(resolution).add(xy.x), xy.y).div(size);
+      const layout = mipLayouts[level - 1];
 
-      value = mix(frameSample(mipMaps[level - 1], sliceUv(z0)).rg, frameSample(mipMaps[level - 1], sliceUv(z1)).rg, blend);
+      value = grid.sampleTiles(mipMaps[level - 1], resolution, float(0.0), layout.x, layout.yz, uvw).rg;
     }
 
     return select(inside, value, vec2(0.0));
@@ -77,10 +72,10 @@ export const createNeuralNodes = (gridUniforms, grid, densityMap, mipMaps) => {
   // NOTE Inputs that do not depend on the light: (local 0 to 3), (local 4, local 5, albedo input, 0)
   const getLocalInputs = (worldPosition) => {
     const h = unit().toVar();
-    const local = Array.from({ length: frameNeuralLevels }, (_, level) =>
-      log(sampleLevel(level, worldPosition).x.mul(h.mul(2 ** level)).add(1.0)),
-    );
-    const albedoSample = sampleLevel(1, worldPosition).toVar();
+    const samples = Array.from({ length: frameNeuralLevels }, (_, level) => sampleLevel(level, worldPosition).toVar());
+    const local = samples.map((value, level) => log(value.x.mul(h.mul(2 ** level)).add(1.0)));
+    // NOTE The albedo input uses the level 1 sample
+    const albedoSample = samples[1];
     const albedoInput = select(
       albedoSample.x.greaterThan(0.0),
       sqrt(clamp(albedoSample.y.div(max(albedoSample.x, 1e-20)), 0.0, 1.0)),

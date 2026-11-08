@@ -7,7 +7,7 @@ import {
 
 // NOTE multipleScattering 'neural': scattered light of a shadow slot from a small network
 // (core/frameNeuralIndirect.js, made by scripts/neural-indirect). The same as webgpu/frameNeuralChunks.js.
-// Level 0 is the last cascade of the grid atlas, levels 1 and up are the rows of FrameGridMipMaterial.
+// Level 0 is the last cascade of the grid atlas, levels 1 and up are the atlases of FrameGridMipMaterial.
 // Values outside the last cascade are 0.0. Needs gridPars. Weights are constants in the shader.
 
 const inputVectors = frameNeuralInputs / 4;
@@ -48,30 +48,15 @@ const levels = Array.from({ length: frameNeuralLevels }, (_, level) => level);
 export const neuralPars = `
   ${levels
     .slice(1)
-    .map((level) => `uniform sampler2D frameNeuralMipMap${level};`)
+    .map((level) => `uniform sampler2D frameNeuralMipMap${level};\n  uniform vec3 frameNeuralMipLayout${level};`)
     .join('\n  ')}
 
   int frameNeuralCascade() {
     return frameGridCount - 1;
   }
 
-  // NOTE Row of z slices of a mip level, linear filter, edge texels clamped
-  vec2 frameNeuralSampleRow(sampler2D map, float resolution, vec3 uvw) {
-    float z = uvw.z * resolution - 0.5;
-    float z0 = clamp(floor(z), 0.0, resolution - 1.0);
-    float z1 = min(z0 + 1.0, resolution - 1.0);
-    float blend = clamp(z - z0, 0.0, 1.0);
-    vec2 xy = clamp(uvw.xy * resolution, vec2(0.5), vec2(resolution - 0.5));
-    vec2 size = vec2(resolution * resolution, resolution);
-
-    return mix(
-      texture(map, vec2(z0 * resolution + xy.x, xy.y) / size).rg,
-      texture(map, vec2(z1 * resolution + xy.x, xy.y) / size).rg,
-      blend
-    );
-  }
-
   // NOTE (extinction, absorption) of a level at a world position. 0.0 outside the last cascade.
+  // Mip levels: atlas layout (columns, width, height) of FrameGridMipMaterial.
   vec2 frameNeuralSample(int level, vec3 worldPosition) {
     int cascade = frameNeuralCascade();
     vec3 uvw = frameGridUvw(cascade, worldPosition);
@@ -90,7 +75,7 @@ export const neuralPars = `
       .slice(1)
       .map(
         (level) =>
-          `${level > 1 ? 'else ' : ''}if (level == ${level}) {\n      return frameNeuralSampleRow(frameNeuralMipMap${level}, resolution, uvw);\n    }`,
+          `${level > 1 ? 'else ' : ''}if (level == ${level}) {\n      return frameSampleTiles(frameNeuralMipMap${level}, resolution, 0.0, frameNeuralMipLayout${level}.x, frameNeuralMipLayout${level}.yz, uvw).rg;\n    }`,
       )
       .join('\n    ')}
 
@@ -107,12 +92,19 @@ export const neuralPars = `
   void frameNeuralLocalInputs(vec3 worldPosition, out vec4 local0, out vec4 local1) {
     float h = frameNeuralUnit();
     float localInputs[${frameNeuralLevels}];
+    // NOTE The albedo input uses the level 1 sample
+    vec2 albedoSample = vec2(0.0);
 
     for (int level = 0; level < ${frameNeuralLevels}; level++) {
-      localInputs[level] = log(frameNeuralSample(level, worldPosition).x * h * exp2(float(level)) + 1.0);
+      vec2 levelSample = frameNeuralSample(level, worldPosition);
+
+      if (level == 1) {
+        albedoSample = levelSample;
+      }
+
+      localInputs[level] = log(levelSample.x * h * exp2(float(level)) + 1.0);
     }
 
-    vec2 albedoSample = frameNeuralSample(1, worldPosition);
     float albedoInput = albedoSample.x > 0.0 ? sqrt(clamp(albedoSample.y / max(albedoSample.x, 1e-20), 0.0, 1.0)) : 0.0;
 
     local0 = vec4(localInputs[0], localInputs[1], localInputs[2], localInputs[3]);

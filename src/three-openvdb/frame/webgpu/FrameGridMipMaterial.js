@@ -3,9 +3,10 @@ import { Fn, float, ivec2, vec2, vec4, uniform, texture, min, mod, floor } from 
 import { frameFragCoord, frameLoad, frameFullscreenVertex } from './frameShaderChunks.js';
 
 // NOTE Box filter mips of the last world shadow grid cascade, for multipleScattering 'neural' (core/frameNeuralIndirect.js).
-// Level k (1 to frameNeuralLevels - 1) has resolution / 2^k voxels on each side. Its z slices are in one row:
-// the target is (side * side) x side. Each texel is the mean of 2 x 2 x 2 texels of the level before it.
-// The source is the grid atlas (level 1) or the row of the level before.
+// Level k (1 to frameNeuralLevels - 1) has resolution / 2^k voxels on each side. Its z slices are tiles in an atlas
+// (core/frameLayout.js getAtlasLayout), the same as the grid atlas. Each texel is the mean of 2 x 2 x 2 texels of the
+// level before it. The source is the grid atlas (level 1) or the atlas of the level before. The same as
+// webgl/FrameGridMipMaterial.js.
 export class FrameGridMipMaterial extends Three.NodeMaterial {
   constructor() {
     super();
@@ -17,7 +18,10 @@ export class FrameGridMipMaterial extends Three.NodeMaterial {
     this.frameMipSourceColumns = uniform(1.0);
     this.frameMipSourceTile = uniform(0.0);
     this.frameMipSourceSize = uniform(new Three.Vector2(1.0, 1.0));
+    // NOTE Target: voxels on each side, tile columns, texture size
     this.frameMipResolution = uniform(1.0);
+    this.frameMipColumns = uniform(1.0);
+    this.frameMipSize = uniform(new Three.Vector2(1.0, 1.0));
 
     const sourceResolution = this.frameMipSourceResolution;
     const columns = this.frameMipSourceColumns;
@@ -36,10 +40,11 @@ export class FrameGridMipMaterial extends Three.NodeMaterial {
 
     this.colorNode = Fn(() => {
       const resolution = this.frameMipResolution;
-      const fragCoord = floor(frameFragCoord(vec2(resolution.mul(resolution), resolution))).toVar();
-      const z = floor(fragCoord.x.div(resolution)).toVar();
-      const x = fragCoord.x.sub(z.mul(resolution)).toVar();
-      const y = fragCoord.y.toVar();
+      const fragCoord = floor(frameFragCoord(this.frameMipSize)).toVar();
+      const tile = floor(fragCoord.div(resolution)).toVar();
+      const z = tile.y.mul(this.frameMipColumns).add(tile.x).toVar();
+      const x = fragCoord.x.sub(tile.x.mul(resolution)).toVar();
+      const y = fragCoord.y.sub(tile.y.mul(resolution)).toVar();
       let sum = vec2(0.0);
 
       for (let i = 0; i < 8; i++) {

@@ -387,6 +387,7 @@ export class FrameRenderer {
       this.injectMesh,
       this.lightingMesh,
       this.transmittanceMesh,
+      this.gridMipMesh,
       this.temporalMesh,
       this.densityClearMesh,
       this.environmentMapMesh,
@@ -649,42 +650,45 @@ export class FrameRenderer {
     this.gridMipSignature = signature;
 
     const material = this.gridMipMaterial;
+    const { frameNeuralMipMaps, frameNeuralMipLayouts } = this.transmittanceMaterial;
+    // NOTE Source of the next level: the grid atlas first, then the level before
+    let previous = null;
 
     for (let level = 1; level < frameNeuralLevels; level++) {
       const side = Math.max(1, resolution >> level);
+      const layout = getAtlasLayout(side, side, side);
       let target = this.gridMipTargets[level - 1];
 
-      if (!target || target.width !== side * side || target.height !== side) {
+      if (!target || target.width !== layout.width || target.height !== layout.height) {
         target?.dispose();
-        target = createRenderTarget(side * side, side, { format: Three.RGFormat });
+        target = createRenderTarget(layout.width, layout.height, { format: Three.RGFormat });
         this.gridMipTargets[level - 1] = target;
       }
 
-      if (level === 1) {
+      if (previous) {
+        material.frameMipSource.value = previous.target.texture;
+        material.frameMipSourceResolution.value = previous.side;
+        material.frameMipSourceColumns.value = previous.layout.columns;
+        material.frameMipSourceTile.value = 0;
+        material.frameMipSourceSize.value.set(previous.layout.width, previous.layout.height);
+      } else {
         material.frameMipSource.value = source.texture;
         material.frameMipSourceResolution.value = resolution;
         material.frameMipSourceColumns.value = frameGridColumns.value;
         material.frameMipSourceTile.value = (frameGridCount.value - 1) * resolution;
         material.frameMipSourceSize.value.set(source.width, source.height);
-      } else {
-        const previous = this.gridMipTargets[level - 2];
-        const previousSide = previous.height;
-
-        material.frameMipSource.value = previous.texture;
-        material.frameMipSourceResolution.value = previousSide;
-        material.frameMipSourceColumns.value = previousSide;
-        material.frameMipSourceTile.value = 0;
-        material.frameMipSourceSize.value.set(previous.width, previous.height);
       }
 
       material.frameMipResolution.value = side;
+      material.frameMipColumns.value = layout.columns;
+      material.frameMipSize.value.set(layout.width, layout.height);
       renderer.setRenderTarget(target);
       renderer.render(this.gridMipScene, camera);
-    }
 
-    this.gridMipTargets.forEach((target, index) => {
-      this.transmittanceMaterial.frameNeuralMipMaps[index].value = target.texture;
-    });
+      frameNeuralMipMaps[level - 1].value = target.texture;
+      frameNeuralMipLayouts[level - 1].value.set(layout.columns, layout.width, layout.height);
+      previous = { target, side, layout };
+    }
   }
 
   // NOTE The 3 transmittance targets of a spectral slot group, the same size as the shadow grid

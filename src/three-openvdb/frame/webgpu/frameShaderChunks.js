@@ -1077,8 +1077,8 @@ export const createGridNodes = (grid) => {
 
   // NOTE Hardware bilinear filter in the slice, manual linear filter between slices.
   // NOTE The grid is the z slices (tiles) from tileOffset in an atlas with columns tile columns.
-  const sampleTiles = (atlas, tileOffset, columns, atlasSize, uvw) => {
-    const resolution = frameGridResolution;
+  // resolution: voxels on each side of the grid (each tile is resolution x resolution).
+  const sampleTiles = (atlas, resolution, tileOffset, columns, atlasSize, uvw) => {
     const z = uvw.z.mul(resolution).sub(0.5);
     const z0 = clamp(floor(z), 0.0, resolution.sub(1.0));
     const z1 = min(z0.add(1.0), resolution.sub(1.0));
@@ -1101,6 +1101,7 @@ export const createGridNodes = (grid) => {
   const sampleGrid = (atlas, cascade, uvw) =>
     sampleTiles(
       atlas,
+      frameGridResolution,
       float(cascade).mul(frameGridResolution),
       frameGridColumns,
       grid.frameGridAtlasSize,
@@ -1117,6 +1118,7 @@ export const createGridNodes = (grid) => {
       value.assign(
         sampleTiles(
           map,
+          frameGridResolution,
           float(0.0),
           environmentGrid.frameEnvironmentGridColumns,
           environmentGrid.frameEnvironmentGridAtlasSize,

@@ -781,8 +781,8 @@ export const gridPars = `
 
   // NOTE Hardware bilinear filter in the slice, manual linear filter between slices.
   // NOTE The grid is the z slices (tiles) from tileOffset in an atlas with columns tile columns.
-  vec4 frameSampleTiles(sampler2D atlas, float tileOffset, float columns, vec2 atlasSize, vec3 gridUvw) {
-    float resolution = frameGridResolution;
+  // resolution: voxels on each side of the grid (each tile is resolution x resolution).
+  vec4 frameSampleTiles(sampler2D atlas, float resolution, float tileOffset, float columns, vec2 atlasSize, vec3 gridUvw) {
     float z = gridUvw.z * resolution - 0.5;
     float z0 = clamp(floor(z), 0.0, resolution - 1.0);
     float z1 = min(z0 + 1.0, resolution - 1.0);
@@ -801,7 +801,7 @@ export const gridPars = `
   }
 
   vec4 frameSampleGrid(sampler2D atlas, int cascade, vec3 gridUvw) {
-    return frameSampleTiles(atlas, float(cascade) * frameGridResolution, frameGridColumns, frameGridAtlasSize, gridUvw);
+    return frameSampleTiles(atlas, frameGridResolution, float(cascade) * frameGridResolution, frameGridColumns, frameGridAtlasSize, gridUvw);
   }
 
   // NOTE Transmittance of the shadow slots at a world position. 1.0 outside the grid.
@@ -901,7 +901,7 @@ export const environmentGridPars = `
       return outside;
     }
 
-    return frameSampleTiles(map, 0.0, frameEnvironmentGridColumns, frameEnvironmentGridAtlasSize, gridUvw);
+    return frameSampleTiles(map, frameGridResolution, 0.0, frameEnvironmentGridColumns, frameEnvironmentGridAtlasSize, gridUvw);
   }
 `;
 

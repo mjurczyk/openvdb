@@ -71,6 +71,10 @@ export class FrameTransmittanceMaterial extends Three.NodeMaterial {
     this.frameSpectralGroup = uniform(0, 'int');
     // NOTE multipleScattering 'neural': mips of the last cascade (FrameGridMipMaterial), levels 1 and up
     this.frameNeuralMipMaps = Array.from({ length: frameNeuralLevels - 1 }, () => texture(new Three.Texture()));
+    // NOTE and their atlas layouts (columns, width, height)
+    this.frameNeuralMipLayouts = Array.from({ length: frameNeuralLevels - 1 }, () =>
+      uniform(new Three.Vector3(1.0, 1.0, 1.0)),
+    );
     this.frameUniforms = { gridUniforms, lightUniforms };
     this.spectral = false;
     this.neural = false;
@@ -114,7 +118,7 @@ export class FrameTransmittanceMaterial extends Three.NodeMaterial {
       gridUniforms;
     const { frameSkyDirection } = lightUniforms;
     const neural = this.neural
-      ? createNeuralNodes(gridUniforms, grid, this.frameShadowDensityMap, this.frameNeuralMipMaps)
+      ? createNeuralNodes(gridUniforms, grid, this.frameShadowDensityMap, this.frameNeuralMipMaps, this.frameNeuralMipLayouts)
       : null;
 
     const transmittance0 = property('vec4');

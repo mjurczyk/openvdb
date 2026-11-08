@@ -42,11 +42,10 @@ const createFragmentShader = (neural) => `
   uniform int frameShadowLightCount;
 
   // NOTE multipleScattering 'neural' (not spectral): scattered light of the light slots from the network.
-  // frameMarch writes the direct optical depth to frameMarchOpticalDepth. Local inputs are the same for all slots.
+  // Local inputs are the same for all slots.
   #ifdef FRAME_NEURAL
     ${neural ? neuralPars : ''}
 
-    float frameMarchOpticalDepth;
     vec4 frameNeuralLocal0;
     vec4 frameNeuralLocal1;
   #endif
@@ -65,7 +64,8 @@ const createFragmentShader = (neural) => `
   // NOTE Each step moves one voxel of the finest cascade at the probe, on the fastest axis of the direction.
   // The march goes to coarser cascades when it leaves a fine cascade.
   // NOTE Returns (direct, total, reduced depth, effective depth). Sky up and down use z and w for the diffusion total.
-  vec4 frameMarch(vec3 origin, vec3 direction, float maxDistance, float jitter) {
+  // opticalDepth gets the direct optical depth.
+  vec4 frameMarch(vec3 origin, vec3 direction, float maxDistance, float jitter, out float opticalDepth) {
     vec3 depths = vec3(0.0);
     float traveled = 0.0;
     vec3 probe = origin;
@@ -89,11 +89,15 @@ const createFragmentShader = (neural) => `
       traveled += stepLength;
     }
 
-    #ifdef FRAME_NEURAL
-      frameMarchOpticalDepth = depths.x;
-    #endif
+    opticalDepth = depths.x;
 
     return vec4(frameShadowTransmittance(depths), depths.z, depths.y);
+  }
+
+  vec4 frameMarch(vec3 origin, vec3 direction, float maxDistance, float jitter) {
+    float opticalDepth;
+
+    return frameMarch(origin, direction, maxDistance, jitter, opticalDepth);
   }
 
   // NOTE Sky up and down are isotropic, and opposite. Diffusion: two-sided total (frameIsotropicDiffusion).
@@ -115,7 +119,8 @@ const createFragmentShader = (neural) => `
     // NOTE w is 1.0 for a light direction, 2.0 for a light position
     bool isDirection = light.w < 1.5;
     vec3 direction = isDirection ? normalize(light.xyz) : normalize(toLight);
-    vec4 front = frameMarch(worldPosition, direction, isDirection ? 1e20 : length(toLight), jitter);
+    float opticalDepth;
+    vec4 front = frameMarch(worldPosition, direction, isDirection ? 1e20 : length(toLight), jitter, opticalDepth);
     vec2 shadow = front.xy;
 
     // NOTE Two-sided: diffusion of the slab between the light side and the far side (frameTwoSidedDiffusion)
@@ -127,7 +132,7 @@ const createFragmentShader = (neural) => `
 
     // NOTE Neural: total is direct + the network light
     #ifdef FRAME_NEURAL
-      shadow.y = shadow.x + frameNeuralLight(worldPosition, direction, frameMarchOpticalDepth, frameNeuralLocal0, frameNeuralLocal1);
+      shadow.y = shadow.x + frameNeuralLight(worldPosition, direction, opticalDepth, frameNeuralLocal0, frameNeuralLocal1);
     #endif
 
     return shadow;
@@ -362,8 +367,12 @@ export class FrameTransmittanceMaterial extends Three.ShaderMaterial {
         // NOTE multipleScattering 'two-sided' (core/framePhase.js). 1.0 marches the light slots both ways.
         frameTwoSided: { value: 0.0 },
         // NOTE multipleScattering 'neural': mips of the last cascade (FrameGridMipMaterial), levels 1 and up
+        // NOTE and their atlas layouts (columns, width, height)
         ...Object.fromEntries(
-          Array.from({ length: frameNeuralLevels - 1 }, (_, i) => [`frameNeuralMipMap${i + 1}`, { value: null }]),
+          Array.from({ length: frameNeuralLevels - 1 }, (_, i) => [
+            [`frameNeuralMipMap${i + 1}`, { value: null }],
+            [`frameNeuralMipLayout${i + 1}`, { value: new Three.Vector3(1.0, 1.0, 1.0) }],
+          ]).flat(),
         ),
       },
       vertexShader,
