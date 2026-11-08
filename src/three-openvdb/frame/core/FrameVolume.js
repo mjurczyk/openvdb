@@ -44,6 +44,34 @@ const sampleColor = (grid, position, target) => {
 
 const textureKeys = ['densityMap3D', 'emissiveMap3D', 'baseColorMap3D', 'maskMap3D'];
 
+// NOTE Sum (0.0 to 1.0 values) and count of the non-zero density texels
+export const getDensityStats = (data) => {
+  let sum = 0;
+  let count = 0;
+
+  for (let i = 0; i < data.length; i++) {
+    if (data[i] > 0) {
+      sum += data[i];
+      count++;
+    }
+  }
+
+  return { sum: sum / 255.0, count };
+};
+
+// NOTE Mean of the non-zero density texels of all volumes. 0.0 when all are empty.
+export const getMeanDensity = (volumes) => {
+  let sum = 0.0;
+  let count = 0;
+
+  volumes.forEach(({ densityStats }) => {
+    sum += densityStats.sum;
+    count += densityStats.count;
+  });
+
+  return count > 0 ? sum / count : 0.0;
+};
+
 // NOTE Volume of an instance, with its own render state.
 // Textures, box and ready come from the volume of the source.
 class SharedVolume {
@@ -72,6 +100,10 @@ class SharedVolume {
     return this.source.maskMap3D;
   }
 
+  get densityStats() {
+    return this.source.densityStats;
+  }
+
   get mipMaps() {
     return this.source.mipMaps;
   }
@@ -98,6 +130,7 @@ const getProps = (frameVolume) => ({
   phaseBackWeight: frameVolume.phaseBackWeight,
   phaseGExponent: frameVolume.phaseGExponent,
   densityScale: frameVolume.densityScale,
+  normalizeDensity: frameVolume.normalizeDensity,
   densityCutoff: frameVolume.densityCutoff,
   absorbance: frameVolume.absorbance,
   opacity: frameVolume.opacity,
@@ -120,6 +153,10 @@ export class FrameVolume extends Three.Group {
   process = null;
   // NOTE Instances only: the FrameVolume with the textures. null when the textures are its own.
   source = null;
+  // NOTE The FrameVolumeAnimation of this frame. Its mean density is the mean of all frames.
+  sequence = null;
+  // NOTE Mean of the non-zero density texels of the volumes (0.0 to 1.0). 0.0 until converted.
+  meanDensity = 0.0;
 
   // NOTE A FrameVolume as source makes an instance. It shares the textures and boxes of the source.
   // Props start from the source props.
@@ -139,7 +176,8 @@ export class FrameVolume extends Three.Group {
       maskGrid,
       baseColor = 0xffffff,
       scatterColor = 0x000000,
-      extinction = 350.0,
+      // NOTE With normalizeDensity: optical depth of the longest box side at the mean density
+      extinction = 100.0,
       // NOTE frameRenderer.settings.spectral only: extinction scale of each channel (linear red, green, blue)
       extinctionScale = [1.0, 1.0, 1.0],
       // NOTE frameRenderer.settings.spectral only: extinction * (wavelength / 550 nm)^-angstromExponent.
@@ -153,6 +191,9 @@ export class FrameVolume extends Three.Group {
       // NOTE 'henyey-greenstein' and 'dual-lobe': g of each channel is g * (wavelength / 550 nm)^-phaseGExponent
       phaseGExponent = 0.0,
       densityScale = 1.0,
+      // NOTE true: density divides by the mean density. extinction * densityScale is the optical depth
+      // of the longest box side at the mean density.
+      normalizeDensity = true,
       densityCutoff = 0.0,
       absorbance = 1.0,
       opacity = 1.0,
@@ -187,6 +228,7 @@ export class FrameVolume extends Three.Group {
     this.phaseBackWeight = phaseBackWeight;
     this.phaseGExponent = phaseGExponent;
     this.densityScale = densityScale;
+    this.normalizeDensity = normalizeDensity;
     this.densityCutoff = densityCutoff;
     this.absorbance = absorbance;
     this.opacity = opacity;
@@ -247,6 +289,7 @@ export class FrameVolume extends Three.Group {
         emissiveMap3D: null,
         baseColorMap3D: null,
         maskMap3D: null,
+        densityStats: { sum: 0.0, count: 0 },
         mipMaps: {},
         matrix: new Three.Matrix4(),
         matrixWorld: new Three.Matrix4(),
@@ -378,6 +421,7 @@ export class FrameVolume extends Three.Group {
         }
 
         if (gridConverted) {
+          this.updateMeanDensity();
           current.volume.ready = true;
           convertedGrids++;
           convertedGridVoxels = 0;
@@ -407,6 +451,8 @@ export class FrameVolume extends Three.Group {
     const { x: width, y: height, z: depth } = dimensions;
 
     if (grid instanceof Uint8Array) {
+      volume.densityStats = getDensityStats(grid);
+
       yield width * height * depth;
 
       return;
@@ -424,6 +470,10 @@ export class FrameVolume extends Three.Group {
 
     const toIndex = (target) => target.transform.applyInverseTransformMap(position.copy(world));
 
+    // NOTE Filled row by row. It is complete when the last row is converted.
+    const densityStats = { sum: 0.0, count: 0 };
+    volume.densityStats = densityStats;
+
     for (let z = 0; z < depth; z++) {
       for (let y = 0; y < height; y++) {
         for (let x = 0; x < width; x++) {
@@ -436,6 +486,11 @@ export class FrameVolume extends Three.Group {
           ).multiply(size).add(center);
 
           density[index] = sampleDensity(grid, toIndex(grid)) * 255.0;
+
+          if (density[index] > 0) {
+            densityStats.sum += density[index] / 255.0;
+            densityStats.count++;
+          }
 
           if (emissive) {
             emissive[index] =
@@ -460,6 +515,22 @@ export class FrameVolume extends Three.Group {
         yield width;
       }
     }
+  }
+
+  // NOTE Call after the density stats of a volume change
+  updateMeanDensity() {
+    this.meanDensity = getMeanDensity(this.volumes);
+    this.sequence?.updateMeanDensity();
+  }
+
+  // NOTE densityScale for the shaders. normalizeDensity divides it by the mean density of the source or sequence.
+  getDensityScale() {
+    const owner = this.source ?? this;
+    const meanDensity = (owner.sequence ?? owner).meanDensity;
+
+    return this.normalizeDensity && meanDensity > 0.0
+      ? this.densityScale / meanDensity
+      : this.densityScale;
   }
 
   // NOTE An instance with the same textures and boxes.

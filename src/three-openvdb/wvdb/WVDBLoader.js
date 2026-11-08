@@ -1,6 +1,7 @@
 // NOTE Three.js-style .wvdb loader. Grid data works as raw data for FrameVolume.
 import * as Three from 'three';
 import { WVDBReader } from './WVDBReader.js';
+import { getDensityStats } from '../frame/core/FrameVolume.js';
 
 const textureKeys = ['densityMap3D', 'emissiveMap3D', 'baseColorMap3D', 'maskMap3D'];
 
@@ -53,6 +54,10 @@ export class WVDBVolumeData {
         get lod() {
           return grid.lod;
         },
+        // NOTE Baked stats of the finest LOD, or null. Then the stats come from the data of each LOD.
+        get densityStats() {
+          return grid.densityStats;
+        },
         source: grid,
       };
     });
@@ -70,7 +75,8 @@ export class WVDBVolumeData {
     return this.reader.done;
   }
 
-  // NOTE Textures of attached FrameVolumes follow their grid when a new LOD arrives
+  // NOTE Textures of attached FrameVolumes follow their grid when a new LOD arrives.
+  // Baked density stats keep the mean density the same for all LODs.
   attach(object) {
     const grids = Object.values(this.grids);
 
@@ -80,10 +86,19 @@ export class WVDBVolumeData {
         const grid = texture && grids.find(({ data }) => data === texture.image?.data);
 
         if (grid) {
-          this.bindings.push({ object, texture, grid: grid.source });
+          // NOTE Instances use the stats of their source
+          const statsHolder = key === 'densityMap3D' && !object.source ? holder : null;
+
+          if (statsHolder && grid.densityStats) {
+            statsHolder.densityStats = grid.densityStats;
+          }
+
+          this.bindings.push({ object, texture, grid: grid.source, statsHolder });
         }
       });
     });
+
+    object.updateMeanDensity();
 
     return object;
   }
@@ -93,11 +108,21 @@ export class WVDBVolumeData {
   }
 
   updateTextures() {
-    this.bindings.forEach(({ texture, grid }) => {
+    const changed = new Set();
+
+    this.bindings.forEach(({ object, texture, grid, statsHolder }) => {
       if (texture.image.data !== grid.data) {
         updateTexture(texture, grid);
+
+        // NOTE Files with no baked stats: stats of the new LOD
+        if (statsHolder && !grid.densityStats) {
+          statsHolder.densityStats = getDensityStats(grid.data);
+          changed.add(object);
+        }
       }
     });
+
+    changed.forEach((object) => object.updateMeanDensity());
   }
 
   dispose() {

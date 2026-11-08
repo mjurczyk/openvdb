@@ -46,6 +46,11 @@ const explosion = {
 };
 const explosionSize = 100.0;
 
+// NOTE Extinction with Normalize Density: optical depth of the longest box side at the mean density.
+// The Bunny Cloud (mean 0.30) looks the same as with extinction 350.
+const normalizedExtinction = 100.0;
+const rawExtinction = 350.0;
+
 // NOTE The Smoke source is scaled to this size, the same as the explosion
 const smokeSize = 100.0;
 
@@ -94,8 +99,9 @@ export const exampleFrame = ({ scene }) => {
     baseColor: '#ffffff',
     absorbance: 1.0,
     densityScale: 1.0,
+    normalizeDensity: true,
     opacity: 1.0,
-    extinction: 350.0,
+    extinction: normalizedExtinction,
     ...phaseParams,
     emissiveIntensity: 1.0,
     temperatureMin: 600.0,
@@ -299,6 +305,7 @@ export const exampleFrame = ({ scene }) => {
 
     volume.absorbance = params.absorbance;
     volume.densityScale = params.densityScale;
+    volume.normalizeDensity = params.normalizeDensity;
     volume.opacity = params.opacity;
     volume.extinction = params.extinction;
     volume.angstromExponent = params.angstromExponent;
@@ -647,7 +654,10 @@ export const exampleFrame = ({ scene }) => {
               getController('emissionIntensity')?.setValue(explosion.lightIntensity);
               getController('emissionResolution')?.setValue(explosion.probes);
               getController('fogColor')?.setValue(explosion.baseColor);
-              getController('extinction')?.setValue(explosion.extinction);
+              // NOTE Normalized density keeps the extinction. Then all VDBs have about the same opacity.
+              if (!params.normalizeDensity) {
+                getController('extinction')?.setValue(explosion.extinction);
+              }
               applyExplosionSpectrum(params.emissionSpectrum);
               getController('castShadow')?.setValue(true);
             }
@@ -1061,6 +1071,17 @@ export const exampleFrame = ({ scene }) => {
           min: 0.0,
           max: 1.0,
           onChange: setParam('densityScale'),
+        },
+        {
+          id: 'normalizeDensity',
+          name: 'Normalize Density',
+          defaultValue: params.normalizeDensity,
+          onChange: (value) => {
+            params.normalizeDensity = value;
+
+            getController('extinction')?.setValue(value ? normalizedExtinction : rawExtinction);
+            applyParams();
+          },
         },
         {
           id: 'opacity',
