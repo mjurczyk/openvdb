@@ -32,6 +32,7 @@ import {
   abs,
   mod,
   smoothstep,
+  step,
   sqrt,
   acos,
   texture,
@@ -394,6 +395,40 @@ export const frameIsotropicDiffusion = (frontReduced, backReduced, frontEffectiv
     .mul(2.0)
     .div(frontReduced.add(backReduced).add(2.0 * frameDiffusionExtrapolation))
     .mul(exp(frontEffective.negate()));
+
+// NOTE multipleScattering 'two-sided': total transmittance of a light direction (direct and scattered light).
+// Diffusion with a collimated source in the volume between the light side and the far side: front reduced depth f
+// (toward the light), back reduced depth b (away from the light), L = f + b. Light also leaves at the sides: the volume
+// is as wide as it is deep (L), so phi'' - k^2 phi = -3 exp(-x) with k^2 = 2 (PI / (L + 2 z0))^2, the lowest side mode.
+// Robin boundaries phi = z0 phi' at x = 0 and phi = -z0 phi' at x = L, z0 = 2/3. Then the reduced beam exp(-f),
+// times exp(-effective front) for absorption, never less than the direct light. float or vec3 values (spectral).
+export const frameTwoSidedDiffusion = (direct, frontReduced, frontEffective, backReduced) => {
+  const z0 = frameDiffusionExtrapolation;
+  const slab = frontReduced.add(backReduced);
+  const k0 = float(Math.SQRT2 * Math.PI).div(slab.add(2.0 * z0));
+  // NOTE k = 1 has no particular solution of this form. A small shift keeps the result continuous.
+  const k = k0.add(float(1.0).sub(step(0.01, abs(float(1.0).sub(k0.mul(k0))))).mul(0.01)).toVar();
+  const p = float(-3.0).div(float(1.0).sub(k.mul(k))).toVar();
+  const kl = k.mul(slab);
+  const coshKl = exp(kl).add(exp(kl.negate())).mul(0.5).toVar();
+  const sinhKl = exp(kl).sub(exp(kl.negate())).mul(0.5).toVar();
+  const c12 = k.mul(-z0);
+  const r1 = p.mul(-(1.0 + z0));
+  const c21 = coshKl.add(k.mul(z0).mul(sinhKl));
+  const c22 = sinhKl.add(k.mul(z0).mul(coshKl));
+  const r2 = p.negate().mul(exp(slab.negate())).mul(1.0 - z0);
+  const det = c22.sub(c12.mul(c21)).toVar();
+  const c = r1.mul(c22).sub(c12.mul(r2)).div(det);
+  const d = r2.sub(c21.mul(r1)).div(det);
+  const kf = k.mul(frontReduced);
+  const beam = exp(frontReduced.negate());
+  const diffuse = p
+    .mul(beam)
+    .add(c.mul(exp(kf).add(exp(kf.negate())).mul(0.5)))
+    .add(d.mul(exp(kf).sub(exp(kf.negate())).mul(0.5)));
+
+  return max(direct, diffuse.add(beam).mul(exp(frontEffective.negate())));
+};
 
 // NOTE Total transmittance of isotropic light (no phase) from the y shadow value. Call in a Fn body.
 // Octaves: sum of b^n * exp(-a^n * optical depth), n 0 (direct) to N.
@@ -1042,8 +1077,8 @@ export const createGridNodes = (grid) => {
 
   // NOTE Hardware bilinear filter in the slice, manual linear filter between slices.
   // NOTE The grid is the z slices (tiles) from tileOffset in an atlas with columns tile columns.
-  const sampleTiles = (atlas, tileOffset, columns, atlasSize, uvw) => {
-    const resolution = frameGridResolution;
+  // resolution: voxels on each side of the grid (each tile is resolution x resolution).
+  const sampleTiles = (atlas, resolution, tileOffset, columns, atlasSize, uvw) => {
     const z = uvw.z.mul(resolution).sub(0.5);
     const z0 = clamp(floor(z), 0.0, resolution.sub(1.0));
     const z1 = min(z0.add(1.0), resolution.sub(1.0));
@@ -1066,6 +1101,7 @@ export const createGridNodes = (grid) => {
   const sampleGrid = (atlas, cascade, uvw) =>
     sampleTiles(
       atlas,
+      frameGridResolution,
       float(cascade).mul(frameGridResolution),
       frameGridColumns,
       grid.frameGridAtlasSize,
@@ -1082,6 +1118,7 @@ export const createGridNodes = (grid) => {
       value.assign(
         sampleTiles(
           map,
+          frameGridResolution,
           float(0.0),
           environmentGrid.frameEnvironmentGridColumns,
           environmentGrid.frameEnvironmentGridAtlasSize,

@@ -95,8 +95,12 @@ const getFramePhaseAsymmetry = (source) => {
   return 0.0;
 };
 
-// NOTE Mode true of multipleScattering: the diffusion approximation
+// NOTE Modes of multipleScattering with the diffusion approximation: true (1D, toward the light only),
+// 'two-sided' (2D, toward and away from the light) and 'neural' (diffusion where the network is not used)
 export const isFrameDiffusion = (mode) => !!mode && mode !== 'octaves';
+
+// NOTE 1.0 for multipleScattering 'two-sided': the shadows of scene lights march away from the light too (frameTwoSidedDiffusion)
+export const getFrameTwoSidedDiffusion = (mode) => (mode === 'two-sided' ? 1.0 : 0.0);
 
 // NOTE Multiple scattering value of the shadow marches: 1 - g, the reduced scattering of each unit of scattering.
 // Only mode true (diffusion approximation). 'octaves' and false give 0.0. See frameShadowDepth in the shader chunks.
