@@ -200,6 +200,8 @@ The header is one JSON object. A reader MUST ignore header members that this doc
 | `channels` | integer | no | 1 (scalar grid) or 3 (vector grid). The default is 1. |
 | `background` | number or array | yes | A float32 value if `channels` is 1. An array of 3 float32 values if `channels` is 3. |
 | `bbox` | box or `null` | yes | The box of the grid (3.2). `null` if no box is known: all grids of the file have no data, and the writer has no sequence box (section 10). Then all LODs contain only background values. |
+| `meanDensity` | number | no | Scalar grids only. The mean of the non-zero density values of the finest LOD, `0` to `1` (0 if all are zero). Density values are 8-bit values of `clamp(value, 0, 1)`, or `1` in the active band of a level set (section 8), divided by 255. Readers can use it to normalize density. The value is the same for all LODs. |
+| `nonZeroVoxels` | integer | no | Scalar grids only. The number of voxels of the finest LOD with a non-zero density value. Present if, and only if, `meanDensity` is present. |
 | `lods` | array of objects | yes | The LODs (5.6), from LOD 0 (coarsest) to the finest LOD. |
 
 ### 5.5. Bake object
@@ -445,6 +447,8 @@ One fog volume grid, 3 LODs, sparse layout, 8 bits:
       "channels": 1,
       "background": 0,
       "bbox": [[-111.5, -114.5, -159.5], [109.5, 141.5, 122.5]],
+      "meanDensity": 0.1145,
+      "nonZeroVoxels": 166170,
       "lods": [
         {
           "dimensions": [25, 29, 32],

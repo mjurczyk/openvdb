@@ -918,7 +918,7 @@ export const setVolumeUniforms = (uniforms, frameVolume, volume) => {
   uniforms.frameScatterColor.value.copy(frameVolume.scatterColor);
   uniforms.frameExtinction.value = frameVolume.extinction;
   getFrameExtinctionSpectrum(frameVolume, uniforms.frameExtinctionSpectrum.value);
-  uniforms.frameDensityScale.value = frameVolume.densityScale;
+  uniforms.frameDensityScale.value = frameVolume.getDensityScale();
   uniforms.frameDensityCutoff.value = frameVolume.densityCutoff;
   uniforms.frameAbsorbance.value = frameVolume.absorbance;
   uniforms.frameOpacity.value = frameVolume.opacity;

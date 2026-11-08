@@ -1,4 +1,5 @@
 import * as Three from 'three';
+import { getMeanDensity } from './FrameVolume.js';
 
 // NOTE FrameVolume parameters. A value set here applies to all frames, also to new frames.
 const sharedParams = [
@@ -13,6 +14,7 @@ const sharedParams = [
   'phaseBackWeight',
   'phaseGExponent',
   'densityScale',
+  'normalizeDensity',
   'densityCutoff',
   'absorbance',
   'opacity',
@@ -93,6 +95,9 @@ export class FrameVolumeAnimation extends Three.Group {
   currentFrame = 0;
   time = 0.0;
 
+  // NOTE Mean density of all frames. One mean for the sequence: a mean for each frame makes brightness change between frames.
+  meanDensity = 0.0;
+
   get frame() {
     return this.currentFrame;
   }
@@ -109,9 +114,16 @@ export class FrameVolumeAnimation extends Three.Group {
     Object.entries(this.params).forEach(([key, value]) => applyParam(frame, key, value));
 
     frame.visible = this.frames.length === this.currentFrame;
+    frame.sequence = this;
 
     this.frames.push(frame);
     this.add(frame);
+    this.updateMeanDensity();
+  }
+
+  // NOTE Frames call it when their density stats change
+  updateMeanDensity() {
+    this.meanDensity = getMeanDensity(this.frames.flatMap((frame) => frame.volumes));
   }
 
   play() {
