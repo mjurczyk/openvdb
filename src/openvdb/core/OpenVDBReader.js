@@ -36,7 +36,7 @@ export class OpenVDBReader {
       this.readHeader();
       this.readGrids();
     } else {
-      throw 'Not a VDB file.';
+      throw new Error('Not a VDB file.');
     }
   }
 

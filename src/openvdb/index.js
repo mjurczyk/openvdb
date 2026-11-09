@@ -43,7 +43,7 @@ export const loadVDB = async (url) => {
     await vdbReader.read(source);
   } catch (error) {
     console.error({ error });
-    throw 'VDB could not be parsed.';
+    throw new Error('VDB could not be parsed.', { cause: error });
   }
 
   return vdbReader;
