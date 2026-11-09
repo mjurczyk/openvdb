@@ -116,7 +116,8 @@ const fragmentShader = `
 
       for (int i = 0; i < steps; i++) {
         float t = boxSegment.x + segment * (float(i) + jitter) / float(steps);
-        float extinction = frameSampleExtinction(mix(localNear, localFar, t), lod) * frameOpacity;
+        float extinction = frameSampleExtinction(mix(localNear, localFar, t), lod) * frameOpacity *
+          frameDistanceFade(mix(viewNear, viewFar, t));
         vec3 stepTransmittance = exp(-frameExtinctionSpectrum * extinction * subStepLength);
         float weight = frameMeanComponent(transmittance * (1.0 - stepTransmittance));
 
@@ -243,7 +244,8 @@ const fragmentShader = `
 
       for (int i = 0; i < steps; i++) {
         float t = boxSegment.x + segment * (float(i) + jitter) / float(steps);
-        float extinction = frameSampleExtinction(mix(localNear, localFar, t), lod) * frameOpacity;
+        float extinction = frameSampleExtinction(mix(localNear, localFar, t), lod) * frameOpacity *
+          frameDistanceFade(mix(viewNear, viewFar, t));
         float stepTransmittance = exp(-extinction * subStepLength);
         float weight = transmittance * (1.0 - stepTransmittance);
 

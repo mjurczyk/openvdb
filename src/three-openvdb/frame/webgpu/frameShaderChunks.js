@@ -33,6 +33,7 @@ import {
   mod,
   smoothstep,
   step,
+  length,
   sqrt,
   acos,
   texture,
@@ -87,6 +88,7 @@ export const createFroxelUniforms = () => ({
   froxelSubSteps: uniform(6, 'int'),
   froxelAtlasSize: uniform(new Three.Vector2(1.0, 1.0)),
   frameJitter: uniform(0.5),
+  frameFadeRadius: uniform(0.0),
 });
 
 export const frameSliceDepth = (froxel, t) =>
@@ -122,6 +124,21 @@ export const frameGetFroxel = (froxel, fragCoord) => {
     viewNear: frameGetViewPosition(froxel, uv, sliceNear),
     viewFar: frameGetViewPosition(froxel, uv, sliceFar),
   };
+};
+
+// NOTE Exponent of the distance fade. 4.0 is FogExp2 with density 2 / frameFadeRadius.
+const frameFadeExponent = 4.0;
+const frameFadeEnd = Math.exp(-frameFadeExponent);
+
+// NOTE Density scale at a view position. 1.0 at the camera, 0.0 at frameFadeRadius. Radius 0.0: no fade.
+// exp(-k x^2) (FogExp2), scaled to give 0.0 at the radius.
+export const frameDistanceFade = (froxel, viewPosition) => {
+  const x = clamp(length(viewPosition).div(froxel.frameFadeRadius), 0.0, 1.0);
+  const fade = exp(x.mul(x).mul(-frameFadeExponent))
+    .sub(frameFadeEnd)
+    .div(1.0 - frameFadeEnd);
+
+  return select(froxel.frameFadeRadius.greaterThan(0.0), fade, float(1.0));
 };
 
 // NOTE Mip level of a froxel from its width or the sub-step length, the larger one

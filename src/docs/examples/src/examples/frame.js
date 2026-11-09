@@ -1,6 +1,6 @@
 import * as Three from 'three';
 import * as OpenVDB from 'three-openvdb';
-import { gui, setGuiFields } from '../utils/gui';
+import { gui, setGuiFields, setDemoCleanup } from '../utils/gui';
 import { loadAndCacheVDB, groundLevel, setEnvironmentLights } from '../utils/resources';
 import { setLoading } from '../utils/loading';
 import { createEmissionDemo } from '../utils/emission';
@@ -625,6 +625,11 @@ export const exampleFrame = ({ scene }) => {
     OpenVDB.frameRenderer.settings[key] = Math.round(value);
   };
 
+  // NOTE 0 turns the distance fade off. The cleanup turns it off for the other demos.
+  setDemoCleanup(() => {
+    OpenVDB.frameRenderer.settings.fadeRadius = Infinity;
+  });
+
   const [multipleScatteringField, ...octaveScatteringFields] = createMultipleScatteringFields();
 
   setGuiFields([
@@ -829,6 +834,16 @@ export const exampleFrame = ({ scene }) => {
               min: 8,
               max: 512,
               onChange: setFrameSetting('depth'),
+            },
+            {
+              id: 'fadeRadius',
+              name: 'Fade Radius',
+              defaultValue: 0.0,
+              min: 0.0,
+              max: 1000.0,
+              onChange: (value) => {
+                OpenVDB.frameRenderer.settings.fadeRadius = value;
+              },
             },
           ],
         },

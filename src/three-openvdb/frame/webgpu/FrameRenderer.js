@@ -30,7 +30,13 @@ import {
   frameTileVertex,
 } from './frameShaderChunks.js';
 import { getAtlasLayout, getFroxelSize } from '../core/frameLayout.js';
-import { FrameVolumeCollector, getFroxelSliceRange, getFroxelRect, getFroxelArea } from '../core/frameView.js';
+import {
+  FrameVolumeCollector,
+  getFroxelSliceRange,
+  getFroxelRect,
+  getFroxelArea,
+  getFrameFadeRadius,
+} from '../core/frameView.js';
 import {
   updateGridCascades,
   getGridRange,
@@ -192,6 +198,8 @@ export class FrameRenderer {
     subSteps: 32,
     near: 0.1,
     far: Infinity,
+    // NOTE View distance where the volume density is 0. Density fades from the camera to it, as FogExp2. Infinity: no fade.
+    fadeRadius: Infinity,
     jitter: false,
     temporal: true,
     temporalBlend: 0.2,
@@ -902,6 +910,7 @@ export class FrameRenderer {
     this.updateFroxelArea(volumes, camera);
 
     this.froxelUniforms.froxelProjectionInverse.value.copy(camera.projectionMatrixInverse);
+    this.froxelUniforms.frameFadeRadius.value = getFrameFadeRadius(this.settings);
     this.integrateMaterial.frameCameraNear.value = camera.near;
     this.integrateMaterial.frameCameraFar.value = camera.far;
     this.integrateMaterial.frameCameraOrthographic.value = camera.isOrthographicCamera ? 1 : 0;

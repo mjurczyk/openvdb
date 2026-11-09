@@ -267,7 +267,8 @@ const fragmentShader = `
     for (int i = 0; i < steps; i++) {
       float t = boxSegment.x + segment * (float(i) + jitter) / float(steps);
       vec3 probe = mix(localNear, localFar, t);
-      float opticalDepth = frameSampleExtinction(probe, lod) * frameOpacity * subStepLength;
+      float opticalDepth = frameSampleExtinction(probe, lod) * frameOpacity *
+        frameDistanceFade(mix(viewNear, viewFar, t)) * subStepLength;
       #ifdef FRAME_SPECTRAL
         vec3 stepTransmittance = exp(-frameExtinctionSpectrum * opticalDepth);
         float weight = frameMeanComponent(transmittance * (1.0 - stepTransmittance));

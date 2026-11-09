@@ -27,6 +27,7 @@ export const froxelPars = `
   uniform vec2 froxelRange;
   uniform mat4 froxelProjectionInverse;
   uniform int froxelSubSteps;
+  uniform float frameFadeRadius;
 
   float frameSliceDepth(float t) {
     return froxelRange.x * pow(froxelRange.y / froxelRange.x, t);
@@ -41,6 +42,22 @@ export const froxelPars = `
     float t = (viewDepth + nearPoint.z) / (nearPoint.z - farPoint.z);
 
     return mix(nearPoint.xyz, farPoint.xyz, t);
+  }
+
+  // NOTE Exponent of the distance fade. 4.0 is FogExp2 with density 2 / frameFadeRadius.
+  const float frameFadeExponent = 4.0;
+
+  // NOTE Density scale at a view position. 1.0 at the camera, 0.0 at frameFadeRadius. Radius 0.0: no fade.
+  // exp(-k x^2) (FogExp2), scaled to give 0.0 at the radius.
+  float frameDistanceFade(vec3 viewPosition) {
+    if (frameFadeRadius <= 0.0) {
+      return 1.0;
+    }
+
+    float x = clamp(length(viewPosition) / frameFadeRadius, 0.0, 1.0);
+    float end = exp(-frameFadeExponent);
+
+    return (exp(-frameFadeExponent * x * x) - end) / (1.0 - end);
   }
 `;
 

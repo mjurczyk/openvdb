@@ -52,6 +52,7 @@ const frameSettings = {
   width: 324,
   height: 324,
   depth: 48,
+  fadeRadius: 4500.0,
 };
 
 // NOTE The camera is on the ground and looks up. The target is near, so a drag turns the view.
@@ -249,6 +250,16 @@ export const exampleSky = ({ scene }) => {
             params.weather = value;
 
             slots.forEach(({ volume }) => volume && applyVolumeParams(volume));
+          },
+        },
+        {
+          id: 'fadeRadius',
+          name: 'Fade Radius',
+          defaultValue: frameSettings.fadeRadius,
+          min: 0.0,
+          max: 8000.0,
+          onChange: (value) => {
+            OpenVDB.frameRenderer.settings.fadeRadius = value;
           },
         },
       ],
