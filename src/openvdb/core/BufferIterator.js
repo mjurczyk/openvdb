@@ -42,7 +42,7 @@ export class BufferIterator {
   constructor(source) {
     if (!(source instanceof Uint8Array)) {
       console.error('BufferIterator', 'constructor', 'source must be an Uint8Array buffer.');
-      throw 0;
+      throw new TypeError('BufferIterator: source must be an Uint8Array buffer.');
     }
 
     this.source = source;

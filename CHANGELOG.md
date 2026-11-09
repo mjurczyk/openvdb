@@ -2,6 +2,7 @@
 
 - Experimental medium presets from measured values: `getFrameMediumProps( name )` gives `FrameVolume` props (`baseColor` albedo, `extinctionScale`, `angstromExponent`, `phase`, `phaseG`, `phaseGExponent`) for `'cloud'`, `'fog'`, `'ice'`, `'soot'`, `'white-smoke'`, `'dark-smoke'`, `'haze'` and `'dust'`. Data and sources in `frameMediumPresets`. Extinction stays a user value. Both `three-openvdb` and `three-openvdb/webgl`
 - Examples: the Spectral folder of Rendering Frame and Custom VDB has a Medium preset field (it turns Spectral on, sets Base Color, the Ångström exponent and the phase) and an Ångström Exponent field (a number)
+- Fix: `openvdb` throws `Error` instances with messages, not `0` or strings (`GridSharedContext.assert`, `BufferIterator`, `OpenVDBReader.read`, `loadVDB`). `loadVDB` keeps the parse error as `cause`
 - `frameRenderer.settings.fadeRadius` (default `Infinity`, no fade): volume density in the view fades from the camera to `0` at this distance, as `FogExp2` (`exp(-4 x²)`, `x = distance / fadeRadius`). Both `three-openvdb` and `three-openvdb/webgl`
 - Examples: Rendering Frame (Render Cascades folder) and Sky have a Fade Radius field. `0` is no fade. Sky starts with `4500`
 - Breaking: `frameRenderer.settings.multipleScattering` default is `'neural'` (was `true`)
