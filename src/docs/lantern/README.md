@@ -24,7 +24,7 @@ Copy `dist/` to `lantern/` on the `gh-pages` branch. The examples deploy replace
 
 ## Notes
 
-- `vendor/three-environment-shadows-2.0.0-environment-intensity.tgz`: `three-environment-shadows` 2.0.0 with the lightmap scaled by `scene.environmentIntensity` (branch `jan/environment-intensity`). Replace it with the npm release that has the fix.
+- `three-environment-shadows` 2.1.0 or newer: the lightmap follows `scene.environmentIntensity`, so the lantern follows the environment intensity loop.
 - `public/xatlas-web.wasm` is a copy from `three-environment-shadows`. Vite pre-bundles the package, which breaks its relative wasm URL, so `xatlasWasmUrl` points here.
 
 ## Credits

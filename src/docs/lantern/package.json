@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "three": "0.187.0",
-    "three-environment-shadows": "file:vendor/three-environment-shadows-2.0.0-environment-intensity.tgz",
+    "three-environment-shadows": "2.1.0",
     "three-openvdb": "0.20.0"
   },
   "devDependencies": {
