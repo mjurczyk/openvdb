@@ -1,5 +1,6 @@
 # Unreleased
 
+- Fix: `openvdb` throws `Error` instances with messages, not `0` or strings (`GridSharedContext.assert`, `BufferIterator`, `OpenVDBReader.read`, `loadVDB`). `loadVDB` keeps the parse error as `cause`
 - `frameRenderer.settings.fadeRadius` (default `Infinity`, no fade): volume density in the view fades from the camera to `0` at this distance, as `FogExp2` (`exp(-4 x²)`, `x = distance / fadeRadius`). Both `three-openvdb` and `three-openvdb/webgl`
 - Examples: Rendering Frame (Render Cascades folder) and Sky have a Fade Radius field. `0` is no fade. Sky starts with `4500`
 - Breaking: `frameRenderer.settings.multipleScattering` default is `'neural'` (was `true`)
