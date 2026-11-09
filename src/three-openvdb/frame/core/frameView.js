@@ -251,6 +251,10 @@ const hasMipmaps = (items) => {
   return false;
 };
 
+// NOTE Uniform value of settings.fadeRadius. 0 turns the distance fade off.
+export const getFrameFadeRadius = (settings) =>
+  Number.isFinite(settings.fadeRadius) && settings.fadeRadius > 0.0 ? settings.fadeRadius : 0.0;
+
 // NOTE Fractional slice of a view depth. range: froxelRange (near, far). Slices are logarithmic.
 export const getFroxelSlice = (viewDepth, range, depth) =>
   (depth * Math.log(Math.max(viewDepth, range.x) / range.x)) / Math.log(range.y / range.x);

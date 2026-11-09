@@ -303,6 +303,7 @@ Froxel grid settings are global, in `frameRenderer.settings`:
 * `depth` - (default: `24`) depth slices. Slices are exponential: thin near the camera, thick far away. Slices fit the visible volumes.
 * `subSteps` - (default: `32`) density samples along the view ray in each slice. Each froxel is lit at the visibility-weighted mean position of its samples, then stored as slice color and alpha.
 * `near`, `far` - (default: `0.1`, `512.0`) limits of the slice range in view depth.
+* `fadeRadius` - (default: `Infinity`) view distance where the volume density is `0`. Density fades from the camera to this distance, as `FogExp2`: `exp(-4 x²)` with `x = distance / fadeRadius`, scaled to `1` at the camera and `0` at the radius. Shadows and lights do not change. `Infinity` or `0`: no fade.
 * `jitter` - (default: `false`) moves sub-steps and shadow samples by a small random amount each frame. Banding becomes fine noise.
 * `temporal` - (default: `true`) blends each frame with the reprojected froxels of the previous frames. This removes the jitter noise. The history is clamped to the current froxels to limit ghosting.
 * `temporalBlend` - (default: `0.2`) weight of the new frame. Lower values are smoother, higher values react faster to motion.

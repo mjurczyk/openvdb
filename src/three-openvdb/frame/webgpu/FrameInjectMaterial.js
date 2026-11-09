@@ -28,6 +28,7 @@ import {
 import {
   frameFragCoord,
   frameGetFroxel,
+  frameDistanceFade,
   getFroxelLod,
   getSampledLod,
   getBoxSteps,
@@ -209,6 +210,7 @@ export class FrameInjectMaterial extends FrameEnvironmentMaterial {
         const opticalDepth = volume
           .sampleExtinction(mix(localNear, localFar, t), lod)
           .mul(frameOpacity)
+          .mul(frameDistanceFade(froxelUniforms, mix(viewNear, viewFar, t)))
           .mul(subStepLength);
         const stepTransmittance = exp(
           (spectral ? frameExtinctionSpectrum.mul(opticalDepth) : opticalDepth).negate(),

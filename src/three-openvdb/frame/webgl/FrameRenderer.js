@@ -26,7 +26,13 @@ import {
 } from '../core/framePhase.js';
 import { getAtlasLayout, getFroxelSize } from '../core/frameLayout.js';
 import { frameNeuralLevels } from '../core/frameNeuralIndirect.js';
-import { FrameVolumeCollector, getFroxelSliceRange, getFroxelRect, getFroxelArea } from '../core/frameView.js';
+import {
+  FrameVolumeCollector,
+  getFroxelSliceRange,
+  getFroxelRect,
+  getFroxelArea,
+  getFrameFadeRadius,
+} from '../core/frameView.js';
 import {
   updateGridCascades,
   getGridRange,
@@ -179,6 +185,8 @@ export class FrameRenderer {
     subSteps: 32,
     near: 0.1,
     far: Infinity,
+    // NOTE View distance where the volume density is 0. Density fades from the camera to it, as FogExp2. Infinity: no fade.
+    fadeRadius: Infinity,
     jitter: false,
     temporal: true,
     temporalBlend: 0.2,
@@ -231,6 +239,7 @@ export class FrameRenderer {
     froxelProjectionInverse: { value: new Three.Matrix4() },
     froxelSubSteps: { value: 6 },
     frameJitter: { value: 0.5 },
+    frameFadeRadius: { value: 0.0 },
   };
 
   froxelTileUniforms = {
@@ -943,6 +952,7 @@ export class FrameRenderer {
     this.updateFroxelArea(volumes, camera);
 
     this.froxelUniforms.froxelProjectionInverse.value.copy(camera.projectionMatrixInverse);
+    this.froxelUniforms.frameFadeRadius.value = getFrameFadeRadius(this.settings);
     this.integrateMaterial.uniforms.frameCameraNear.value = camera.near;
     this.integrateMaterial.uniforms.frameCameraFar.value = camera.far;
 

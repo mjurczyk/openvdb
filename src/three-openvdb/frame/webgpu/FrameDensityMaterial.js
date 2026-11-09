@@ -26,6 +26,7 @@ import {
 import {
   frameFragCoord,
   frameGetFroxel,
+  frameDistanceFade,
   getFroxelLod,
   getSampledLod,
   getBoxSteps,
@@ -201,6 +202,7 @@ export class FrameDensityMaterial extends FrameEnvironmentMaterial {
         const extinction = volume
           .sampleExtinction(mix(localNear, localFar, t), lod)
           .mul(frameOpacity)
+          .mul(frameDistanceFade(froxelUniforms, mix(viewNear, viewFar, t)))
           .toVar();
         const stepTransmittance = exp(extinction.mul(subStepLength).negate()).toVar();
         const weight = transmittance.mul(float(1.0).sub(stepTransmittance)).toVar();
@@ -422,6 +424,7 @@ export class FrameDensityMaterial extends FrameEnvironmentMaterial {
         const extinction = volume
           .sampleExtinction(mix(localNear, localFar, t), lod)
           .mul(frameOpacity)
+          .mul(frameDistanceFade(froxelUniforms, mix(viewNear, viewFar, t)))
           .toVar();
         const stepTransmittance = exp(
           frameExtinctionSpectrum.mul(extinction).mul(subStepLength).negate(),
