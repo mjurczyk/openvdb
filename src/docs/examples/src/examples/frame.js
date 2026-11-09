@@ -14,6 +14,7 @@ import { createToneMappingField } from '../utils/toneMapping';
 import { createMultipleScatteringFields } from '../utils/scattering';
 import { isPhone } from '../utils/device';
 import { createTransformFolder } from '../utils/transform';
+import { createSpectralFields } from '../utils/medium';
 
 // NOTE Stress test: one bunny is converted one time, in a cube box.
 // All grid volumes use its raw density data.
@@ -53,9 +54,6 @@ const rawExtinction = 350.0;
 
 // NOTE The Smoke source is scaled to this size, the same as the explosion
 const smokeSize = 100.0;
-
-// NOTE Measured savanna smoke (Dubovik et al. 2002): linear albedo red / green / blue and the Angstrom exponent
-const smokeMedium = { albedo: [0.84, 0.86, 0.88], angstromExponent: 'smoke' };
 
 const applyExplosionSpectrum = (spectrum) => {
   const values = explosion.spectra[spectrum] ?? explosion.spectra.approximate;
@@ -113,7 +111,7 @@ export const exampleFrame = ({ scene }) => {
     animateLights: true,
     mipmaps: true,
     castShadow: false,
-    angstromExponent: 'cloud',
+    angstromExponent: 0.0,
   };
 
   let entries = [];
@@ -667,11 +665,11 @@ export const exampleFrame = ({ scene }) => {
               getController('castShadow')?.setValue(true);
             }
 
-            // NOTE The smoke gets the measured smoke albedo and Angstrom exponent
+            // NOTE The smoke gets the albedo and Angstrom exponent of measured savanna smoke (Dark Smoke medium)
             if (value === 'smoke') {
-              const baseColor = new Three.Color().setRGB(...smokeMedium.albedo, Three.LinearSRGBColorSpace);
+              const smokeMedium = OpenVDB.getFrameMediumProps('dark-smoke');
 
-              getController('fogColor')?.setValue(`#${baseColor.getHexString()}`);
+              getController('fogColor')?.setValue(`#${smokeMedium.baseColor.getHexString()}`);
               getController('angstromExponent')?.setValue(smokeMedium.angstromExponent);
             }
 
@@ -1183,23 +1181,7 @@ export const exampleFrame = ({ scene }) => {
     {
       folder: 'Spectral',
       closed: true,
-      children: [
-        {
-          id: 'spectral',
-          name: 'Spectral',
-          defaultValue: OpenVDB.frameRenderer.settings.spectral,
-          onChange: (value) => {
-            OpenVDB.frameRenderer.settings.spectral = value;
-          },
-        },
-        {
-          id: 'angstromExponent',
-          name: 'Medium',
-          defaultValue: params.angstromExponent,
-          options: { Cloud: 'cloud', Dust: 'dust', Smoke: 'smoke', Air: 'air' },
-          onChange: setParam('angstromExponent'),
-        },
-      ],
+      children: createSpectralFields(params, setParam),
     },
   ]);
 };

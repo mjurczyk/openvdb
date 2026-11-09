@@ -15,6 +15,7 @@ import { createToneMappingField } from '../utils/toneMapping';
 import { createMultipleScatteringFields } from '../utils/scattering';
 import { groundLevel, setEnvironmentLights } from '../utils/resources';
 import { createTransformFolder, setTransformTarget } from '../utils/transform';
+import { createSpectralFields } from '../utils/medium';
 
 // NOTE volumeGround stands on the ground. The gizmo moves volumeTransform. volumePivot turns the up axis.
 let animation, volumeGround, volumeTransform, volumePivot, targetScene;
@@ -40,7 +41,7 @@ const params = {
   densityScale: 1.0,
   opacity: 1.0,
   extinction: 100.0,
-  angstromExponent: 'cloud',
+  angstromExponent: 0.0,
   ...phaseParams,
   shadowSteps: 32,
   emissiveIntensity: 1.0,
@@ -888,23 +889,7 @@ export const exampleVDB = ({ scene }) => {
     {
       folder: 'Spectral',
       closed: true,
-      children: [
-        {
-          id: 'spectral',
-          name: 'Spectral',
-          defaultValue: OpenVDB.frameRenderer.settings.spectral,
-          onChange: (value) => {
-            OpenVDB.frameRenderer.settings.spectral = value;
-          },
-        },
-        {
-          id: 'angstromExponent',
-          name: 'Medium',
-          defaultValue: params.angstromExponent,
-          options: { Cloud: 'cloud', Dust: 'dust', Smoke: 'smoke', Air: 'air' },
-          onChange: setParam('angstromExponent'),
-        },
-      ],
+      children: createSpectralFields(params, setParam),
     },
   ]);
 };

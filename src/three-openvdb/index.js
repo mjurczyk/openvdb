@@ -12,6 +12,7 @@ import { MeshVolume } from './primitives/MeshVolume.js';
 import { FrameVolume } from './frame/core/FrameVolume.js';
 import { frameLights } from './frame/core/frameLights.js';
 import { frameAngstromExponents } from './frame/core/frameSpectrum.js';
+import { frameMediumPresets, getFrameMediumProps } from './frame/core/frameMedium.js';
 import { setFrameBackend } from './frame/core/frameBackend.js';
 import { FrameVolumeAnimation, FrameVolumeAnimationInstance } from './frame/core/FrameVolumeAnimation.js';
 import { VDBAnimationLoader } from './frame/core/VDBAnimationLoader.js';
@@ -45,6 +46,8 @@ export {
   frameRenderer,
   frameLights,
   frameAngstromExponents,
+  frameMediumPresets,
+  getFrameMediumProps,
   FrameEmissionLight,
   FrameVolumeAnimation,
   FrameVolumeAnimationInstance,
