@@ -243,6 +243,32 @@ Converts the given `OpenVDBReader` to a volumetric `Three.Object3D`. `onConverte
 
 All properties can be changed after creation, for example `frameVolume.extinction = 50.0` or `frameVolume.baseColor.set(0xff00ff)`.
 
+#### Medium presets
+
+`getFrameMediumProps( name )` gives `FrameVolume` props of a measured medium: `baseColor` (albedo, linear), `extinctionScale` (`[1, 1, 1]`), `angstromExponent`, `phase`, `phaseG` and `phaseGExponent`. Use them as constructor props, or assign them to a `FrameVolume` or `FrameVolumeAnimation`. Unknown names give `null`. The data is in `frameMediumPresets`.
+
+```js
+const volume = new OpenVDB.FrameVolume(vdb, { ...OpenVDB.getFrameMediumProps('dust'), extinction: 50.0 });
+
+OpenVDB.frameRenderer.settings.spectral = true;
+```
+
+* `extinction` is not in a preset. It depends on the scale of the scene. A preset sets only the spectral shape of the extinction, the albedo and the phase.
+* The Ångström exponent and the albedo of each channel need `frameRenderer.settings.spectral`. Without it, extinction is grey and multiple scattering uses the luminance of the albedo.
+* `'frame'` lighting uses one phase for all volumes, from `frameRenderer.settings`. Assign the phase props to it too: `Object.assign(frameRenderer.settings, { phase, phaseG, phaseGExponent })`.
+* Values are at 450, 550 and 650 nm (blue, green, red). A measured range gives its midpoint. A green albedo that is not measured is the mean of red and blue. `phaseG` is `g` at 550 nm (measured, or from the fit), `phaseGExponent` fits `g` at 450 and 650 nm.
+
+| Name | Medium | Ångström exponent | Albedo R / G / B | Phase | Source |
+| -- | -- | -- | -- | -- | -- |
+| `'cloud'` | Cloud droplets | `0` | `1` / `1` / `1` | `'lorenz-mie-rgb'` (`g` 0.850 / 0.853 / 0.857) | Mie, Pope & Fry 1997 |
+| `'fog'` | Fog | `0` | `1` / `1` / `1` | HG `g` `0.866` | Hess et al. 1998 (OPAC) |
+| `'ice'` | Ice, cirrus | `0` | `1` / `1` / `1` | HG `g` `0.77` (0.76 to 0.78) | OPAC, Baran 2012 |
+| `'soot'` | Fresh soot (black carbon) | `1.0` | `0.25` (0.20 to 0.30, flat) | HG `g` `0.35` (0.3 to 0.4, estimate) | Bond & Bergstrom 2006 |
+| `'white-smoke'` | Boreal forest smoke | `1.65` (1.0 to 2.3) | `0.935` / `0.9375` / `0.94` | HG `g` `0.645`, exponent `0.335` | Dubovik et al. 2002 |
+| `'dark-smoke'` | Savanna smoke | `1.8` (1.4 to 2.2) | `0.84` / `0.86` / `0.88` | HG `g` `0.577`, exponent `0.513` | Dubovik et al. 2002 |
+| `'haze'` | Urban haze | `1.85` (1.2 to 2.5) | `0.97` / `0.975` / `0.98` | HG `g` `0.629`, exponent `0.386` | Dubovik et al. 2002 |
+| `'dust'` | Saharan dust | `0.3` (-0.1 to 0.7) | `0.98` / `0.944` / `0.93` | HG `g` `0.752`, exponent `0.076` | Dubovik et al. 2002, Kim et al. 2011 |
+
 #### Instances
 
 - `frameVolume.createInstance( props ): FrameVolume`
