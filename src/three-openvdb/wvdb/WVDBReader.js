@@ -194,8 +194,8 @@ export class WVDBReader {
 
       this.receive(value, onHeader);
 
-      // NOTE All bytes up to the last LOD are here. Stop the download.
-      if (this.received >= this.bytesTotal) {
+      // NOTE All bytes up to the last LOD are here. Stop the download. bytesTotal is not known before the header.
+      if (this.header && this.received >= this.bytesTotal) {
         this.streamReader.cancel().catch(() => {});
         break;
       }
