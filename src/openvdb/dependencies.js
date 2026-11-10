@@ -6848,8 +6848,9 @@ export const Zlib =
       const gzipped = pako.deflate(data, { level: this.level });
       return gzipped;
     }
-    decode(data, out) {
-      const uncompressed = pako.inflate(data);
+    // NOTE size: expected byte count of the result. Then inflate makes one output buffer of that size, not of 64 KB.
+    decode(data, out, size) {
+      const uncompressed = pako.inflate(data, size > 0 ? { chunkSize: size } : undefined);
       if (out !== void 0) {
         out.set(uncompressed);
         return out;

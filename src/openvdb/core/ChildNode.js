@@ -2,6 +2,7 @@ import { unsupported } from '../debug.js';
 import {
   boolType,
   createValueBuffer,
+  halfFloatType,
   halfValueTypeMap,
   maskType,
   pointIndex32,
@@ -25,6 +26,62 @@ const negateValue = (value, valueType) => {
   }
 
   return valueType === boolType || valueType === maskType ? 1 - value : -value;
+};
+
+const isLittleEndian = new Uint8Array(new Uint16Array([1]).buffer)[0] === 1;
+
+const typedValueBuffers = {
+  float: Float32Array,
+  double: Float64Array,
+  int32: Int32Array,
+};
+
+// NOTE Null when the data needs a conversion (half floats, vectors, int64, big-endian platforms)
+const createTypedValues = (dataType, valueType, bytes, count) => {
+  const TypedArray = isLittleEndian && dataType === valueType ? typedValueBuffers[valueType] : null;
+
+  if (!TypedArray) {
+    return null;
+  }
+
+  const byteLength = count * TypedArray.BYTES_PER_ELEMENT;
+
+  // NOTE A view needs an aligned offset. The copy also frees the memory of a larger source buffer.
+  return bytes.byteOffset % TypedArray.BYTES_PER_ELEMENT === 0 && bytes.buffer.byteLength === byteLength
+    ? new TypedArray(bytes.buffer, bytes.byteOffset, count)
+    : new TypedArray(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + byteLength));
+};
+
+// NOTE Float value of each IEEE 754 binary16 bit pattern. Made on the first half float grid.
+let halfFloatTable = null;
+
+const getHalfFloatTable = () => {
+  if (!halfFloatTable) {
+    const bits = new Uint8Array(2);
+    const iterator = new BufferIterator(bits);
+
+    halfFloatTable = new Float32Array(1 << 16);
+
+    for (let half = 0; half < halfFloatTable.length; half++) {
+      bits[0] = half & 0xff;
+      bits[1] = half >> 8;
+      iterator.offset = 0;
+      halfFloatTable[half] = iterator.readFloat16();
+    }
+  }
+
+  return halfFloatTable;
+};
+
+const readHalfValues = (bytes, values) => {
+  const table = getHalfFloatTable();
+  const halves = new Uint16Array(bytes.buffer, bytes.byteOffset, values.length);
+
+  for (let index = 0; index < values.length; index++) {
+    values[index] = table[halves[index]];
+  }
+
+  return values;
 };
 
 export class ChildNode {
@@ -311,12 +368,17 @@ export class ChildNode {
     // NOTE Only active values are saved. Restore inactive values from the selection mask.
     const values = createValueBuffer(valueType, count);
 
+    const valueWords = this.valueMask.words;
+    const selectionWords = selectionMask ? selectionMask.words : null;
+
     for (let offset = 0, savedIndex = 0; offset < count; offset++) {
-      if (this.valueMask.isOn(offset)) {
+      const bit = 1 << (offset & 31);
+
+      if (valueWords[offset >> 5] & bit) {
         values[offset] = savedValues[savedIndex++];
       } else {
         values[offset] = cloneValue(
-          selectionMask && selectionMask.isOn(offset) ? inactiveVal1 : inactiveVal0
+          selectionWords && selectionWords[offset >> 5] & bit ? inactiveVal1 : inactiveVal0
         );
       }
     }
@@ -337,7 +399,7 @@ export class ChildNode {
       const compressedBytes = bufferIterator.readRawBytes(compressedBytesCount);
 
       try {
-        bytes = codec.decode(compressedBytes);
+        bytes = codec.decode(compressedBytes, undefined, byteCount);
       } catch (error) {
         console.warn('readCompressedData', 'uncompress', 'error', {
           error,
@@ -378,6 +440,17 @@ export class ChildNode {
       bytes = this.readCompressedData(Compression.zlib, byteCount);
     } else {
       bytes = bufferIterator.readRawBytes(byteCount);
+    }
+
+    // NOTE Float, double and int32 data has the layout of the value buffer (little-endian). No value-by-value read.
+    const typedValues = createTypedValues(dataType, valueType, bytes, count);
+
+    if (typedValues) {
+      return typedValues;
+    }
+
+    if (isLittleEndian && dataType === halfFloatType && bytes.byteOffset % 2 === 0) {
+      return readHalfValues(bytes, createValueBuffer(valueType, count));
     }
 
     const dataIterator = new BufferIterator(bytes);
