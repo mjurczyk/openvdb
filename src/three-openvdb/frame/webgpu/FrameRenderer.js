@@ -855,7 +855,8 @@ export class FrameRenderer {
         ? null
         : createRenderTarget(gridAtlas.width, gridAtlas.height, { count: 4 });
 
-      // NOTE A new target is empty, so the environment grid is drawn again
+      // NOTE A new target is empty, so the last cascade and the environment grid are drawn again
+      this.castSignature = [];
       this.environmentGridSignature = [];
     }
 
