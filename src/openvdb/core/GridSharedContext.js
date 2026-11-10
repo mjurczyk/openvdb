@@ -30,8 +30,9 @@ export class GridSharedContext {
     to.sharedContext = from.sharedContext;
   }
 
+  // NOTE No delete: it moves the object to the slow dictionary mode of V8, and nodes are read for each voxel lookup
   static cleanContext(target) {
-    delete target.sharedContext;
+    target.sharedContext = undefined;
   }
 
   static getContext(target) {
