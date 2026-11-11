@@ -151,10 +151,12 @@ Promise.all([environmentReady, lanternReady]).then(() => {
 
 renderer.setAnimationLoop((time) => {
   timer.update(time);
-  smoke.update(timer.getDelta());
+  const delta = timer.getDelta();
+  smoke.update(delta);
 
   scene.environmentIntensity = 0.5 - 0.5 * Math.cos((timer.getElapsed() / ENV_CYCLE) * Math.PI * 2);
-  controls.update();
+  // NOTE With a delta, auto-rotate turns at a fixed speed per second. Without one, it turns per frame, faster on high refresh rate screens.
+  controls.update(delta);
   shadows?.update(camera);
   renderer.render(scene, camera);
 });
