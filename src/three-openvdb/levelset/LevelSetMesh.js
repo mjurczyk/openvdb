@@ -24,6 +24,8 @@ export class LevelSetMesh extends Three.Mesh {
     this.levelSetSource = source;
     this.resolution = resolution;
     this.onConverted = onConverted;
+    // NOTE Hidden until the first build. A draw with no position attribute breaks the WebGL2 fallback of WebGPURenderer.
+    this.visible = false;
 
     this.update();
   }
@@ -62,6 +64,8 @@ export class LevelSetMesh extends Three.Mesh {
     geometry.setIndex(indices);
     geometry.computeBoundingBox();
     geometry.computeBoundingSphere();
+
+    this.visible = true;
   }
 
   // NOTE A mesh at another place, with the same geometry and material

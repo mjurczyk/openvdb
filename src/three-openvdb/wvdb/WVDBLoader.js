@@ -85,7 +85,7 @@ export class WVDBVolumeData {
   attach(object) {
     const grids = Object.values(this.grids);
 
-    // NOTE LevelSetMesh builds again from its grid when the distance changes
+    // NOTE LevelSetMesh and LevelSetSurface build again from their grid when the distance changes
     if (object.levelSetSource) {
       const grid = grids.find((entry) => entry === object.levelSetSource);
 

@@ -408,7 +408,7 @@ Limits: three.js applies the volume shadow only in the light shadow camera, the 
 
 A level set stores the signed distance to a surface. `FrameVolume` shows a level set as fog (density `1.0` in the narrow band). `LevelSetMesh` shows the surface as triangles (marching cubes, normals from the distance gradient). It works with all three.js materials, lights and shadows. Default material: `MeshStandardMaterial`.
 
-A `GridDescriptor` is sampled on the CPU at `resolution` texels on the longest box side (default `200`). The narrow band is often thinner than a texel, so texels that cross the surface use the mean of 4x4x4 samples (`sampleLevelSet` of `openvdb`, also used by the `wvdb` CLI). A level set grid of `WVDBVolumeData` uses the texels of its newest LOD. Call `volumeData.attach( mesh )`, so the mesh builds again when a new LOD arrives. The build runs in 12 ms steps, so the page does not freeze. `mesh.bbox` is the world box of the grid. `mesh.createInstance()` gives a `Three.Mesh` with the same geometry and material. `mesh.dispose()` frees the geometry, and the default material.
+A `GridDescriptor` is sampled on the CPU at `resolution` texels on the longest box side (default `200`). The narrow band is often thinner than a texel, so texels that cross the surface use the mean of 4x4x4 samples (`sampleLevelSet` of `openvdb`, also used by the `wvdb` CLI). A level set grid of `WVDBVolumeData` uses the texels of its newest LOD. Call `volumeData.attach( mesh )`, so the mesh builds again when a new LOD arrives. The build runs in 12 ms steps, so the page does not freeze. The mesh is hidden until the first build is done. `mesh.bbox` is the world box of the grid. `mesh.createInstance()` gives a `Three.Mesh` with the same geometry and material. `mesh.dispose()` frees the geometry, and the default material.
 
 ```js
 new OpenVDB.WVDBLoader().load('./assets/venusstatue.wvdb', (volumeData) => {
@@ -418,6 +418,12 @@ new OpenVDB.WVDBLoader().load('./assets/venusstatue.wvdb', (volumeData) => {
   scene.add(mesh);
 });
 ```
+
+### LevelSetSurface
+
+- `LevelSetSurface( grid: OpenVDB.GridDescriptor | WVDBVolumeData grid, { resolution, color, roughness, metalness }, onConverted: ( surface ) => void ): Three.Mesh`
+
+The surface of a level set, traced on the GPU. The geometry is the box of the grid. Each pixel steps along its view ray through the signed distance texture (the same texels as `LevelSetMesh`) to the surface. The material is a `MeshStandardNodeMaterial` (`three-openvdb`, TSL) or a `MeshStandardMaterial` (`three-openvdb/webgl`, GLSL): lights, environment, received shadows and depth use the traced point. With `castShadow`, the surface casts traced shadows (`three-openvdb/webgl`: `customDepthMaterial` and `customDistanceMaterial`). No triangles are built, so a new LOD costs only a texture upload. Sources, `resolution`, `bbox`, `createInstance()` and `volumeData.attach( surface )` are the same as `LevelSetMesh`. `dispose()` frees the geometry, the material and the texture.
 
 ---
 

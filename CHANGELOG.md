@@ -1,10 +1,11 @@
 # Unreleased
 
 - `LevelSetMesh`: the surface of a level set grid as a three.js mesh (marching cubes). Source: a level set `GridDescriptor` (`resolution`, default `200`) or a level set grid of `WVDBVolumeData` (`volumeData.attach( mesh )` builds it again for each LOD). Normals come from a Sobel gradient of the distance, then 2 passes of smoothing on the mesh. Any three.js material. Both `three-openvdb` and `three-openvdb/webgl`
+- Experimental `LevelSetSurface`: the surface of a level set, traced on the GPU in the box of the grid (`MeshStandardNodeMaterial`, lights, environment, shadows and depth at the traced point). Same sources as `LevelSetMesh`. Both `three-openvdb` and `three-openvdb/webgl`
 - `WVDBVolumeData` level set grids have `distance` (signed distance texels) and `background`
 - `sampleLevelSet( grid, { min, size, dimensions }, values )` (`openvdb`): dense signed distance of a level set. The narrow band is often thinner than a texel, so texels that cross the surface use the mean of 4x4x4 samples. `LevelSetMesh` uses it for `GridDescriptor` sources
 - `wvdb` CLI: level sets use `sampleLevelSet`, so surfaces have no steps. The level set fog has no holes. The examples `venusstatue.wvdb` and `utahteapot.wvdb` are baked again
-- Examples: Level Set demo (`?demo=levelset`): Venus Statue and Utah Teapot as a mesh or as fog, from `.wvdb` or `.vdb`. Mesh color and roughness
+- Examples: Level Set demo (`?demo=levelset`): Venus Statue and Utah Teapot as a mesh, a GPU surface or fog, from `.wvdb` or `.vdb`. Mesh color and roughness
 - Experimental medium presets from measured values: `getFrameMediumProps( name )` gives `FrameVolume` props (`baseColor` albedo, `extinctionScale`, `angstromExponent`, `phase`, `phaseG`, `phaseGExponent`) for `'cloud'`, `'fog'`, `'ice'`, `'soot'`, `'white-smoke'`, `'dark-smoke'`, `'haze'` and `'dust'`. Data and sources in `frameMediumPresets`. Extinction stays a user value. Both `three-openvdb` and `three-openvdb/webgl`
 - Examples: the Spectral folder of Rendering Frame and Custom VDB has a Medium preset field (it turns Spectral on, sets Base Color, the Ångström exponent and the phase) and an Ångström Exponent field (a number)
 - Fix: `openvdb` throws `Error` instances with messages, not `0` or strings (`GridSharedContext.assert`, `BufferIterator`, `OpenVDBReader.read`, `loadVDB`). `loadVDB` keeps the parse error as `cause`

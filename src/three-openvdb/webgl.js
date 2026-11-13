@@ -19,6 +19,7 @@ import { VDBAnimationLoader } from './frame/core/VDBAnimationLoader.js';
 import { frameRenderer } from './frame/webgl/FrameRenderer.js';
 import { FrameEmissionLight } from './frame/webgl/FrameEmissionLight.js';
 import { LevelSetMesh } from './levelset/LevelSetMesh.js';
+import { LevelSetSurface } from './levelset/webgl/LevelSetSurface.js';
 import { WVDBLoader } from './wvdb/WVDBLoader.js';
 import { WVDBAnimationLoader } from './wvdb/WVDBAnimationLoader.js';
 import { WVDBReader } from './wvdb/WVDBReader.js';
@@ -57,6 +58,7 @@ export {
 
   // NOTE Level set surfaces
   LevelSetMesh,
+  LevelSetSurface,
 
   // NOTE Streamed .wvdb files (made with the wvdb CLI)
   WVDBLoader,

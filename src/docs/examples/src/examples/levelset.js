@@ -16,7 +16,8 @@ export const exampleLevelSet = ({ scene }) => {
     model: 'venusstatue',
     // NOTE 'wvdb' (streamed LODs) or 'vdb' (the full file, sampled on the CPU at resolution)
     format: 'wvdb',
-    // NOTE 'mesh' (LevelSetMesh) or 'fog' (FrameVolume, density 1.0 in the narrow band)
+    // NOTE 'mesh' (LevelSetMesh), 'surface' (LevelSetSurface, traced on the GPU)
+    // or 'fog' (FrameVolume, density 1.0 in the narrow band)
     render: 'mesh',
     resolution: 200,
     color: '#ffffff',
@@ -33,6 +34,40 @@ export const exampleLevelSet = ({ scene }) => {
     color: params.color,
     roughness: params.roughness,
   });
+
+  // NOTE The mesh uses the shared material. The GPU surface has its own material.
+  const applyMaterialParams = () => {
+    [material, entry?.object?.isLevelSetSurface && entry.object.material]
+      .filter(Boolean)
+      .forEach((target) => {
+        target.color.set(params.color);
+        target.roughness = params.roughness;
+      });
+  };
+
+  // NOTE A new build keeps the geometry id, so utils/shadowMaps.js does not see the change
+  const updateShadows = (onConverted) => (object) => {
+    scene.traverse((light) => {
+      if (light.isLight && light.castShadow) {
+        light.shadow.needsUpdate = true;
+      }
+    });
+
+    onConverted?.(object);
+  };
+
+  const createSurface = (grid, onConverted) =>
+    params.render === 'mesh'
+      ? new OpenVDB.LevelSetMesh(
+          grid,
+          { material, resolution: params.resolution },
+          updateShadows(onConverted),
+        )
+      : new OpenVDB.LevelSetSurface(
+          grid,
+          { color: params.color, roughness: params.roughness, resolution: params.resolution },
+          updateShadows(onConverted),
+        );
 
   const sun = new Three.DirectionalLight(0xffffff, 1.0);
   sun.position.set(100.0, 200.0, 100.0);
@@ -69,6 +104,10 @@ export const exampleLevelSet = ({ scene }) => {
 
     object.scale.setScalar(scale);
     object.position.copy(bbox.getCenter(new Three.Vector3())).multiplyScalar(-scale);
+
+    // NOTE Mesh and GPU surface cast shadows on the ground and on themselves
+    object.castShadow = !object.isFrameVolume;
+    object.receiveShadow = !object.isFrameVolume;
 
     entry.object = object;
     entry.pivot.add(object);
@@ -116,12 +155,12 @@ export const exampleLevelSet = ({ scene }) => {
 
           const grid = Object.values(volumeData.grids).find(({ isLevelSet }) => isLevelSet);
           const object =
-            params.render === 'mesh'
-              ? new OpenVDB.LevelSetMesh(grid, { material })
-              : new OpenVDB.FrameVolume(grid.data, {
+            params.render === 'fog'
+              ? new OpenVDB.FrameVolume(grid.data, {
                   dimensions: grid.dimensions,
                   bbox: grid.bbox,
-                });
+                })
+              : createSurface(grid);
 
           volumeData.attach(object);
           addObject(object, grid.bbox);
@@ -154,14 +193,10 @@ export const exampleLevelSet = ({ scene }) => {
 
         setStatus('Building...');
 
-        if (params.render === 'mesh') {
-          const mesh = new OpenVDB.LevelSetMesh(
-            grid,
-            { material, resolution: params.resolution },
-            onBuilt,
-          );
+        if (params.render !== 'fog') {
+          const surface = createSurface(grid, onBuilt);
 
-          addObject(mesh, mesh.bbox);
+          addObject(surface, surface.bbox);
         } else {
           const volume = new OpenVDB.FrameVolume(
             grid,
@@ -213,10 +248,10 @@ export const exampleLevelSet = ({ scene }) => {
           id: 'render',
           name: 'Render',
           defaultValue: params.render,
-          options: { Mesh: 'mesh', Fog: 'fog' },
+          options: { Mesh: 'mesh', 'GPU Surface': 'surface', Fog: 'fog' },
           onChange: (value) => {
-            getController('color')?.show(value === 'mesh');
-            getController('roughness')?.show(value === 'mesh');
+            getController('color')?.show(value !== 'fog');
+            getController('roughness')?.show(value !== 'fog');
             rebuildOnChange('render')(value);
           },
         },
@@ -231,7 +266,10 @@ export const exampleLevelSet = ({ scene }) => {
           id: 'color',
           name: 'Color',
           defaultValue: params.color,
-          onChange: (value) => material.color.set(value),
+          onChange: (value) => {
+            params.color = value;
+            applyMaterialParams();
+          },
         },
         {
           id: 'roughness',
@@ -240,7 +278,8 @@ export const exampleLevelSet = ({ scene }) => {
           min: 0.0,
           max: 1.0,
           onChange: (value) => {
-            material.roughness = value;
+            params.roughness = value;
+            applyMaterialParams();
           },
         },
         {
