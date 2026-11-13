@@ -49,6 +49,8 @@ const params = {
   temperatureMax: 6500.0,
   upAxis: 'y',
   emissiveGrid: 'flames',
+  // NOTE FrameVolume levelSets prop. 'surface' (Auto): level set grids are surfaces, other grids are fog.
+  levelSets: 'surface',
   lighting: 'frame',
   animateLights: true,
   playing: true,
@@ -59,6 +61,16 @@ const params = {
 
 const getController = (id) =>
   gui.controllersRecursive().find((controller) => controller.property === id);
+
+// NOTE Level set surfaces cast shadows on the ground and on themselves. Copies take the flags.
+const applySurfaceShadows = () => {
+  animation?.frames.forEach((frame) => {
+    frame.surfaces.forEach((surface) => {
+      surface.castShadow = true;
+      surface.receiveShadow = true;
+    });
+  });
+};
 
 const applyVolumeParams = () => {
   if (!animation) {
@@ -175,6 +187,7 @@ const createAnimation = (urls) => {
     .setOptions({
       resolution: 200,
       progressive: true,
+      levelSets: params.levelSets,
       ...(emissivePresets[params.emissiveGrid] && {
         emissiveGrid: params.emissiveGrid,
         emissiveScale: emissivePresets[params.emissiveGrid].emissiveScale,
@@ -188,6 +201,8 @@ const createAnimation = (urls) => {
         console.info('VDB animation converted', `${(performance.now() - startTime).toFixed(0)}ms`);
       },
       ({ loadedFrames, totalFrames }) => {
+        applySurfaceShadows();
+
         dropTarget.innerHTML =
           loadedFrames < totalFrames
             ? `[Converting frame ${loadedFrames + 1} / ${totalFrames}...]`
@@ -227,6 +242,7 @@ const createWVDBAnimation = (urls) => {
 
   const loadingAnimation = new OpenVDB.WVDBAnimationLoader()
     .setOptions({
+      levelSets: params.levelSets,
       ...(preset && {
         emissiveGrid: params.emissiveGrid,
         emissiveScale: preset.emissiveScale,
@@ -239,6 +255,8 @@ const createWVDBAnimation = (urls) => {
         console.info('WVDB animation, LOD 0', `${(performance.now() - startTime).toFixed(0)}ms`);
       },
       ({ lod, loadedFrames, totalFrames }) => {
+        applySurfaceShadows();
+
         dropTarget.innerHTML =
           lod === 0 && loadedFrames < totalFrames
             ? `[Loading LOD 0: frame ${loadedFrames + 1} / ${totalFrames}...]`
@@ -626,6 +644,30 @@ export const exampleVDB = ({ scene }) => {
             // NOTE Without a reset, the same file selected again does not send a change event
             fileInput.value = '';
             fileInput.click();
+          },
+        },
+        {
+          id: 'levelSets',
+          name: 'Render',
+          defaultValue: params.levelSets,
+          // NOTE The class metadata of each grid tells if it is a level set
+          options: {
+            Auto: 'surface',
+            Fog: 'fog',
+            'Level Set': 'surfaceOnly',
+          },
+          onChange: (value) => {
+            if (value === params.levelSets) {
+              return;
+            }
+
+            params.levelSets = value;
+
+            // NOTE Level sets are set at conversion. Convert the last files again.
+            if (lastFiles) {
+              dropId++;
+              loadFiles(lastFiles);
+            }
           },
         },
       ],

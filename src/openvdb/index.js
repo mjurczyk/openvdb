@@ -27,6 +27,7 @@ export {
   ParametricVolume,
 } from './utils/primitives/index.js';
 export { getUuid } from './utils/uuid.js';
+export { sampleLevelSet } from './utils/levelSet.js';
 export * from './wvdb/format.js';
 
 export const loadVDB = async (url) => {

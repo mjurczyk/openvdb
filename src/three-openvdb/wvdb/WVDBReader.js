@@ -15,7 +15,9 @@ self.onmessage = ({ data }) => {
     try {
       const result = await kernel[data.type](data.payload);
 
-      self.postMessage({ result }, result && result.data ? [result.data.buffer] : []);
+      const transfer = result ? [result.data, result.distance].filter(Boolean).map(({ buffer }) => buffer) : [];
+
+      self.postMessage({ result }, transfer);
     } catch (error) {
       self.postMessage({ error: String((error && error.message) || error) });
     }
@@ -462,6 +464,9 @@ export class WVDBReader {
         // NOTE One background texel until LOD 0 arrives
         dimensions: [1, 1, 1],
         data: fillTexels(new Uint8Array(backgroundTexel.length), backgroundTexel),
+        // NOTE Level sets only: signed distance texels (see levelSetDistance.js), same size as data. Else null.
+        distance: grid.class === 'level set' ? new Uint8Array([255]) : null,
+        background: grid.background,
         // NOTE LOD of data. -1 before LOD 0.
         lod: -1,
         chunksLeft: grid.lods.map(({ mask, pages }) => pages.length + (mask ? 1 : 0)),
@@ -496,6 +501,7 @@ export class WVDBReader {
 
     if (result) {
       grid.data = result.data;
+      grid.distance = result.distance || null;
       grid.dimensions = this.header.grids[chunk.gridIndex].lods[lod].dimensions;
       grid.lod = lod;
     }

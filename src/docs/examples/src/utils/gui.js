@@ -3,6 +3,7 @@ import { exampleVDB } from "../examples/vdb";
 import { exampleFrame } from "../examples/frame";
 import { exampleWVDB } from "../examples/wvdb";
 import { exampleMesh } from "../examples/mesh";
+import { exampleLevelSet } from "../examples/levelset";
 import { exampleSky } from "../examples/sky";
 import { scene } from "../main";
 import { isPhone } from "./device";
@@ -20,6 +21,7 @@ export const demos = {
   frame: (options) => exampleFrame(options),
   wvdb: (options) => exampleWVDB(options),
   mesh: (options) => exampleMesh(options),
+  levelset: (options) => exampleLevelSet(options),
   sky: (options) => exampleSky(options),
 };
 
@@ -57,6 +59,7 @@ const guiBaseFields = () => [
           'Custom VDB': 'vdb',
           'Streaming WVDB': 'wvdb',
           'Mesh Volume': 'mesh',
+          'Level Set': 'levelset',
           Sky: 'sky',
         },
         defaultValue: activeDemo,

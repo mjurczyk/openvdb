@@ -16,6 +16,7 @@ import {
   encodeWVDBPage,
   getBrickCounts,
   getBrickOrigin,
+  sampleLevelSet,
   writeWVDBFile,
   wvdbLayouts,
   wvdbVersion,
@@ -159,6 +160,7 @@ const getFinestDimensions = (size, resolution) => {
 };
 
 // NOTE Point samples at texel centres, same as FrameVolume.convert in three-openvdb.
+// Level sets use sampleLevelSet (mean of samples where texels cross the surface).
 // Vector grids give 3 planes, one channel after the other.
 const sampleGrid = (grid, min, size, dimensions, bits, channels) => {
   const count = dimensions[0] * dimensions[1] * dimensions[2];
@@ -175,7 +177,11 @@ const sampleGrid = (grid, min, size, dimensions, bits, channels) => {
     return sampleVectorGrid(grid, min, size, dimensions, values, background);
   }
 
-  return sampleScalarGrid(grid, min, size, dimensions, bits, values);
+  if (grid.isLevelSet()) {
+    return sampleLevelSetGrid(grid, min, size, dimensions, bits, values);
+  }
+
+  return sampleScalarGrid(grid, min, size, dimensions, values);
 };
 
 const forEachTexel = (grid, min, size, [width, height, depth], callback) => {
@@ -214,30 +220,33 @@ const sampleVectorGrid = (grid, min, size, dimensions, values, background) => {
   return values;
 };
 
-const sampleScalarGrid = (grid, min, size, dimensions, bits, values) => {
+const sampleScalarGrid = (grid, min, size, dimensions, values) => {
   const background = grid.root.background;
-  const isLevelSet = grid.isLevelSet();
-
-  // NOTE Active level set values stay one quantization step inside the band. Then they never decode as inactive.
-  const bandLimit = background - (2.0 * background) / ((1 << bits) - 1);
 
   forEachTexel(grid, min, size, dimensions, (index, offset) => {
-    let value = grid.getValue(index);
+    const value = grid.getValue(index);
 
-    if (!Number.isFinite(value)) {
-      value = background;
-    }
-
-    if (isLevelSet) {
-      value = grid.isActive(index)
-        ? Math.min(Math.max(value, -bandLimit), bandLimit)
-        : value < 0.0
-        ? -background
-        : background;
-    }
-
-    values[offset] = value;
+    values[offset] = Number.isFinite(value) ? value : background;
   });
+
+  return values;
+};
+
+const sampleLevelSetGrid = (grid, min, size, dimensions, bits, values) => {
+  const background = grid.root.background;
+
+  // NOTE Values in the band stay one quantization step inside it. Then they never decode as outside the band.
+  const bandLimit = background - (2.0 * background) / ((1 << bits) - 1);
+
+  const task = sampleLevelSet(grid, { min, size, dimensions }, values);
+
+  while (!task.next().done);
+
+  for (let i = 0; i < values.length; i++) {
+    if (Math.abs(values[i]) < background) {
+      values[i] = Math.min(Math.max(values[i], -bandLimit), bandLimit);
+    }
+  }
 
   return values;
 };

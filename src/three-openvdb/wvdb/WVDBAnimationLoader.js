@@ -7,6 +7,7 @@ import { FrameVolume } from '../frame/core/FrameVolume.js';
 import { FrameVolumeAnimation } from '../frame/core/FrameVolumeAnimation.js';
 import { WVDBReader } from './WVDBReader.js';
 import { WVDBVolumeData } from './WVDBLoader.js';
+import { createLevelSetSurface } from '../levelset/levelSetBackend.js';
 
 // NOTE These options are grid names, same as VDBAnimationLoader
 const gridOptions = ['emissiveGrid', 'baseColorGrid', 'maskGrid'];
@@ -23,6 +24,7 @@ class WVDBAnimationLoader extends Three.Loader {
 
   // NOTE FrameVolume props. All frames use the same props.
   // emissiveGrid, baseColorGrid and maskGrid are grid names. emissiveScale also scales the emission grid.
+  // levelSets: 'fog', 'surface' or 'surfaceOnly', same as FrameVolume.
   setOptions(options) {
     this.options = { ...options };
 
@@ -185,14 +187,34 @@ class WVDBAnimationLoader extends Three.Loader {
       }
     });
 
+    const { levelSets = 'fog' } = props;
     const auxGrids = gridOptions.map((key) => props[key]).filter(Boolean);
+    const levelSetGrids =
+      levelSets === 'fog'
+        ? []
+        : Object.values(grids).filter((grid) => grid.isLevelSet && !auxGrids.includes(grid));
+    const isFogGrid = (grid) =>
+      levelSets !== 'surfaceOnly' && !auxGrids.includes(grid) && !levelSetGrids.includes(grid);
     const densityGrid =
-      (grids.density && !auxGrids.includes(grids.density) && grids.density) ||
-      Object.values(grids).find((grid) => !grid.isColor && !auxGrids.includes(grid));
+      (grids.density && isFogGrid(grids.density) && grids.density) ||
+      Object.values(grids).find((grid) => !grid.isColor && isFogGrid(grid));
+
+    // NOTE Level set grids are LevelSetSurface children of the frame. They follow each new LOD.
+    const addSurfaces = (frame) => {
+      levelSetGrids.forEach((grid) => {
+        if (!grid.bbox.isEmpty()) {
+          animation.bbox.union(grid.bbox);
+        }
+
+        frame.addSurface(volumeData.attach(createLevelSetSurface(grid)));
+      });
+
+      return frame;
+    };
 
     // NOTE A file with no density grid keeps its place in the sequence. One empty texel shows nothing.
     if (!densityGrid) {
-      return new FrameVolume(new Uint8Array(1), { resolution: 1 });
+      return addSurfaces(new FrameVolume(new Uint8Array(1), { resolution: 1 }));
     }
 
     gridOptions.forEach((key) => {
@@ -205,12 +227,14 @@ class WVDBAnimationLoader extends Three.Loader {
       animation.bbox.union(densityGrid.bbox);
     }
 
-    return volumeData.attach(
-      new FrameVolume(densityGrid.data, {
-        ...props,
-        dimensions: densityGrid.dimensions,
-        bbox: densityGrid.bbox,
-      })
+    return addSurfaces(
+      volumeData.attach(
+        new FrameVolume(densityGrid.data, {
+          ...props,
+          dimensions: densityGrid.dimensions,
+          bbox: densityGrid.bbox,
+        })
+      )
     );
   }
 }

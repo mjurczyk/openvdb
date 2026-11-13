@@ -175,7 +175,7 @@ Loads VDB model. onLoad is called when VDB is loaded and parsed. onError is call
 
 Loads a `.wvdb` file (see [WVDB files](#wvdb-files)) as a stream. `onLoad( volumeData )` is called when all grids show LOD 0. Each next LOD replaces the previous one while the download continues. Each LOD has its own texture size (for example 32³, 64³, 128³). `onProgress({ lod, lods, lodComplete, done, bytesLoaded, bytesTotal })` is called after each update. With `setMaxLod( lod )`, the download stops after that LOD.
 
-`volumeData.grids[name]` has `data: Uint8Array` (texels of the newest LOD: density, or RGBA when `isColor`), `dimensions: [x, y, z]` (texels of the newest LOD), `resolution` (texels on the longest side), `bbox: Three.Box3`, `isLevelSet` and `isColor`. Use `data` as raw data of `FrameVolume` with `dimensions`, also for `emissiveGrid` and `baseColorGrid`. With `setGridScales({ flames: 6.0 })`, grid values divide by the scale before they become density. Use the `emissiveScale` of the volume for emission grids. Call `volumeData.attach( volume )`, so the textures of the volume update (and resize) when a new LOD arrives. `volumeData.dispose()` stops the download.
+`volumeData.grids[name]` has `data: Uint8Array` (texels of the newest LOD: density, or RGBA when `isColor`), `dimensions: [x, y, z]` (texels of the newest LOD), `resolution` (texels on the longest side), `bbox: Three.Box3`, `isLevelSet` and `isColor`. Level set grids also have `distance: Uint8Array` (signed distance texels of the newest LOD, see [LevelSetMesh](#levelsetmesh)) and `background` (the band width). Use `data` as raw data of `FrameVolume` with `dimensions`, also for `emissiveGrid` and `baseColorGrid`. With `setGridScales({ flames: 6.0 })`, grid values divide by the scale before they become density. Use the `emissiveScale` of the volume for emission grids. Call `volumeData.attach( volume )`, so the textures of the volume update (and resize) when a new LOD arrives. `volumeData.attach( levelSetMesh )` builds the mesh again when a new LOD arrives. `volumeData.dispose()` stops the download.
 
 - `WVDBAnimationLoader( manager ).setOptions( props ).load( urls, onLoad, onProgress, onError ): FrameVolumeAnimation`
 
@@ -399,6 +399,33 @@ Cost: the number of volumes and the camera do not change the cost of a map piece
 `three-openvdb/webgl` (`WebGLRenderer`): lit materials (`MeshStandardMaterial`, `MeshPhysicalMaterial`, `MeshLambertMaterial`, `MeshPhongMaterial`, `MeshToonMaterial`) and `ShadowMaterial` get a shader patch (`onBeforeCompile`, after their own `onBeforeCompile`). After the three.js shadow of each light, it multiplies the volume transmittance. A child mesh of each shadow light that draws nothing makes the maps first in the render list. The first 4 shadow lights of each type get volume shadows. Point lights need the `PCFShadowMap` or `BasicShadowMap` shadow type.
 
 Limits: three.js applies the volume shadow only in the light shadow camera, the same as mesh shadows. Shadow detail is set by the voxels of the last grid cascade (`shadowResolution`). One start and one end depth for each texel, so two volumes on one light ray give one smooth shadow between them. Volumes out of the light shadow camera cast no shadow, the same as meshes.
+
+---
+
+### LevelSetMesh
+
+- `LevelSetMesh( grid: OpenVDB.GridDescriptor | WVDBVolumeData grid, { material, resolution }, onConverted: ( mesh ) => void ): Three.Mesh`
+
+A level set stores the signed distance to a surface. `FrameVolume` shows a level set as fog (density `1.0` in the narrow band). `LevelSetMesh` shows the surface as triangles (marching cubes, normals from the distance gradient). It works with all three.js materials, lights and shadows. Default material: `MeshStandardMaterial`.
+
+A `GridDescriptor` is sampled on the CPU at `resolution` texels on the longest box side (default `200`). The narrow band is often thinner than a texel, so texels that cross the surface use the mean of 4x4x4 samples (`sampleLevelSet` of `openvdb`, also used by the `wvdb` CLI). A level set grid of `WVDBVolumeData` uses the texels of its newest LOD. Call `volumeData.attach( mesh )`, so the mesh builds again when a new LOD arrives. The build runs in 12 ms steps, so the page does not freeze. The mesh is hidden until the first build is done. `mesh.bbox` is the world box of the grid. `mesh.createInstance()` gives a `Three.Mesh` with the same geometry and material. `mesh.dispose()` frees the geometry, and the default material.
+
+```js
+new OpenVDB.WVDBLoader().load('./assets/venusstatue.wvdb', (volumeData) => {
+  const mesh = new OpenVDB.LevelSetMesh(Object.values(volumeData.grids)[0]);
+
+  volumeData.attach(mesh);
+  scene.add(mesh);
+});
+```
+
+### LevelSetSurface
+
+- `LevelSetSurface( grid: OpenVDB.GridDescriptor | WVDBVolumeData grid, { resolution, color, roughness, metalness }, onConverted: ( surface ) => void ): Three.Mesh`
+
+The surface of a level set, traced on the GPU. The geometry is the box of the grid. Each pixel steps along its view ray through the signed distance texture (the same texels as `LevelSetMesh`) to the surface. The material is a `MeshStandardNodeMaterial` (`three-openvdb`, TSL) or a `MeshStandardMaterial` (`three-openvdb/webgl`, GLSL): lights, environment, received shadows and depth use the traced point. With `castShadow`, the surface casts traced shadows (`three-openvdb/webgl`: `customDepthMaterial` and `customDistanceMaterial`). No triangles are built, so a new LOD costs only a texture upload. A GridDescriptor source is released after it is sampled. Sources, `resolution`, `bbox`, `createInstance()` and `volumeData.attach( surface )` are the same as `LevelSetMesh`. `dispose()` frees the geometry, the material and the texture.
+
+FrameVolume prop `levelSets` uses it for level set grids (the `class` metadata of the grid): `'fog'` (default, density `1.0` in the narrow band), `'surface'` (each level set grid is a `LevelSetSurface` child of the volume, other grids stay fog) or `'surfaceOnly'` (other grids are not shown). `VDBAnimationLoader` and `WVDBAnimationLoader` take it in `setOptions()`, so sequences of level sets play as surfaces. `frameVolume.surfaces` lists them. Instances show the surfaces of their source.
 
 ---
 
