@@ -2,6 +2,7 @@ import * as Three from 'three';
 import { GridDescriptor, Vector3 } from 'openvdb';
 import { frameLights } from './frameLights.js';
 import { getFrameBackend } from './frameBackend.js';
+import { createLevelSetSurface } from '../../levelset/levelSetBackend.js';
 
 // NOTE Draw the frame after all other transparent objects
 const frameRenderOrder = 1000000;
@@ -157,6 +158,8 @@ export class FrameVolume extends Three.Group {
   sequence = null;
   // NOTE Mean of the non-zero density texels of the volumes (0.0 to 1.0). 0.0 until converted.
   meanDensity = 0.0;
+  // NOTE LevelSetSurface children (levelSets prop). Instances show instances of the surfaces of their source.
+  surfaces = [];
 
   // NOTE A FrameVolume as source makes an instance. It shares the textures and boxes of the source.
   // Props start from the source props.
@@ -213,6 +216,9 @@ export class FrameVolume extends Three.Group {
       mipmaps = true,
       // NOTE World box for all grids. Animation frames share one box. Then voxels do not move.
       bbox: sharedBbox,
+      // NOTE Level set grids of VDB sources: 'fog' (density 1.0 in the narrow band), 'surface'
+      // (a LevelSetSurface child, other grids stay fog) or 'surfaceOnly' (other grids are not shown)
+      levelSets = 'fog',
     } = instanceSource ? { ...getProps(instanceSource), ...props } : props;
 
     this.baseColor = new Three.Color(baseColor);
@@ -277,6 +283,16 @@ export class FrameVolume extends Three.Group {
         grid !== maskGrid &&
         (grid instanceof Uint8Array || grid instanceof GridDescriptor)
     );
+
+    if (levelSets !== 'fog') {
+      const isLevelSet = (grid) => grid instanceof GridDescriptor && grid.isLevelSet();
+
+      grids
+        .filter(isLevelSet)
+        .forEach((grid) => this.addSurface(createLevelSetSurface(grid, { resolution })));
+
+      grids = levelSets === 'surfaceOnly' ? [] : grids.filter((grid) => !isLevelSet(grid));
+    }
 
     const tasks = [];
     const hasRawAuxGrids = [emissiveGrid, baseColorGrid, maskGrid].some(
@@ -539,9 +555,33 @@ export class FrameVolume extends Three.Group {
     return new FrameVolume(this, props);
   }
 
+  // NOTE Shows a LevelSetSurface with this volume: same transform and visibility. dispose() frees it.
+  addSurface(surface) {
+    this.surfaces.push(surface);
+    this.add(surface);
+
+    return surface;
+  }
+
   // NOTE Instances only. Shows the textures and boxes of another FrameVolume.
   // For example the next animation frame.
   setSource(frameVolume) {
+    // NOTE Surface instances stay. They get the geometry and material of the new source.
+    const previous = this.surfaces;
+
+    const addInstance = (surface) => {
+      const instance = surface.createInstance();
+
+      this.add(instance);
+
+      return instance;
+    };
+
+    this.surfaces = frameVolume.surfaces.map((surface, index) =>
+      previous[index] ? surface.applyToInstance(previous[index]) : addInstance(surface),
+    );
+    previous.slice(this.surfaces.length).forEach((surface) => this.remove(surface));
+
     this.source = frameVolume;
     this.volumes = frameVolume.volumes.map((volume, index) => {
       const shared =
@@ -569,7 +609,12 @@ export class FrameVolume extends Three.Group {
 
         getFrameBackend().disposeVolume(volume);
       });
+
+      this.surfaces.forEach((surface) => surface.dispose());
     }
+
+    this.surfaces.forEach((surface) => this.remove(surface));
+    this.surfaces = [];
 
     this.volumes = [];
     this.proxy.geometry.dispose();

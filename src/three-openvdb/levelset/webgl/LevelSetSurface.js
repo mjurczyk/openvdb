@@ -25,8 +25,8 @@ export class LevelSetSurface extends LevelSetSurfaceCore {
     this.customDistanceMaterial = new LevelSetDistanceMaterial(uniforms);
   }
 
-  createInstance() {
-    const instance = super.createInstance();
+  applyToInstance(instance) {
+    super.applyToInstance(instance);
 
     instance.customDepthMaterial = this.customDepthMaterial;
     instance.customDistanceMaterial = this.customDistanceMaterial;

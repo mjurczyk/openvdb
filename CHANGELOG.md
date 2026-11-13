@@ -2,6 +2,8 @@
 
 - `LevelSetMesh`: the surface of a level set grid as a three.js mesh (marching cubes). Source: a level set `GridDescriptor` (`resolution`, default `200`) or a level set grid of `WVDBVolumeData` (`volumeData.attach( mesh )` builds it again for each LOD). Normals come from a Sobel gradient of the distance, then 2 passes of smoothing on the mesh. Any three.js material. Both `three-openvdb` and `three-openvdb/webgl`
 - Experimental `LevelSetSurface`: the surface of a level set, traced on the GPU in the box of the grid (`MeshStandardNodeMaterial`, lights, environment, shadows and depth at the traced point). Same sources as `LevelSetMesh`. Both `three-openvdb` and `three-openvdb/webgl`
+- `FrameVolume` prop `levelSets`: `'fog'` (default), `'surface'` (level set grids are `LevelSetSurface` children, other grids stay fog) or `'surfaceOnly'`. `VDBAnimationLoader` and `WVDBAnimationLoader` take it in `setOptions()`. Instances and animation instances show the surfaces of their frame. Both `three-openvdb` and `three-openvdb/webgl`
+- Examples: Custom VDB has a Render field: Auto (default: level set grids are surfaces, other grids fog), Fog or Level Set
 - `WVDBVolumeData` level set grids have `distance` (signed distance texels) and `background`
 - `sampleLevelSet( grid, { min, size, dimensions }, values )` (`openvdb`): dense signed distance of a level set. The narrow band is often thinner than a texel, so texels that cross the surface use the mean of 4x4x4 samples. `LevelSetMesh` uses it for `GridDescriptor` sources
 - `wvdb` CLI: level sets use `sampleLevelSet`, so surfaces have no steps. The level set fog has no holes. The examples `venusstatue.wvdb` and `utahteapot.wvdb` are baked again
