@@ -57,6 +57,22 @@ export function wvdbKernel(decodePage, decodeMask) {
     return texels;
   };
 
+  // NOTE Same encoding as levelSetDistance.js: -background to +background maps to 0 to 255
+  const toDistanceTexels = (values, background) => {
+    const texels = new Uint8Array(values.length);
+
+    for (let i = 0; i < values.length; i++) {
+      texels[i] = Math.round(
+        (Math.min(Math.max(values[i] / background, -1.0), 1.0) * 0.5 + 0.5) * 255.0
+      );
+    }
+
+    return texels;
+  };
+
+  // NOTE Bricks that a sparse file does not store are outside the surface
+  const distanceBackground = 255;
+
   const fillTexels = (target, texel) => {
     if (texel.length === 1) {
       return target.fill(texel[0]);
@@ -177,6 +193,7 @@ export function wvdbKernel(decodePage, decodeMask) {
   const clearMissingBricks = (level, grid, dimensions) => {
     const texelSize = getTexelSize(grid);
     const background = fillTexels(new Uint8Array(brickVoxels * texelSize), grid.backgroundTexel);
+    const distance = level.distance && new Uint8Array(brickVoxels).fill(distanceBackground);
     const total =
       Math.ceil(dimensions[0] / brickDim) *
       Math.ceil(dimensions[1] / brickDim) *
@@ -185,6 +202,10 @@ export function wvdbKernel(decodePage, decodeMask) {
     for (let index = 0; index < total; index++) {
       if (!(level.mask[index >>> 5] & (1 << (index & 31)))) {
         writeBricks(level.data, dimensions, [index], background, texelSize);
+
+        if (distance) {
+          writeBricks(level.distance, dimensions, [index], distance);
+        }
       }
     }
   };
@@ -220,10 +241,15 @@ export function wvdbKernel(decodePage, decodeMask) {
       const texelSize = getTexelSize(grid);
       const [width, height, depth] = lod.dimensions;
       const data = await inflate(bytes);
+      const isLevelSet = grid.class === 'level set';
 
       if (!levels[key]) {
         levels[key] = {
           data: fillTexels(new Uint8Array(width * height * depth * texelSize), grid.backgroundTexel),
+          // NOTE Level sets also keep the signed distance, for surface rendering
+          distance: isLevelSet
+            ? new Uint8Array(width * height * depth).fill(distanceBackground)
+            : null,
           pagesLeft: lod.pages,
           mask: null,
         };
@@ -238,6 +264,11 @@ export function wvdbKernel(decodePage, decodeMask) {
 
         if (previous && level.pagesLeft === lod.pages) {
           upsample(previous.data, previous.dimensions, level.data, lod.dimensions, texelSize);
+
+          if (level.distance) {
+            upsample(previous.distance, previous.dimensions, level.distance, lod.dimensions, 1);
+          }
+
           delete previousLevels[gridKey];
 
           if (level.mask) {
@@ -259,6 +290,16 @@ export function wvdbKernel(decodePage, decodeMask) {
           toTexels(values, indices.length, grid),
           texelSize
         );
+
+        if (level.distance) {
+          writeBricks(
+            level.distance,
+            lod.dimensions,
+            indices,
+            toDistanceTexels(values, grid.background)
+          );
+        }
+
         level.pagesLeft--;
       }
 
@@ -275,7 +316,11 @@ export function wvdbKernel(decodePage, decodeMask) {
         const nextLod = grid.lods[lodIndex + 1];
 
         if (nextLod && nextLod.pages > 1) {
-          previousLevels[gridKey] = { data: level.data.slice(), dimensions: lod.dimensions };
+          previousLevels[gridKey] = {
+            data: level.data.slice(),
+            distance: level.distance && level.distance.slice(),
+            dimensions: lod.dimensions,
+          };
         }
       }
 
@@ -286,6 +331,7 @@ export function wvdbKernel(decodePage, decodeMask) {
         complete,
         // NOTE The worker keeps decoding into level.data, so open pages send a copy
         data: complete ? level.data : level.data.slice(),
+        distance: level.distance && (complete ? level.distance : level.distance.slice()),
       };
     },
   };

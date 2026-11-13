@@ -47,6 +47,11 @@ export class WVDBVolumeData {
         get dimensions() {
           return grid.dimensions;
         },
+        // NOTE Level sets only: signed distance texels of the newest LOD, else null. See levelSetDistance.js.
+        get distance() {
+          return grid.distance;
+        },
+        background: grid.background,
         // NOTE Texels on the longest side
         get resolution() {
           return Math.max(...grid.dimensions);
@@ -80,6 +85,17 @@ export class WVDBVolumeData {
   attach(object) {
     const grids = Object.values(this.grids);
 
+    // NOTE LevelSetMesh builds again from its grid when the distance changes
+    if (object.levelSetSource) {
+      const grid = grids.find((entry) => entry === object.levelSetSource);
+
+      if (grid) {
+        this.bindings.push({ object, grid: grid.source, distance: grid.distance });
+      }
+
+      return object;
+    }
+
     object.volumes.forEach((holder) => {
       textureKeys.forEach((key) => {
         const texture = holder[key];
@@ -110,7 +126,18 @@ export class WVDBVolumeData {
   updateTextures() {
     const changed = new Set();
 
-    this.bindings.forEach(({ object, texture, grid, statsHolder }) => {
+    this.bindings.forEach((binding) => {
+      const { object, texture, grid, statsHolder } = binding;
+
+      if (!texture) {
+        if (binding.distance !== grid.distance) {
+          binding.distance = grid.distance;
+          object.update();
+        }
+
+        return;
+      }
+
       if (texture.image.data !== grid.data) {
         updateTexture(texture, grid);
 
