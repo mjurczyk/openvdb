@@ -22,7 +22,8 @@ import { LevelSetMesh } from './levelset/LevelSetMesh.js';
 import { LevelSetSurface } from './levelset/webgpu/LevelSetSurface.js';
 import { setLevelSetSurfaceClass } from './levelset/levelSetBackend.js';
 import { VDBPoints } from './points/webgpu/VDBPoints.js';
-import { setVDBPointsClass } from './points/pointsBackend.js';
+import { VDBLiquid } from './points/webgpu/VDBLiquid.js';
+import { setVDBPointsClass, setVDBLiquidClass } from './points/pointsBackend.js';
 import { WVDBLoader } from './wvdb/WVDBLoader.js';
 import { WVDBAnimationLoader } from './wvdb/WVDBAnimationLoader.js';
 import { WVDBReader } from './wvdb/WVDBReader.js';
@@ -31,6 +32,7 @@ import { WVDBReader } from './wvdb/WVDBReader.js';
 setFrameBackend(frameRenderer);
 setLevelSetSurfaceClass(LevelSetSurface);
 setVDBPointsClass(VDBPoints);
+setVDBLiquidClass(VDBLiquid);
 
 export {
   // NOTE Loaders
@@ -66,6 +68,7 @@ export {
 
   // NOTE Point data grids
   VDBPoints,
+  VDBLiquid,
 
   // NOTE Streamed .wvdb files (made with the wvdb CLI)
   WVDBLoader,

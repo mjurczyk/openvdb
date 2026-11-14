@@ -438,9 +438,27 @@ A point data grid (`grid.isPointData()`) stores particles: the points in each vo
 
 `three-openvdb` (WebGPURenderer) draws a `Three.Sprite` with one instance for each point (`PointsNodeMaterial`), because WebGPU points are 1 pixel. `three-openvdb/webgl` draws `Three.Points` (`PointsMaterial`). The points are not lit and cast no shadows.
 
-FrameVolume prop `points`: `'fog'` (default, density from the point offsets in voxels) or `'points'` (each point data grid is a `VDBPoints` child of the volume, in `frameVolume.surfaces`, other grids stay fog). `VDBAnimationLoader` takes it in `setOptions()`.
+FrameVolume prop `points`: `'fog'` (default, density from the point offsets in voxels), `'points'` (each point data grid is a `VDBPoints` child of the volume, in `frameVolume.surfaces`, other grids stay fog) or `'liquid'` (each point data grid is a `VDBLiquid` child). `VDBAnimationLoader` takes it in `setOptions()`.
 
-`openvdb` has `getPointCount( grid )` and `createPointData( grid, { maxPoints } )`. It returns `{ positions, colors, count, totalCount, stride, spacing, task }`. `positions` and `colors` are `Float32Array` (`colors` is `null` without `Cd`). They are full when the generator `task` is done.
+`openvdb` has `getPointCount( grid )` and `createPointData( grid, { maxPoints } )`. It returns `{ positions, colors, radii, count, totalCount, stride, spacing, task }`. `positions`, `colors` and `radii` are `Float32Array` (`colors` is `null` without `Cd`, `radii` is `null` without a `pscale` float attribute). They are full when the generator `task` is done.
+
+### VDBLiquid
+
+- `VDBLiquid( grid: OpenVDB.GridDescriptor, { maxPoints, color, radiusScale, blend, lod }, onConverted: ( liquid ) => void ): Three.Mesh`
+
+Shows the points of a point data grid as one liquid surface (screen-space fluid rendering, Green, GDC 2010). It is for particle simulations (FLIP, SPH, MLS-MPM) that are saved as VDB points. It renders only. The point positions come from the file.
+
+Each frame, before the liquid draws:
+
+1. The points are drawn as spheres into a depth target, and their thickness is added up in a second target (half resolution).
+2. A bilateral filter (2 iterations, world sigma `0.7 * radius`, depth steps above 10 radii are separate surfaces) smooths the depth, so the spheres merge into one surface. Separate drops stay separate. The thickness gets a Gaussian blur (world sigma `2 * radius`).
+3. The liquid is shaded from the smoothed surface: Fresnel reflection of the scene environment, specular of the directional, point and spot lights (max. 8, and ambient and hemisphere lights), refraction of the scene behind, and Beer-Lambert absorption by thickness. It writes its depth, so meshes and volumes are in front of it or behind it correctly.
+
+The liquid is water: IOR `1.333`, absorption of pure water (Pope & Fry 1997). World units of the VDB are metres, and the absorption does not change when the object is scaled. `color` (default white) and `Cd` of the points (the mean along each pixel ray) tint the liquid one time, as a filter color, the same colors as `VDBPoints`. The water absorption still grows with thickness. Where the liquid is thinner than one point (silhouettes, single drops), it fades into the scene, so edges are soft. The sphere radius is `pscale` of each point, or `spacing * sqrt(3) / 2` (no gaps between points on a grid). The thickness is scaled by the volume of each point, so overlapping spheres do not make the liquid thicker.
+
+`radiusScale` (default `1.0`) multiplies the sphere radius. `blend` (default `1.0`) multiplies the depth filter size, so the spheres merge more (larger) or less (`0.0`: separate spheres). Opt-in `lod` (default `false`): distance detail. Where the point spacing on screen is below 3 pixels, points are thinned out (kept fraction `1 / scale³`) and the kept spheres are larger by the scale, so far liquid costs less and keeps its volume. The filters and the soft edge follow the larger spheres. All three can change at any time (`liquid.radiusScale`, `liquid.blend`, `liquid.lod`), instances use the values of their source.
+
+`maxPoints` default is `1000000` (above it, every n-th point is used with a larger radius, so the draw cost stays low on large simulations). `liquid.pointCount`, `liquid.createInstance()` and `liquid.dispose()` work as for `VDBPoints`. Each liquid object has its own render targets (screen size). `three-openvdb` and `three-openvdb/webgl` give the same result. With `WebGLRenderer`, the scene behind is the three.js transmission pass (opaque objects). With `WebGPURenderer`, it is the frame drawn before the liquid. The liquid casts no shadows.
 
 ---
 
