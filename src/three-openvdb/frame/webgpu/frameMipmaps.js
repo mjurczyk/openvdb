@@ -1,4 +1,5 @@
 import * as Three from 'three';
+import { requestGaussianLevels } from '../core/frameMipFilter.js';
 
 // NOTE CPU mipmaps of FrameVolume grids. three.js WebGPU does not generate mipmaps for 3D textures.
 // NOTE Levels 1 and up are side by side on x in one atlas texture for each grid.
@@ -6,8 +7,9 @@ import * as Three from 'three';
 
 export const mipTextureKeys = ['densityMap3D', 'emissiveMap3D', 'baseColorMap3D', 'maskMap3D'];
 
-// NOTE Atlas data for each grid data array. Copies of a volume (same raw data) build it one time.
+// NOTE Atlas data for each grid data array and filter. Copies of a volume (same raw data) build it one time.
 const atlasCache = new WeakMap();
+const gaussianAtlasCache = new WeakMap();
 
 const getLevelSize = (size, level) => Math.max(1, Math.ceil(size / 2 ** level));
 
@@ -59,24 +61,15 @@ const downsample = (source, width, height, depth, channels) => {
   return { data: target, width: targetWidth, height: targetHeight, depth: targetDepth };
 };
 
-const buildAtlas = (data, width, height, depth, channels) => {
-  const levels = getMipLevelCount(width, height, depth);
-
-  if (levels < 1) {
-    return null;
-  }
-
-  const atlasWidth = 2 ** Math.max(Math.ceil(Math.log2(width)), levels);
+// NOTE Levels 1 and up, side by side on x
+const packAtlas = (levels, width, height, depth, channels) => {
+  const atlasWidth = 2 ** Math.max(Math.ceil(Math.log2(width)), levels.length);
   const atlasHeight = getLevelSize(height, 1);
   const atlasDepth = getLevelSize(depth, 1);
   const atlas = new Uint8Array(atlasWidth * atlasHeight * atlasDepth * channels);
 
-  let level = { data, width, height, depth };
-
-  for (let index = 1; index <= levels; index++) {
-    level = downsample(level.data, level.width, level.height, level.depth, channels);
-
-    const offset = atlasWidth - atlasWidth / 2 ** (index - 1);
+  levels.forEach((level, levelIndex) => {
+    const offset = atlasWidth - atlasWidth / 2 ** levelIndex;
 
     for (let z = 0; z < level.depth; z++) {
       for (let y = 0; y < level.height; y++) {
@@ -89,34 +82,92 @@ const buildAtlas = (data, width, height, depth, channels) => {
         );
       }
     }
+  });
+
+  return { data: atlas, width: atlasWidth, height: atlasHeight, depth: atlasDepth, levels: levels.length };
+};
+
+const buildAtlas = (data, width, height, depth, channels) => {
+  const count = getMipLevelCount(width, height, depth);
+
+  if (count < 1) {
+    return null;
   }
 
-  return { data: atlas, width: atlasWidth, height: atlasHeight, depth: atlasDepth, levels };
+  const levels = [];
+  let level = { data, width, height, depth };
+
+  for (let index = 1; index <= count; index++) {
+    level = downsample(level.data, level.width, level.height, level.depth, channels);
+    levels.push(level);
+  }
+
+  return packAtlas(levels, width, height, depth, channels);
 };
+
+const getChannels = (texture) => (texture.format === Three.RGBAFormat ? 4 : 1);
 
 const getAtlas = (texture) => {
   const { data, width, height, depth } = texture.image;
-  const channels = texture.format === Three.RGBAFormat ? 4 : 1;
   const cached = atlasCache.get(data);
 
   if (cached && cached.width === width && cached.height === height && cached.depth === depth) {
     return cached.atlas;
   }
 
-  const atlas = buildAtlas(data, width, height, depth, channels);
+  const atlas = buildAtlas(data, width, height, depth, getChannels(texture));
 
   atlasCache.set(data, { width, height, depth, atlas });
 
   return atlas;
 };
 
+// NOTE Gaussian atlas (core/frameMipFilter.js). null while the sliced build runs.
+const getGaussianAtlas = (texture) => {
+  const { data, width, height, depth } = texture.image;
+  const cached = gaussianAtlasCache.get(data);
+
+  if (cached && cached.width === width && cached.height === height && cached.depth === depth) {
+    return cached.atlas;
+  }
+
+  const count = getMipLevelCount(width, height, depth);
+
+  if (count < 1) {
+    return null;
+  }
+
+  const levels = requestGaussianLevels(data, width, height, depth, getChannels(texture), count, 'ceil');
+
+  if (!levels) {
+    return null;
+  }
+
+  const atlas = packAtlas(levels, width, height, depth, getChannels(texture));
+
+  gaussianAtlasCache.set(data, { width, height, depth, atlas });
+
+  return atlas;
+};
+
 // NOTE Builds or updates the mip atlases of a volume. New grid data (a new LOD) builds them again.
-export const updateVolumeMipmaps = (volume) => {
+// NOTE filter 'gaussian': box atlases show until the Gaussian atlas is built.
+export const updateVolumeMipmaps = (volume, filter = 'box') => {
   mipTextureKeys.forEach((key) => {
     const source = volume[key];
     const current = volume.mipMaps[key];
 
-    if (!source || (current && current.data === source.image.data)) {
+    if (!source || (current && current.data === source.image.data && current.filter === filter && current.final)) {
+      return;
+    }
+
+    const gaussianAtlas = filter === 'gaussian' ? getGaussianAtlas(source) : null;
+    const atlas = gaussianAtlas ?? getAtlas(source);
+
+    if (current && current.atlas === atlas && current.data === source.image.data) {
+      current.filter = filter;
+      current.final = filter !== 'gaussian' || !!gaussianAtlas;
+
       return;
     }
 
@@ -124,8 +175,6 @@ export const updateVolumeMipmaps = (volume) => {
       current.texture.dispose();
       delete volume.mipMaps[key];
     }
-
-    const atlas = getAtlas(source);
 
     if (!atlas) {
       return;
@@ -139,7 +188,14 @@ export const updateVolumeMipmaps = (volume) => {
     texture.unpackAlignment = 1;
     texture.needsUpdate = true;
 
-    volume.mipMaps[key] = { texture, data: source.image.data, levels: atlas.levels };
+    volume.mipMaps[key] = {
+      texture,
+      data: source.image.data,
+      levels: atlas.levels,
+      atlas,
+      filter,
+      final: filter !== 'gaussian' || !!gaussianAtlas,
+    };
   });
 };
 

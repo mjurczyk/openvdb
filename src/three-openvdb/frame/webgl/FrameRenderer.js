@@ -10,6 +10,7 @@ import { FrameTemporalMaterial } from './FrameTemporalMaterial.js';
 import { FrameVolumeShadows } from './FrameVolumeShadows.js';
 import { FrameEnvironmentMapMaterial } from './FrameEnvironmentMapMaterial.js';
 import { FrameEnvironmentGridMaterial } from './FrameEnvironmentGridMaterial.js';
+import { setMipmapContext, updateGaussianMipmaps } from './frameMipmaps.js';
 import {
   setVolumeUniforms,
   frameMaxShadowCascades,
@@ -493,6 +494,8 @@ export class FrameRenderer {
 
     const frame = renderer.info.render.frame;
 
+    setMipmapContext(renderer.getContext());
+
     // NOTE Override passes (depth, normals) of other effects must not draw or start the frame
     if (scene.overrideMaterial) {
       proxy.geometry.setDrawRange(0, 0);
@@ -537,13 +540,20 @@ export class FrameRenderer {
   disposeVolume() {}
 
   // NOTE FrameVolume mipmaps can change after creation. The textures are uploaded again.
+  // NOTE mipmapFilter 'gaussian': Gaussian levels replace the GPU levels after the conversion (frameMipmaps.js)
   updateMipmaps = (frameVolume, volume) => {
+    const gaussian = frameVolume.mipmapFilter === 'gaussian' && !(frameVolume.source ?? frameVolume).process;
+
     for (let i = 0; i < textureKeys.length; i++) {
       const texture = volume[textureKeys[i]];
 
       if (texture && texture.generateMipmaps !== frameVolume.mipmaps) {
         this.configureTexture(texture, frameVolume.mipmaps);
         texture.needsUpdate = true;
+      }
+
+      if (texture) {
+        updateGaussianMipmaps(texture, gaussian);
       }
     }
   };

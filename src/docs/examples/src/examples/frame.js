@@ -110,6 +110,7 @@ export const exampleFrame = ({ scene }) => {
     lighting: 'frame',
     animateLights: true,
     mipmaps: true,
+    mipmapFilter: 'box',
     castShadow: false,
     angstromExponent: 0.0,
   };
@@ -313,6 +314,7 @@ export const exampleFrame = ({ scene }) => {
     volume.sootExponent = params.sootExponent;
     volume.shadowSteps = params.shadowSteps;
     volume.mipmaps = params.mipmaps;
+    volume.mipmapFilter = params.mipmapFilter;
   };
 
   const applyParams = () => {
@@ -913,6 +915,20 @@ export const exampleFrame = ({ scene }) => {
               defaultValue: params.mipmaps,
               onChange: (value) => {
                 params.mipmaps = value;
+
+                applyParams();
+              },
+            },
+            {
+              id: 'mipmapFilter',
+              name: 'Mipmap Filter',
+              defaultValue: params.mipmapFilter,
+              options: {
+                Box: 'box',
+                'Gaussian (Experimental)': 'gaussian',
+              },
+              onChange: (value) => {
+                params.mipmapFilter = value;
 
                 applyParams();
               },

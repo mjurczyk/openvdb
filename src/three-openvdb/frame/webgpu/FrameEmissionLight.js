@@ -548,7 +548,7 @@ export class FrameEmissionLight extends FrameEmissionLightBase {
   // NOTE CPU mipmaps are built after the conversion, the same as in the frame renderer
   updateMipmaps(frameVolume, volume) {
     if (frameVolume.mipmaps && !(frameVolume.source ?? frameVolume).process) {
-      updateVolumeMipmaps(volume);
+      updateVolumeMipmaps(volume, frameVolume.mipmapFilter);
     }
   }
 

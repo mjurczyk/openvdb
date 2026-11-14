@@ -146,6 +146,7 @@ const getProps = (frameVolume) => ({
   lights: frameVolume.lights,
   shadowSteps: frameVolume.shadowSteps,
   mipmaps: frameVolume.mipmaps,
+  mipmapFilter: frameVolume.mipmapFilter,
 });
 
 export class FrameVolume extends Three.Group {
@@ -216,6 +217,9 @@ export class FrameVolume extends Three.Group {
       shadowSteps = 32,
       // NOTE CPU mipmaps for far volumes and coarse shadow cascades. false saves memory (+25%) and GPU time.
       mipmaps = true,
+      // NOTE Experimental. 'box' (2 x 2 x 2 mean) or 'gaussian' (sigma = 2^i voxels at level i, less shimmer).
+      // NOTE Gaussian levels are built on the CPU after the conversion. Box levels show until then.
+      mipmapFilter = 'box',
       // NOTE World box for all grids. Animation frames share one box. Then voxels do not move.
       bbox: sharedBbox,
       // NOTE Level set grids of VDB sources: 'fog' (density 1.0 in the narrow band), 'surface'
@@ -253,6 +257,7 @@ export class FrameVolume extends Three.Group {
     this.lights = lights;
     this.shadowSteps = shadowSteps;
     this.mipmaps = mipmaps;
+    this.mipmapFilter = mipmapFilter;
 
     const backend = getFrameBackend();
 

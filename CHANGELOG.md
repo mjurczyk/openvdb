@@ -1,5 +1,7 @@
 # Unreleased
 
+- Experimental `FrameVolume` prop `mipmapFilter`: `'box'` (default) or `'gaussian'` (sigma = 2^i voxels at level i, Disney "Deep Scattering" §6). Less shimmer on far volumes and coarse shadow cascades. Gaussian levels are built on the CPU in steps after the conversion, box levels show until then. Same GPU memory and format. Static volumes, `.wvdb` LODs and animation frames (`FrameVolumeAnimation` shares it). Both `three-openvdb` and `three-openvdb/webgl`
+- Examples: Rendering Frame has a Mipmap Filter field (Blending & Shaders folder): Box (default) or Gaussian
 - `VDBPoints`: the points of a point data grid as round points. Positions from `P`, colors from `Cd` (codecs `null`, `trnc`, `fxpt8`, `fxpt16`, `ufxpt8`, `ufxpt16`). Default size: half the mean distance of the points, in world units, and 1 pixel or larger. Above `maxPoints` (default `4000000`) every n-th point is used. `three-openvdb`: an instanced `Sprite` (`PointsNodeMaterial`). `three-openvdb/webgl`: `Points` (`PointsMaterial`)
 - `FrameVolume` prop `points`: `'fog'` (default) or `'points'` (point data grids are `VDBPoints` children, other grids stay fog). `VDBAnimationLoader` takes it in `setOptions()`. Both `three-openvdb` and `three-openvdb/webgl`
 - `openvdb`: point data grids keep their attribute pages (compressed). `getPointCount( grid )`, `createPointData( grid, { maxPoints } )` and `GridDescriptor.isPointData()`
