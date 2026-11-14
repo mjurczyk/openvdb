@@ -382,7 +382,7 @@ export class FrameRenderer {
     const converting = !!(frameVolume.source ?? frameVolume).process;
 
     if (frameVolume.mipmaps && !converting) {
-      updateVolumeMipmaps(volume);
+      updateVolumeMipmaps(volume, frameVolume.mipmapFilter);
     }
   };
 

@@ -26,6 +26,7 @@ const sharedParams = [
   'lights',
   'shadowSteps',
   'mipmaps',
+  'mipmapFilter',
 ];
 
 const applyParam = (frame, key, value) => {
