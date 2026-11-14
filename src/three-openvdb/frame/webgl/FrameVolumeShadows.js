@@ -92,6 +92,17 @@ const isVisible = (object) => {
   return true;
 };
 
+// NOTE The object is in a scene. A removed light is not.
+const isInScene = (object) => {
+  let root = object;
+
+  while (root.parent) {
+    root = root.parent;
+  }
+
+  return root.isScene === true;
+};
+
 // NOTE Compares the signature with the one of the item. Stores it when it is different.
 const changed = (item) => {
   const same = signature.length === item.signature.length && signature.every((value, i) => value === item.signature[i]);
@@ -489,7 +500,7 @@ const isLitMaterial = (material) =>
 export class FrameVolumeShadows {
   entries = new Map();
   scene = new Three.Scene();
-  // NOTE Replaced maps. Disposed only in dispose().
+  // NOTE Replaced and freed maps. update() runs during a render, so they are disposed in the next update().
   retired = [];
   renderCount = 0;
   updaterFrame = -1;
@@ -665,14 +676,53 @@ export class FrameVolumeShadows {
     }
   }
 
-  // NOTE Called by the frame renderer one time in each frame: finds new shadow lights and new map sizes
+  // NOTE Frees the map and the updater of a light. The maps are disposed in the next update().
+  freeEntry(entry) {
+    this.retired.push(entry.target);
+
+    if (entry.spectralTarget) {
+      this.retired.push(entry.spectralTarget);
+    }
+
+    entry.updater.parent?.remove(entry.updater);
+    this.entries.delete(entry.light);
+  }
+
+  // NOTE Receiver uniforms that point to a retired map get the placeholder. Then no material binds a disposed map.
+  disposeRetired() {
+    const uniforms = this.receiverUniforms;
+    const replace = (list, texture, placeholder) => {
+      list.forEach((value, index) => {
+        if (value === texture) {
+          list[index] = placeholder;
+        }
+      });
+    };
+
+    this.retired.forEach((target) => {
+      replace(uniforms.frameVolumeDirMap.value, target.texture, this.placeholder2D);
+      replace(uniforms.frameVolumeSpotMap.value, target.texture, this.placeholder2D);
+      replace(uniforms.frameVolumePointMap.value, target.texture, this.placeholderCube.texture);
+      replace(uniforms.frameVolumePointSpectralMap.value, target.texture, this.placeholderCube.texture);
+      target.dispose();
+    });
+
+    this.retired.length = 0;
+  }
+
+  // NOTE Called by the frame renderer one time in each frame: finds new shadow lights and new map sizes.
+  // NOTE Frees the entries of lights with no shadow or not in a scene, and all entries when castShadows is off.
   update(renderer, scene) {
     if (!this.placeholderReady) {
       initTarget(renderer, this.placeholderCube, true);
       this.placeholderReady = true;
     }
 
+    this.disposeRetired();
+
     if (!this.frameRenderer.settings.castShadows) {
+      this.entries.forEach((entry) => this.freeEntry(entry));
+
       return;
     }
 
@@ -680,7 +730,9 @@ export class FrameVolumeShadows {
     const spectral = this.isSpectral();
 
     this.entries.forEach((entry) => {
-      if (entry.size !== size || entry.spectral !== spectral) {
+      if (!isShadowLight(entry.light) || !isInScene(entry.light)) {
+        this.freeEntry(entry);
+      } else if (entry.size !== size || entry.spectral !== spectral) {
         this.resizeMap(renderer, entry, size, spectral);
       }
     });
@@ -1198,15 +1250,8 @@ export class FrameVolumeShadows {
   }
 
   dispose() {
-    this.entries.forEach((entry) => {
-      entry.target.dispose();
-      entry.spectralTarget?.dispose();
-      entry.updater.parent?.remove(entry.updater);
-    });
-    this.entries.clear();
-
-    this.retired.forEach((resource) => resource.dispose());
-    this.retired = [];
+    this.entries.forEach((entry) => this.freeEntry(entry));
+    this.disposeRetired();
 
     this.material.dispose();
     this.updaterMaterial.dispose();
