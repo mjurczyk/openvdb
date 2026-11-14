@@ -427,6 +427,20 @@ The surface of a level set, traced on the GPU. The geometry is the box of the gr
 
 FrameVolume prop `levelSets` uses it for level set grids (the `class` metadata of the grid): `'fog'` (default, density `1.0` in the narrow band), `'surface'` (each level set grid is a `LevelSetSurface` child of the volume, other grids stay fog) or `'surfaceOnly'` (other grids are not shown). `VDBAnimationLoader` and `WVDBAnimationLoader` take it in `setOptions()`, so sequences of level sets play as surfaces. `frameVolume.surfaces` lists them. Instances show the surfaces of their source.
 
+### VDBPoints
+
+- `VDBPoints( grid: OpenVDB.GridDescriptor, { maxPoints, size, color, opacity }, onConverted: ( points ) => void ): Three.Points | Three.Sprite`
+
+A point data grid (`grid.isPointData()`) stores particles: the points in each voxel and their attributes. `VDBPoints` shows them as round points. Positions come from the `P` attribute, colors from `Cd` (when the grid has it, multiplied by `color`). Codecs: `null`, `trnc`, `fxpt8`, `fxpt16`, `ufxpt8` and `ufxpt16`. Other attributes are not read.
+
+`size` is the point diameter in world units. Default: half the mean distance of the points (voxel size / cube root of the points in each active voxel), so there is a gap between points. Points stay the same size in the world when the camera moves, but are never smaller than 1 pixel. With more than `maxPoints` points (default `4000000`), every n-th point is used and the points are larger by the cube root of n. The decode runs in 12 ms steps, so the page does not freeze. `points.pointCount` is the number of points shown. `points.createInstance()` shows the same points at another place. `points.dispose()` frees the geometry and the material.
+
+`three-openvdb` (WebGPURenderer) draws a `Three.Sprite` with one instance for each point (`PointsNodeMaterial`), because WebGPU points are 1 pixel. `three-openvdb/webgl` draws `Three.Points` (`PointsMaterial`). The points are not lit and cast no shadows.
+
+FrameVolume prop `points`: `'fog'` (default, density from the point offsets in voxels) or `'points'` (each point data grid is a `VDBPoints` child of the volume, in `frameVolume.surfaces`, other grids stay fog). `VDBAnimationLoader` takes it in `setOptions()`.
+
+`openvdb` has `getPointCount( grid )` and `createPointData( grid, { maxPoints } )`. It returns `{ positions, colors, count, totalCount, stride, spacing, task }`. `positions` and `colors` are `Float32Array` (`colors` is `null` without `Cd`). They are full when the generator `task` is done.
+
 ---
 
 ## WVDB files

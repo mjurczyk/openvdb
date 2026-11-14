@@ -21,6 +21,8 @@ import { FrameEmissionLight } from './frame/webgpu/FrameEmissionLight.js';
 import { LevelSetMesh } from './levelset/LevelSetMesh.js';
 import { LevelSetSurface } from './levelset/webgpu/LevelSetSurface.js';
 import { setLevelSetSurfaceClass } from './levelset/levelSetBackend.js';
+import { VDBPoints } from './points/webgpu/VDBPoints.js';
+import { setVDBPointsClass } from './points/pointsBackend.js';
 import { WVDBLoader } from './wvdb/WVDBLoader.js';
 import { WVDBAnimationLoader } from './wvdb/WVDBAnimationLoader.js';
 import { WVDBReader } from './wvdb/WVDBReader.js';
@@ -28,6 +30,7 @@ import { WVDBReader } from './wvdb/WVDBReader.js';
 // NOTE This entry point renders FrameVolume with WebGPURenderer. three-openvdb/webgl is the WebGLRenderer entry point.
 setFrameBackend(frameRenderer);
 setLevelSetSurfaceClass(LevelSetSurface);
+setVDBPointsClass(VDBPoints);
 
 export {
   // NOTE Loaders
@@ -60,6 +63,9 @@ export {
   // NOTE Level set surfaces
   LevelSetMesh,
   LevelSetSurface,
+
+  // NOTE Point data grids
+  VDBPoints,
 
   // NOTE Streamed .wvdb files (made with the wvdb CLI)
   WVDBLoader,

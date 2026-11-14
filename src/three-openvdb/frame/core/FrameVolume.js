@@ -3,6 +3,7 @@ import { GridDescriptor, Vector3 } from 'openvdb';
 import { frameLights } from './frameLights.js';
 import { getFrameBackend } from './frameBackend.js';
 import { createLevelSetSurface } from '../../levelset/levelSetBackend.js';
+import { createVDBPoints } from '../../points/pointsBackend.js';
 
 // NOTE Draw the frame after all other transparent objects
 const frameRenderOrder = 1000000;
@@ -158,7 +159,8 @@ export class FrameVolume extends Three.Group {
   sequence = null;
   // NOTE Mean of the non-zero density texels of the volumes (0.0 to 1.0). 0.0 until converted.
   meanDensity = 0.0;
-  // NOTE LevelSetSurface children (levelSets prop). Instances show instances of the surfaces of their source.
+  // NOTE LevelSetSurface (levelSets prop) and VDBPoints (points prop) children.
+  // Instances show instances of the surfaces of their source.
   surfaces = [];
 
   // NOTE A FrameVolume as source makes an instance. It shares the textures and boxes of the source.
@@ -219,6 +221,9 @@ export class FrameVolume extends Three.Group {
       // NOTE Level set grids of VDB sources: 'fog' (density 1.0 in the narrow band), 'surface'
       // (a LevelSetSurface child, other grids stay fog) or 'surfaceOnly' (other grids are not shown)
       levelSets = 'fog',
+      // NOTE Point data grids of VDB sources: 'fog' (density from the point offsets in voxels)
+      // or 'points' (a VDBPoints child, other grids stay fog)
+      points = 'fog',
     } = instanceSource ? { ...getProps(instanceSource), ...props } : props;
 
     this.baseColor = new Three.Color(baseColor);
@@ -292,6 +297,14 @@ export class FrameVolume extends Three.Group {
         .forEach((grid) => this.addSurface(createLevelSetSurface(grid, { resolution })));
 
       grids = levelSets === 'surfaceOnly' ? [] : grids.filter((grid) => !isLevelSet(grid));
+    }
+
+    if (points === 'points') {
+      const isPointData = (grid) => grid instanceof GridDescriptor && grid.isPointData();
+
+      grids.filter(isPointData).forEach((grid) => this.addSurface(createVDBPoints(grid)));
+
+      grids = grids.filter((grid) => !isPointData(grid));
     }
 
     const tasks = [];
@@ -555,7 +568,7 @@ export class FrameVolume extends Three.Group {
     return new FrameVolume(this, props);
   }
 
-  // NOTE Shows a LevelSetSurface with this volume: same transform and visibility. dispose() frees it.
+  // NOTE Shows a LevelSetSurface or VDBPoints with this volume: same transform and visibility. dispose() frees it.
   addSurface(surface) {
     this.surfaces.push(surface);
     this.add(surface);
@@ -566,20 +579,31 @@ export class FrameVolume extends Three.Group {
   // NOTE Instances only. Shows the textures and boxes of another FrameVolume.
   // For example the next animation frame.
   setSource(frameVolume) {
-    // NOTE Surface instances stay. They get the geometry and material of the new source.
+    // NOTE Surface instances of the same class stay. They get the geometry and material of the new source.
     const previous = this.surfaces;
 
     const addInstance = (surface) => {
       const instance = surface.createInstance();
 
+      instance.surfaceClass = surface.constructor;
       this.add(instance);
 
       return instance;
     };
 
-    this.surfaces = frameVolume.surfaces.map((surface, index) =>
-      previous[index] ? surface.applyToInstance(previous[index]) : addInstance(surface),
-    );
+    this.surfaces = frameVolume.surfaces.map((surface, index) => {
+      const instance = previous[index];
+
+      if (instance?.surfaceClass === surface.constructor) {
+        return surface.applyToInstance(instance);
+      }
+
+      if (instance) {
+        this.remove(instance);
+      }
+
+      return addInstance(surface);
+    });
     previous.slice(this.surfaces.length).forEach((surface) => this.remove(surface));
 
     this.source = frameVolume;
