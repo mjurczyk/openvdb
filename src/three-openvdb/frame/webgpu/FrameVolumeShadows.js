@@ -173,7 +173,8 @@ const getSliceCorners = (camera, near, far) => {
 // NOTE three.js makes the shadow node of a light one time. Then a new filterNode has no effect.
 // NOTE disposeShadow of the light node makes the receivers build a new shadow node.
 // NOTE Uses three.js internals: setupLightsNode gives the light node that all materials share.
-// NOTE Returns the old shadow node. Keep it, because receivers can still use its shadow map.
+// NOTE Returns the old shadow node, or null when there is none. Receivers can use it until the end of this render.
+// NOTE Returns false when the reset is not possible. Then receivers keep the old shadow node and its maps.
 let resetWarned = false;
 
 const resetLightShadow = (light) => {
@@ -191,10 +192,14 @@ const resetLightShadow = (light) => {
       console.warn('FrameVolumeShadows: this three.js version cannot reset light shadows. Use three.js r187.', error);
     }
 
-    return null;
+    return false;
   }
 
-  if (!lightNode || !lightNode.disposeShadow || !lightNode.shadowNode) {
+  if (!lightNode || !lightNode.disposeShadow) {
+    return false;
+  }
+
+  if (!lightNode.shadowNode) {
     return null;
   }
 
@@ -379,6 +384,17 @@ const isVisible = (object) => {
   return true;
 };
 
+// NOTE The object is in a scene. A removed light is not.
+const isInScene = (object) => {
+  let root = object;
+
+  while (root.parent) {
+    root = root.parent;
+  }
+
+  return root.isScene === true;
+};
+
 // NOTE Compares the signature with the one of the item. Stores it when it is different.
 const changed = (item) => {
   const same = signature.length === item.signature.length && signature.every((value, i) => value === item.signature[i]);
@@ -401,9 +417,11 @@ export class FrameVolumeShadows {
   entries = new Map();
   scene = new Three.Scene();
   rayUniforms = createShadowRayUniforms();
-  // NOTE Replaced maps and shadow nodes. Receivers can still use them, so only dispose() disposes them.
-  // NOTE The list grows only when the map size setting or castShadowCoarse changes.
+  // NOTE Replaced and freed maps and shadow nodes. update() runs mid-render, so the next update() disposes them.
+  // NOTE Receivers build again before their next draw, because the light shadow was reset.
   retired = [];
+  // NOTE Maps of lights that the reset did not work for. Receivers keep them, so only dispose() disposes them.
+  kept = [];
   renderCount = 0;
   mapsRenderId = -1;
   mapsCamera = null;
@@ -498,13 +516,8 @@ export class FrameVolumeShadows {
 
   // NOTE A new map for a new size or a spectral change: a new texture, texture node and shadow node
   // (shadow nodes keep texture bindings).
-  // NOTE The old map stays until dispose(), so receivers that still use it keep a valid texture.
   resizeMap(renderer, entry, size, spectral) {
-    this.retired.push(entry.target);
-
-    if (entry.spectralTarget) {
-      this.retired.push(entry.spectralTarget);
-    }
+    const oldTargets = entry.spectralTarget ? [entry.target, entry.spectralTarget] : [entry.target];
 
     entry.target = initTarget(renderer, createTarget(size, entry.light), entry.isPoint);
     entry.size = size;
@@ -527,16 +540,53 @@ export class FrameVolumeShadows {
       entry.cubeCamera.renderTarget = entry.target;
     }
 
-    const oldShadowNode = resetLightShadow(entry.light);
+    this.retire(resetLightShadow(entry.light), oldTargets);
+  }
+
+  // NOTE Old maps are disposed in the next update(). When the reset did not work, receivers keep them.
+  retire(oldShadowNode, targets) {
+    if (oldShadowNode === false) {
+      this.kept.push(...targets);
+
+      return;
+    }
+
+    this.retired.push(...targets);
 
     if (oldShadowNode) {
       this.retired.push(oldShadowNode);
     }
   }
 
+  // NOTE Frees the maps of a light and puts back its own filter. Receivers build again without the volume shadow.
+  freeEntry(entry) {
+    const { light } = entry;
+    const targets = entry.spectralTarget ? [entry.target, entry.spectralTarget] : [entry.target];
+
+    // NOTE Receivers that still have the volume shadow node until they build again read no volume shadow
+    entry.enabled.value = 0;
+
+    if (light.shadow.filterNode?.isFrameVolumeShadowFilter) {
+      light.shadow.filterNode = entry.userFilter;
+    }
+
+    this.retire(resetLightShadow(light), targets);
+    this.entries.delete(light);
+  }
+
+  disposeRetired() {
+    this.retired.forEach((resource) => resource.dispose());
+    this.retired.length = 0;
+  }
+
   // NOTE Puts the volume filter on each shadow light. Each frame, then new lights and new filters are found.
+  // NOTE Frees the entries of lights with no shadow or not in a scene, and all entries when castShadows is off.
   update(renderer, scene) {
+    this.disposeRetired();
+
     if (!this.frameRenderer.settings.castShadows) {
+      this.entries.forEach((entry) => this.freeEntry(entry));
+
       return;
     }
 
@@ -544,7 +594,9 @@ export class FrameVolumeShadows {
     const spectral = this.isSpectral();
 
     this.entries.forEach((entry) => {
-      if (entry.size !== size || entry.spectral !== spectral) {
+      if (!isShadowLight(entry.light) || !isInScene(entry.light)) {
+        this.freeEntry(entry);
+      } else if (entry.size !== size || entry.spectral !== spectral) {
         this.resizeMap(renderer, entry, size, spectral);
       }
     });
@@ -565,6 +617,8 @@ export class FrameVolumeShadows {
 
     const entry = this.getEntry(renderer, light);
     const userFilter = shadow.filterNode || null;
+
+    entry.userFilter = userFilter;
 
     // NOTE ShadowNode calls the filter when it builds. The base filter is the filter of three.js or of the user.
     // NOTE Point lights give the direction from the light (bd3D), other lights give shadowCoord.
@@ -598,11 +652,7 @@ export class FrameVolumeShadows {
 
     // NOTE The map exists when the shadow node was built before this filter
     if (shadow.map) {
-      const oldShadowNode = resetLightShadow(light);
-
-      if (oldShadowNode) {
-        this.retired.push(oldShadowNode);
-      }
+      this.retire(resetLightShadow(light), []);
     }
   }
 
@@ -964,15 +1014,13 @@ export class FrameVolumeShadows {
     this.updateMaps(renderer, scene, camera, renderId);
   }
 
+  // NOTE Puts back the filter of each light. Then a new FrameVolumeShadows installs again.
   dispose() {
-    this.entries.forEach((entry) => {
-      entry.target.dispose();
-      entry.spectralTarget?.dispose();
-    });
-    this.entries.clear();
+    this.entries.forEach((entry) => this.freeEntry(entry));
+    this.disposeRetired();
 
-    this.retired.forEach((resource) => resource.dispose());
-    this.retired = [];
+    this.kept.forEach((target) => target.dispose());
+    this.kept.length = 0;
 
     this.material.dispose();
   }
