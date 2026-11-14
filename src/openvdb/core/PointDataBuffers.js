@@ -28,7 +28,7 @@ const collectLeaves = (node, leaves) => {
   }
 };
 
-// NOTE Point data leaves save buffers in passes. Voxel values are read, attribute values are skipped.
+// NOTE Point data leaves save buffers in passes. Leaves keep pointAttributes and compressed pointArrays for utils/points.js.
 // NOTE https://github.com/AcademySoftwareFoundation/openvdb/blob/master/openvdb/openvdb/points/PointDataGrid.h
 export class PointDataBuffers {
   readBuffers(root) {
@@ -47,7 +47,7 @@ export class PointDataBuffers {
     // NOTE Pass 1: attribute descriptor and attribute array metadata
     let sharedDescriptor = null;
 
-    const leafArrays = leaves.map(() => {
+    const leafArrays = leaves.map((leaf) => {
       let descriptor = sharedDescriptor;
 
       if (!descriptor) {
@@ -63,7 +63,10 @@ export class PointDataBuffers {
         }
       }
 
-      return descriptor.map(() => this.readArrayMetadata());
+      leaf.pointAttributes = descriptor;
+      leaf.pointArrays = descriptor.map(() => this.readArrayMetadata());
+
+      return leaf.pointArrays;
     });
 
     // NOTE Passes 2 to n + 1: page headers of each attribute
@@ -78,7 +81,7 @@ export class PointDataBuffers {
 
     // NOTE Passes n + 3 to 2n + 2: attribute values
     for (let attributeIndex = 0; attributeIndex < attributeCount; attributeIndex++) {
-      this.skipAttributeValues(
+      this.readAttributePages(
         leafArrays.map((arrays) => arrays[attributeIndex]),
         pagedStreams[attributeIndex]
       );
@@ -96,11 +99,14 @@ export class PointDataBuffers {
       attributes.push({ type: bufferIterator.readString(), codec: bufferIterator.readString() });
     }
 
-    // NOTE Attribute names, then group names, with their indices
-    attributes.forEach((attribute) => {
-      attribute.name = bufferIterator.readString();
-      attribute.index = bufferIterator.readBytes(uint64Size);
-    });
+    // NOTE The name map is sorted by name. Its index is the position in the type list.
+    for (let entry = 0; entry < attributeCount; entry++) {
+      const name = bufferIterator.readString();
+      const index = bufferIterator.readBytes(uint64Size);
+
+      attributes[index].name = name;
+      attributes[index].index = index;
+    }
 
     const groupCount = bufferIterator.readBytes(uint64Size);
 
@@ -167,7 +173,9 @@ export class PointDataBuffers {
         pagedStream.byteIndex = 0;
       }
 
+      // NOTE An array never spans two pages (PagedOutputStream::write)
       array.page = pagedStream.pages[pagedStream.pages.length - 1];
+      array.pageOffset = pagedStream.byteIndex;
       pagedStream.byteIndex += array.byteCount;
     });
 
@@ -197,8 +205,9 @@ export class PointDataBuffers {
     }
   }
 
-  // NOTE TypedAttributeArray::readPagedBuffers and PagedInputStream::read
-  skipAttributeValues(arrays, pagedStream) {
+  // NOTE TypedAttributeArray::readPagedBuffers and PagedInputStream::read.
+  // Pages keep a view of the source bytes. Arrays that are not paged are skipped.
+  readAttributePages(arrays, pagedStream) {
     const { bufferIterator } = GridSharedContext.getContext(this);
 
     arrays.forEach((array) => {
@@ -214,7 +223,7 @@ export class PointDataBuffers {
 
       if (pagedStream.byteIndex === pagedStream.uncompressedBytes) {
         pagedStream.uncompressedBytes = array.page.uncompressedBytes;
-        bufferIterator.skip(Math.abs(array.page.compressedBytes));
+        array.page.bytes = bufferIterator.readRawView(Math.abs(array.page.compressedBytes));
         pagedStream.byteIndex = 0;
       }
 

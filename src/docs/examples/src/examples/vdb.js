@@ -49,7 +49,8 @@ const params = {
   temperatureMax: 6500.0,
   upAxis: 'y',
   emissiveGrid: 'flames',
-  // NOTE FrameVolume levelSets prop. 'surface' (Auto): level set grids are surfaces, other grids are fog.
+  // NOTE FrameVolume levelSets prop. 'surface' (Auto): level set grids are surfaces, point data grids are points,
+  // other grids are fog.
   levelSets: 'surface',
   lighting: 'frame',
   animateLights: true,
@@ -66,6 +67,10 @@ const getController = (id) =>
 const applySurfaceShadows = () => {
   animation?.frames.forEach((frame) => {
     frame.surfaces.forEach((surface) => {
+      if (surface.isVDBPoints) {
+        return;
+      }
+
       surface.castShadow = true;
       surface.receiveShadow = true;
     });
@@ -157,6 +162,23 @@ const applyUpAxis = () => {
   }
 };
 
+// NOTE Files with a longest side under smallVolumeSize scale up to fitVolumeSize. Then small files are not tiny.
+const smallVolumeSize = 40.0;
+const fitVolumeSize = 100.0;
+
+const getFitScale = () => {
+  const size = animation.bbox.getSize(new Three.Vector3());
+  const longestSide = Math.max(size.x, size.y, size.z);
+
+  return longestSide > 0.0 && longestSide < smallVolumeSize ? fitVolumeSize / longestSide : 1.0;
+};
+
+// NOTE Centers the box at the scene origin. The pivot scales small files.
+const fitAnimation = () => {
+  animation.position.copy(animation.bbox.getCenter(new Three.Vector3())).negate();
+  volumePivot?.scale.setScalar(getFitScale());
+};
+
 const showAnimation = () => {
   applyVolumeParams();
   applyPlaybackParams();
@@ -188,6 +210,7 @@ const createAnimation = (urls) => {
       resolution: 200,
       progressive: true,
       levelSets: params.levelSets,
+      points: params.levelSets === 'surface' ? 'points' : 'fog',
       ...(emissivePresets[params.emissiveGrid] && {
         emissiveGrid: params.emissiveGrid,
         emissiveScale: emissivePresets[params.emissiveGrid].emissiveScale,
@@ -208,8 +231,8 @@ const createAnimation = (urls) => {
             ? `[Converting frame ${loadedFrames + 1} / ${totalFrames}...]`
             : '[Drop .VDB / .WVDB / .ZIP here]';
 
-        // NOTE The box is known after the first frame. Center it at the scene origin.
-        animation.position.copy(animation.bbox.getCenter(new Three.Vector3())).negate();
+        // NOTE The box is known after the first frame
+        fitAnimation();
 
         getController('frame')?.max(Math.max(1, loadedFrames - 1));
       },
@@ -265,8 +288,8 @@ const createWVDBAnimation = (urls) => {
             : '[Drop .VDB / .WVDB / .ZIP here]';
 
         if (lod === 0) {
-          // NOTE The box grows while frames arrive. Center it at the scene origin.
-          animation.position.copy(animation.bbox.getCenter(new Three.Vector3())).negate();
+          // NOTE The box grows while frames arrive
+          fitAnimation();
           getController('frame')?.max(Math.max(1, loadedFrames - 1));
         }
       },
@@ -482,6 +505,7 @@ export const exampleVDB = ({ scene }) => {
   // NOTE One light for all emissive volumes of the scene, and lit meshes
   const emission = createEmissionDemo(scene);
 
+  // NOTE Size in the pivot. The pivot has the fit scale.
   const getGroundSize = () => {
     const size = animation.bbox.getSize(new Three.Vector3());
 
@@ -497,12 +521,14 @@ export const exampleVDB = ({ scene }) => {
       return;
     }
 
+    const fitScale = getFitScale();
     const { height, width } = getGroundSize();
 
-    volumeGround.position.y = groundLevel + height / 2.0;
+    volumePivot.scale.setScalar(fitScale);
+    volumeGround.position.y = groundLevel + (height * fitScale) / 2.0;
 
     // NOTE The ground covers the copies, which are 1.5 box widths apart
-    emission.placeMeshes(height, width, Math.max(1.0, (Math.ceil(Math.sqrt(params.copies)) * 1.5 + 4.0) / 8.0));
+    emission.placeMeshes(height * fitScale, width * fitScale, Math.max(1.0, (Math.ceil(Math.sqrt(params.copies)) * 1.5 + 4.0) / 8.0));
     emission.meshes.position.y = groundLevel;
   };
 

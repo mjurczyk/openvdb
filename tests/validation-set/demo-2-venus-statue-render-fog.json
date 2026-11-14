@@ -1,0 +1,7 @@
+{
+  "demo": "vdb",
+  "drop": [
+    "./assets/venusstatue.vdb"
+  ],
+  "levelSets": "fog"
+}

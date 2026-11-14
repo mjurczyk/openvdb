@@ -295,6 +295,11 @@ export class GridDescriptor {
     return this.metadata?.class?.value === 'level set';
   }
 
+  // NOTE Point data grids store point offsets in voxels and point attributes (utils/points.js)
+  isPointData() {
+    return this.getGridValueType() === pointDataIndex32;
+  }
+
   getLeafAt(position) {
     return this.accessor.getLeafAt(this.roundedPosition.copy(position).round());
   }

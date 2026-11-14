@@ -1,0 +1,7 @@
+{
+  "demo": "vdb",
+  "drop": [
+    "./assets/sphere_points.vdb"
+  ],
+  "levelSets": "fog"
+}

@@ -1,5 +1,13 @@
 # Unreleased
 
+- `VDBPoints`: the points of a point data grid as round points. Positions from `P`, colors from `Cd` (codecs `null`, `trnc`, `fxpt8`, `fxpt16`, `ufxpt8`, `ufxpt16`). Default size: half the mean distance of the points, in world units, and 1 pixel or larger. Above `maxPoints` (default `4000000`) every n-th point is used. `three-openvdb`: an instanced `Sprite` (`PointsNodeMaterial`). `three-openvdb/webgl`: `Points` (`PointsMaterial`)
+- `FrameVolume` prop `points`: `'fog'` (default) or `'points'` (point data grids are `VDBPoints` children, other grids stay fog). `VDBAnimationLoader` takes it in `setOptions()`. Both `three-openvdb` and `three-openvdb/webgl`
+- `openvdb`: point data grids keep their attribute pages (compressed). `getPointCount( grid )`, `createPointData( grid, { maxPoints } )` and `GridDescriptor.isPointData()`
+- Fix: `openvdb` gave point attributes the wrong names when the attribute names are not in index order (for example `Cd` and `P`)
+- `FrameVolume` instances make a new surface instance when the surface class of the new source frame is different
+- Examples: Points demo (`?demo=points`): `sphere_points.vdb` as points or fog. Custom VDB Render Auto shows point data grids as points
+- Examples: Custom VDB scales files with a longest side under 40 units up to 100 units (all axes the same)
+
 - `LevelSetMesh`: the surface of a level set grid as a three.js mesh (marching cubes). Source: a level set `GridDescriptor` (`resolution`, default `200`) or a level set grid of `WVDBVolumeData` (`volumeData.attach( mesh )` builds it again for each LOD). Normals come from a Sobel gradient of the distance, then 2 passes of smoothing on the mesh. Any three.js material. Both `three-openvdb` and `three-openvdb/webgl`
 - Experimental `LevelSetSurface`: the surface of a level set, traced on the GPU in the box of the grid (`MeshStandardNodeMaterial`, lights, environment, shadows and depth at the traced point). Same sources as `LevelSetMesh`. Both `three-openvdb` and `three-openvdb/webgl`
 - `FrameVolume` prop `levelSets`: `'fog'` (default), `'surface'` (level set grids are `LevelSetSurface` children, other grids stay fog) or `'surfaceOnly'`. `VDBAnimationLoader` and `WVDBAnimationLoader` take it in `setOptions()`. Instances and animation instances show the surfaces of their frame. Both `three-openvdb` and `three-openvdb/webgl`

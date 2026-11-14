@@ -161,6 +161,15 @@ export class BufferIterator {
     return raw;
   }
 
+  // NOTE No copy. The view keeps the source buffer in memory.
+  readRawView(count) {
+    const raw = this.source.subarray(this.offset, this.offset + count);
+
+    this.offset += count;
+
+    return raw;
+  }
+
   readBool() {
     return Boolean(this.readBytes(boolSize));
   }

@@ -4,6 +4,7 @@ import { exampleFrame } from "../examples/frame";
 import { exampleWVDB } from "../examples/wvdb";
 import { exampleMesh } from "../examples/mesh";
 import { exampleLevelSet } from "../examples/levelset";
+import { examplePoints } from "../examples/points";
 import { exampleSky } from "../examples/sky";
 import { scene } from "../main";
 import { isPhone } from "./device";
@@ -22,6 +23,7 @@ export const demos = {
   wvdb: (options) => exampleWVDB(options),
   mesh: (options) => exampleMesh(options),
   levelset: (options) => exampleLevelSet(options),
+  points: (options) => examplePoints(options),
   sky: (options) => exampleSky(options),
 };
 
@@ -60,6 +62,7 @@ const guiBaseFields = () => [
           'Streaming WVDB': 'wvdb',
           'Mesh Volume': 'mesh',
           'Level Set': 'levelset',
+          Points: 'points',
           Sky: 'sky',
         },
         defaultValue: activeDemo,
