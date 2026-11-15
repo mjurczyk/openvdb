@@ -72,23 +72,31 @@ const createPageReader = () => {
   };
 };
 
-const findAttribute = (leaf, name) => {
+// NOTE type 'vec3s' (P, Cd) or 'float' (pscale). Float arrays use the codecs null and trnc.
+const findAttribute = (leaf, name, type = 'vec3s') => {
   const index = leaf.pointAttributes.findIndex((attribute) => attribute.name === name);
   const attribute = leaf.pointAttributes[index];
   const array = leaf.pointArrays[index];
+  const codec = vec3Codecs[attribute?.codec];
+  const isFloatCodec = attribute?.codec === 'null' || attribute?.codec === 'trnc';
 
-  if (!attribute || attribute.type !== 'vec3s' || !vec3Codecs[attribute.codec] || !array?.page) {
+  if (!attribute || attribute.type !== type || !codec || !array?.page) {
     return null;
   }
 
-  return { codec: vec3Codecs[attribute.codec], array };
+  if (type === 'float' && !isFloatCodec) {
+    return null;
+  }
+
+  return { codec, array };
 };
 
 // NOTE Point data grids (ptdataidx32) only
 export const getPointCount = (grid) =>
   getPointLeaves(grid).reduce((sum, { leaf }) => sum + getLeafPointCount(leaf), 0);
 
-// NOTE World positions (P) and colors (Cd or null). Above maxPoints, every stride-th point is used.
+// NOTE World positions (P), colors (Cd or null) and radii (pscale in world units, or null).
+// Above maxPoints, every stride-th point is used.
 // The arrays are full when the task generator is done.
 export const createPointData = (grid, { maxPoints = Infinity } = {}) => {
   const leaves = getPointLeaves(grid);
@@ -96,9 +104,11 @@ export const createPointData = (grid, { maxPoints = Infinity } = {}) => {
   const stride = Math.max(1, Math.ceil(totalCount / maxPoints));
   const count = totalCount > 0 ? Math.floor((totalCount - 1) / stride) + 1 : 0;
   const hasColors = leaves.some(({ leaf }) => findAttribute(leaf, 'Cd'));
+  const hasRadii = leaves.some(({ leaf }) => findAttribute(leaf, 'pscale', 'float'));
 
   const positions = new Float32Array(count * 3);
   const colors = hasColors ? new Float32Array(count * 3).fill(1.0) : null;
+  const radii = hasRadii ? new Float32Array(count) : null;
 
   // NOTE Length of one voxel side in world units
   const origin = grid.transform.applyTransformMap(new Vector3(0.0, 0.0, 0.0));
@@ -129,6 +139,7 @@ export const createPointData = (grid, { maxPoints = Infinity } = {}) => {
   function* task() {
     const readPositionPage = createPageReader();
     const readColorPage = createPageReader();
+    const readRadiusPage = createPageReader();
     const index = new Vector3();
 
     let leafStart = 0;
@@ -138,8 +149,10 @@ export const createPointData = (grid, { maxPoints = Infinity } = {}) => {
       const leafCount = getLeafPointCount(leaf);
       const position = findAttribute(leaf, 'P');
       const color = findAttribute(leaf, 'Cd');
+      const radius = radii && findAttribute(leaf, 'pscale', 'float');
       const positionView = position && readPositionPage(position.array.page);
       const colorView = color && readColorPage(color.array.page);
+      const radiusView = radius && readRadiusPage(radius.array.page);
       const log2dim = leaf.log2dim;
       const dimMask = (1 << log2dim) - 1;
 
@@ -182,6 +195,13 @@ export const createPointData = (grid, { maxPoints = Infinity } = {}) => {
           colors[target * 3 + 2] = codec.read(colorView, offset + codec.bytes * 2) + codec.shift;
         }
 
+        // NOTE pscale is in world units. Leaves without it keep 0, then the renderer uses its default radius.
+        if (radiusView) {
+          const { codec, array } = radius;
+
+          radii[target] = codec.read(radiusView, array.pageOffset + (array.isUniform ? 0 : point) * codec.bytes);
+        }
+
         target++;
       }
 
@@ -193,5 +213,5 @@ export const createPointData = (grid, { maxPoints = Infinity } = {}) => {
     return target;
   }
 
-  return { count, totalCount, stride, spacing, positions, colors, task: task() };
+  return { count, totalCount, stride, spacing, positions, colors, radii, task: task() };
 };

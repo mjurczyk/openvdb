@@ -3,7 +3,7 @@ import { GridDescriptor, Vector3 } from 'openvdb';
 import { frameLights } from './frameLights.js';
 import { getFrameBackend } from './frameBackend.js';
 import { createLevelSetSurface } from '../../levelset/levelSetBackend.js';
-import { createVDBPoints } from '../../points/pointsBackend.js';
+import { createVDBPoints, createVDBLiquid } from '../../points/pointsBackend.js';
 
 // NOTE Draw the frame after all other transparent objects
 const frameRenderOrder = 1000000;
@@ -225,8 +225,8 @@ export class FrameVolume extends Three.Group {
       // NOTE Level set grids of VDB sources: 'fog' (density 1.0 in the narrow band), 'surface'
       // (a LevelSetSurface child, other grids stay fog) or 'surfaceOnly' (other grids are not shown)
       levelSets = 'fog',
-      // NOTE Point data grids of VDB sources: 'fog' (density from the point offsets in voxels)
-      // or 'points' (a VDBPoints child, other grids stay fog)
+      // NOTE Point data grids of VDB sources: 'fog' (density from the point offsets in voxels),
+      // 'points' (a VDBPoints child) or 'liquid' (a VDBLiquid child). Other grids stay fog.
       points = 'fog',
     } = instanceSource ? { ...getProps(instanceSource), ...props } : props;
 
@@ -304,10 +304,11 @@ export class FrameVolume extends Three.Group {
       grids = levelSets === 'surfaceOnly' ? [] : grids.filter((grid) => !isLevelSet(grid));
     }
 
-    if (points === 'points') {
+    if (points === 'points' || points === 'liquid') {
       const isPointData = (grid) => grid instanceof GridDescriptor && grid.isPointData();
+      const createSurface = points === 'liquid' ? createVDBLiquid : createVDBPoints;
 
-      grids.filter(isPointData).forEach((grid) => this.addSurface(createVDBPoints(grid)));
+      grids.filter(isPointData).forEach((grid) => this.addSurface(createSurface(grid)));
 
       grids = grids.filter((grid) => !isPointData(grid));
     }
@@ -573,7 +574,7 @@ export class FrameVolume extends Three.Group {
     return new FrameVolume(this, props);
   }
 
-  // NOTE Shows a LevelSetSurface or VDBPoints with this volume: same transform and visibility. dispose() frees it.
+  // NOTE Shows a LevelSetSurface, VDBPoints or VDBLiquid with this volume: same transform and visibility. dispose() frees it.
   addSurface(surface) {
     this.surfaces.push(surface);
     this.add(surface);

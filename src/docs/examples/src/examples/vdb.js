@@ -49,9 +49,14 @@ const params = {
   temperatureMax: 6500.0,
   upAxis: 'y',
   emissiveGrid: 'flames',
-  // NOTE FrameVolume levelSets prop. 'surface' (Auto): level set grids are surfaces, point data grids are points,
-  // other grids are fog.
+  // NOTE FrameVolume levelSets prop. 'surface' (Auto): level set grids are surfaces, other grids are fog.
   levelSets: 'surface',
+  // NOTE FrameVolume points prop for point data grids: 'points', 'liquid' or 'fog'
+  points: 'points',
+  // NOTE Liquid only: sphere radius multiplier, depth filter multiplier, distance detail
+  liquidRadiusScale: 1.0,
+  liquidBlend: 1.0,
+  liquidLod: false,
   lighting: 'frame',
   animateLights: true,
   playing: true,
@@ -63,11 +68,30 @@ const params = {
 const getController = (id) =>
   gui.controllersRecursive().find((controller) => controller.property === id);
 
+// NOTE Liquid settings of each frame. Animation instances and copies read them from the frame liquids.
+const applyLiquidParams = () => {
+  animation?.frames.forEach((frame) => {
+    frame.surfaces
+      .filter((surface) => surface.isVDBLiquid)
+      .forEach((liquid) => {
+        liquid.radiusScale = params.liquidRadiusScale;
+        liquid.blend = params.liquidBlend;
+        liquid.lod = params.liquidLod;
+      });
+  });
+};
+
+const liquidFields = ['liquidRadiusScale', 'liquidBlend', 'liquidLod'];
+
+const showLiquidFields = () => {
+  liquidFields.forEach((id) => getController(id)?.show(params.points === 'liquid'));
+};
+
 // NOTE Level set surfaces cast shadows on the ground and on themselves. Copies take the flags.
 const applySurfaceShadows = () => {
   animation?.frames.forEach((frame) => {
     frame.surfaces.forEach((surface) => {
-      if (surface.isVDBPoints) {
+      if (surface.isVDBPoints || surface.isVDBLiquid) {
         return;
       }
 
@@ -210,7 +234,7 @@ const createAnimation = (urls) => {
       resolution: 200,
       progressive: true,
       levelSets: params.levelSets,
-      points: params.levelSets === 'surface' ? 'points' : 'fog',
+      points: params.points,
       ...(emissivePresets[params.emissiveGrid] && {
         emissiveGrid: params.emissiveGrid,
         emissiveScale: emissivePresets[params.emissiveGrid].emissiveScale,
@@ -225,6 +249,7 @@ const createAnimation = (urls) => {
       },
       ({ loadedFrames, totalFrames }) => {
         applySurfaceShadows();
+        applyLiquidParams();
 
         dropTarget.innerHTML =
           loadedFrames < totalFrames
@@ -279,6 +304,7 @@ const createWVDBAnimation = (urls) => {
       },
       ({ lod, loadedFrames, totalFrames }) => {
         applySurfaceShadows();
+        applyLiquidParams();
 
         dropTarget.innerHTML =
           lod === 0 && loadedFrames < totalFrames
@@ -955,9 +981,73 @@ export const exampleVDB = ({ scene }) => {
       ],
     },
     {
+      folder: 'Points',
+      children: [
+        {
+          id: 'pointsRender',
+          name: 'Render',
+          defaultValue: params.points,
+          // NOTE Point data grids only. Level set and other grids follow the General Render field.
+          options: {
+            Points: 'points',
+            Liquid: 'liquid',
+            Fog: 'fog',
+          },
+          onChange: (value) => {
+            if (value === params.points) {
+              return;
+            }
+
+            params.points = value;
+            showLiquidFields();
+
+            // NOTE Points are set at conversion. Convert the last files again.
+            if (lastFiles) {
+              dropId++;
+              loadFiles(lastFiles);
+            }
+          },
+        },
+        {
+          id: 'liquidRadiusScale',
+          name: 'Radius',
+          defaultValue: params.liquidRadiusScale,
+          min: 0.25,
+          max: 3.0,
+          onChange: (value) => {
+            params.liquidRadiusScale = value;
+            applyLiquidParams();
+          },
+        },
+        {
+          id: 'liquidBlend',
+          name: 'Blend',
+          defaultValue: params.liquidBlend,
+          min: 0.0,
+          max: 3.0,
+          onChange: (value) => {
+            params.liquidBlend = value;
+            applyLiquidParams();
+          },
+        },
+        {
+          id: 'liquidLod',
+          name: 'Distance Detail',
+          defaultValue: params.liquidLod,
+          onChange: (value) => {
+            params.liquidLod = value;
+            applyLiquidParams();
+          },
+        },
+      ],
+    },
+    {
       folder: 'Spectral',
       closed: true,
       children: createSpectralFields(params, setParam),
     },
   ]);
+
+  // NOTE The Points Render field calls onChange before the liquid fields exist
+  showLiquidFields();
 };

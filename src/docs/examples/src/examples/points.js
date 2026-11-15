@@ -13,9 +13,13 @@ const getController = (id) =>
 export const examplePoints = ({ scene }) => {
   const params = {
     model: 'sphere_points',
-    // NOTE 'points' (VDBPoints) or 'fog' (FrameVolume, density from the point offsets in voxels)
+    // NOTE 'points' (VDBPoints), 'liquid' (VDBLiquid) or 'fog' (FrameVolume, density from the point offsets in voxels)
     render: 'points',
     color: '#ffffff',
+    // NOTE Liquid only: sphere radius multiplier, depth filter multiplier, distance detail
+    radiusScale: 1.0,
+    blend: 1.0,
+    lod: false,
     upAxis: 'y',
   };
 
@@ -35,11 +39,26 @@ export const examplePoints = ({ scene }) => {
     }
   };
 
+  // NOTE Points: point color. Liquid: tint, a filter color (white is clear water).
   const applyColor = () => {
     if (entry?.object?.isVDBPoints) {
       entry.object.material.color.set(params.color);
     }
+
+    if (entry?.object?.isVDBLiquid) {
+      entry.object.color.set(params.color);
+    }
   };
+
+  const applyLiquid = () => {
+    if (entry?.object?.isVDBLiquid) {
+      entry.object.radiusScale = params.radiusScale;
+      entry.object.blend = params.blend;
+      entry.object.lod = params.lod;
+    }
+  };
+
+  const liquidFields = ['radiusScale', 'blend', 'lod'];
 
   const removePoints = () => {
     if (!entry) {
@@ -63,6 +82,7 @@ export const examplePoints = ({ scene }) => {
     entry.pivot.add(object);
     applyUpAxis();
     applyColor();
+    applyLiquid();
   };
 
   const rebuild = () => {
@@ -74,7 +94,8 @@ export const examplePoints = ({ scene }) => {
     const onBuilt = (object) => {
       if (isCurrent()) {
         const time = Math.round(performance.now() - startTime);
-        const count = object?.isVDBPoints ? `${object.pointCount.toLocaleString()} points, ` : '';
+        const count =
+          object?.isVDBPoints || object?.isVDBLiquid ? `${object.pointCount.toLocaleString()} points, ` : '';
 
         setStatus(`${count}built in ${time} ms`);
         setLoading('points', false);
@@ -110,10 +131,12 @@ export const examplePoints = ({ scene }) => {
 
         setStatus('Building...');
 
-        const object =
-          params.render === 'points'
-            ? new OpenVDB.VDBPoints(grid, {}, onBuilt)
-            : new OpenVDB.FrameVolume(grid, { resolution: 100, progressive: true }, onBuilt);
+        const objects = {
+          points: () => new OpenVDB.VDBPoints(grid, {}, onBuilt),
+          liquid: () => new OpenVDB.VDBLiquid(grid, {}, onBuilt),
+          fog: () => new OpenVDB.FrameVolume(grid, { resolution: 100, progressive: true }, onBuilt),
+        };
+        const object = objects[params.render]();
 
         addObject(object, bbox);
       },
@@ -138,9 +161,10 @@ export const examplePoints = ({ scene }) => {
           id: 'render',
           name: 'Render',
           defaultValue: params.render,
-          options: { Points: 'points', Fog: 'fog' },
+          options: { Points: 'points', Liquid: 'liquid', Fog: 'fog' },
           onChange: (value) => {
-            getController('color')?.show(value === 'points');
+            getController('color')?.show(value !== 'fog');
+            liquidFields.forEach((id) => getController(id)?.show(value === 'liquid'));
             rebuildOnChange('render')(value);
           },
         },
@@ -151,6 +175,37 @@ export const examplePoints = ({ scene }) => {
           onChange: (value) => {
             params.color = value;
             applyColor();
+          },
+        },
+        {
+          id: 'radiusScale',
+          name: 'Radius',
+          defaultValue: params.radiusScale,
+          min: 0.25,
+          max: 3.0,
+          onChange: (value) => {
+            params.radiusScale = value;
+            applyLiquid();
+          },
+        },
+        {
+          id: 'blend',
+          name: 'Blend',
+          defaultValue: params.blend,
+          min: 0.0,
+          max: 3.0,
+          onChange: (value) => {
+            params.blend = value;
+            applyLiquid();
+          },
+        },
+        {
+          id: 'lod',
+          name: 'Distance Detail',
+          defaultValue: params.lod,
+          onChange: (value) => {
+            params.lod = value;
+            applyLiquid();
           },
         },
         {
@@ -176,6 +231,8 @@ export const examplePoints = ({ scene }) => {
   ]);
 
   getController('status')?.disable();
+  // NOTE The Render field calls onChange before the liquid fields exist
+  liquidFields.forEach((id) => getController(id)?.show(params.render === 'liquid'));
 
   ready = true;
   rebuild();

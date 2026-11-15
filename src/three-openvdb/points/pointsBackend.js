@@ -1,6 +1,7 @@
-// NOTE VDBPoints class of the entry point: webgpu/ (index.js) or webgl/ (webgl.js).
-// FrameVolume makes points with it (points prop). Core code imports no backend.
+// NOTE VDBPoints and VDBLiquid classes of the entry point: webgpu/ (index.js) or webgl/ (webgl.js).
+// FrameVolume makes points with them (points prop). Core code imports no backend.
 let VDBPointsClass = null;
+let VDBLiquidClass = null;
 
 export const setVDBPointsClass = (pointsClass) => {
   VDBPointsClass = pointsClass;
@@ -12,4 +13,16 @@ export const createVDBPoints = (source, props) => {
   }
 
   return new VDBPointsClass(source, props);
+};
+
+export const setVDBLiquidClass = (liquidClass) => {
+  VDBLiquidClass = liquidClass;
+};
+
+export const createVDBLiquid = (source, props) => {
+  if (!VDBLiquidClass) {
+    throw new Error('VDBLiquid: no renderer backend. Import from "three-openvdb" or "three-openvdb/webgl".');
+  }
+
+  return new VDBLiquidClass(source, props);
 };
