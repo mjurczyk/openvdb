@@ -11,6 +11,8 @@ wvdb ./explosion_VDB.zip             # ZIP of .vdb files -> ./explosion_VDB_wvdb
 wvdb explosion.vdb --resolution 256 --lods 4
 ```
 
+Scalar and vector grids become voxel LODs. Point data grids become points: each LOD adds more points. Use `--max-points <n>` to keep fewer points.
+
 Each `.vdb` file gives one `.wvdb` file, also empty frames, so a sequence keeps its frame numbers. All frames of a folder or ZIP use one box, so voxels do not move between frames.
 
 Files convert in parallel, one per CPU core. Use `--jobs <n>` to use less memory.

@@ -8,6 +8,7 @@ import { FrameVolumeAnimation } from '../frame/core/FrameVolumeAnimation.js';
 import { WVDBReader } from './WVDBReader.js';
 import { WVDBVolumeData } from './WVDBLoader.js';
 import { createLevelSetSurface } from '../levelset/levelSetBackend.js';
+import { createVDBPoints } from '../points/pointsBackend.js';
 
 // NOTE These options are grid names, same as VDBAnimationLoader
 const gridOptions = ['emissiveGrid', 'baseColorGrid', 'maskGrid'];
@@ -25,6 +26,7 @@ class WVDBAnimationLoader extends Three.Loader {
   // NOTE FrameVolume props. All frames use the same props.
   // emissiveGrid, baseColorGrid and maskGrid are grid names. emissiveScale also scales the emission grid.
   // levelSets: 'fog', 'surface' or 'surfaceOnly', same as FrameVolume.
+  // Points grids are always VDBPoints children of their frame. They have no voxels for fog.
   setOptions(options) {
     this.options = { ...options };
 
@@ -193,13 +195,18 @@ class WVDBAnimationLoader extends Three.Loader {
       levelSets === 'fog'
         ? []
         : Object.values(grids).filter((grid) => grid.isLevelSet && !auxGrids.includes(grid));
+    const pointGrids = Object.values(grids).filter((grid) => grid.isPoints);
     const isFogGrid = (grid) =>
-      levelSets !== 'surfaceOnly' && !auxGrids.includes(grid) && !levelSetGrids.includes(grid);
+      levelSets !== 'surfaceOnly' &&
+      !grid.isPoints &&
+      !auxGrids.includes(grid) &&
+      !levelSetGrids.includes(grid);
     const densityGrid =
       (grids.density && isFogGrid(grids.density) && grids.density) ||
       Object.values(grids).find((grid) => !grid.isColor && isFogGrid(grid));
 
-    // NOTE Level set grids are LevelSetSurface children of the frame. They follow each new LOD.
+    // NOTE Level set grids are LevelSetSurface children of the frame, points grids are VDBPoints children.
+    // They follow each new LOD.
     const addSurfaces = (frame) => {
       levelSetGrids.forEach((grid) => {
         if (!grid.bbox.isEmpty()) {
@@ -207,6 +214,14 @@ class WVDBAnimationLoader extends Three.Loader {
         }
 
         frame.addSurface(volumeData.attach(createLevelSetSurface(grid)));
+      });
+
+      pointGrids.forEach((grid) => {
+        if (!grid.bbox.isEmpty()) {
+          animation.bbox.union(grid.bbox);
+        }
+
+        frame.addSurface(volumeData.attach(createVDBPoints(grid)));
       });
 
       return frame;

@@ -5,6 +5,34 @@ import { getDensityStats } from '../frame/core/FrameVolume.js';
 
 const textureKeys = ['densityMap3D', 'emissiveMap3D', 'baseColorMap3D', 'maskMap3D'];
 
+// NOTE Grids of a file with only empty grids have no box
+const toBox3 = (bbox) =>
+  bbox ? new Three.Box3(new Three.Vector3(...bbox[0]), new Three.Vector3(...bbox[1])) : new Three.Box3();
+
+// NOTE Points grid data for VDBPoints. The arrays have space for all LODs. count is the number of points in.
+const createPointsGridData = (grid) => ({
+  name: grid.name,
+  isPoints: true,
+  bbox: toBox3(grid.bbox),
+  get positions() {
+    return grid.positions;
+  },
+  get colors() {
+    return grid.colors;
+  },
+  get count() {
+    return grid.count;
+  },
+  // NOTE Mean distance of the points that are in. Fewer points have more distance between them.
+  get spacing() {
+    return grid.count > 0 ? grid.spacing * Math.cbrt(grid.totalCount / grid.count) : grid.spacing;
+  },
+  get lod() {
+    return grid.lod;
+  },
+  source: grid,
+});
+
 // NOTE Each LOD has its own size. A texture with a new size needs new GPU memory, so it is disposed first.
 const updateTexture = (texture, { data, dimensions: [width, height, depth] }) => {
   const { image } = texture;
@@ -30,6 +58,12 @@ export class WVDBVolumeData {
   // NOTE Grid data always shows the newest LOD
   readGrids() {
     Object.values(this.reader.grids).forEach((grid) => {
+      if (grid.isPoints) {
+        this.grids[grid.name] = createPointsGridData(grid);
+
+        return;
+      }
+
       const { name, class: gridClass, channels, bbox } = grid;
 
       this.grids[name] = {
@@ -37,10 +71,7 @@ export class WVDBVolumeData {
         isLevelSet: gridClass === 'level set',
         // NOTE Vector grids give RGBA colour (baseColorGrid), scalar grids give density
         isColor: channels === 3,
-        // NOTE Grids of a file with only empty grids have no box
-        bbox: bbox
-          ? new Three.Box3(new Three.Vector3(...bbox[0]), new Three.Vector3(...bbox[1]))
-          : new Three.Box3(),
+        bbox: toBox3(bbox),
         get data() {
           return grid.data;
         },
@@ -85,6 +116,17 @@ export class WVDBVolumeData {
   attach(object) {
     const grids = Object.values(this.grids);
 
+    // NOTE VDBPoints reads its points grid again when more points are in
+    if (object.pointsSource) {
+      const grid = grids.find((entry) => entry === object.pointsSource);
+
+      if (grid) {
+        this.bindings.push({ object, grid: grid.source, count: grid.count });
+      }
+
+      return object;
+    }
+
     // NOTE LevelSetMesh and LevelSetSurface build again from their grid when the distance changes
     if (object.levelSetSource) {
       const grid = grids.find((entry) => entry === object.levelSetSource);
@@ -128,6 +170,15 @@ export class WVDBVolumeData {
 
     this.bindings.forEach((binding) => {
       const { object, texture, grid, statsHolder } = binding;
+
+      if (grid.isPoints) {
+        if (binding.count !== grid.count) {
+          binding.count = grid.count;
+          object.update();
+        }
+
+        return;
+      }
 
       if (!texture) {
         if (binding.distance !== grid.distance) {

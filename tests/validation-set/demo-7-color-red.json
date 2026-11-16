@@ -1,4 +1,6 @@
 {
   "demo": "points",
+  "model": "sphere_points",
+  "format": "vdb",
   "color": "#ff4040"
 }

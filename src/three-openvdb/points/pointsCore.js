@@ -31,9 +31,16 @@ export const getPointDiscTexture = () => {
 };
 
 // NOTE Decodes the points in slices. onDone gets the createPointData result. Returns a cancel function.
+// A points grid of WVDBVolumeData is decoded already. onDone gets it at once, and there is no cancel function.
 export const buildPointData = (source, { maxPoints = defaultMaxPoints } = {}, onDone) => {
+  if (source?.isPoints) {
+    onDone(source);
+
+    return null;
+  }
+
   if (!source?.isPointData?.()) {
-    throw new Error('VDBPoints: source must be a point data grid.');
+    throw new Error('VDBPoints: source must be a point data grid or a points grid of WVDBVolumeData.');
   }
 
   const pointData = createPointData(source, { maxPoints });
