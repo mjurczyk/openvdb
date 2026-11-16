@@ -8,7 +8,7 @@ Extension: .wvdb
 
 ## Abstract
 
-This document specifies WebVDB, a file format for web-optimised sparse volumetric grids. A WebVDB file contains scalar and vector grids. Each grid has a sequence of levels of detail (LODs), from coarse to fine. Each LOD is divided into bricks of 8 x 8 x 8 voxels. Each brick is quantized and stored in compressed chunks. The chunks are in coarse-to-fine order. Thus a reader can decode a coarse LOD before it reads the finer LODs.
+This document specifies WebVDB, a file format for web-optimised sparse volumetric grids. A WebVDB file contains scalar and vector grids, and points grids (version 2). Each grid has a sequence of levels of detail (LODs), from coarse to fine. Each LOD is divided into bricks of 8 x 8 x 8 voxels. Each brick is quantized and stored in compressed chunks. The chunks are in coarse-to-fine order. Thus a reader can decode a coarse LOD before it reads the finer LODs. A points grid stores points. Each LOD of a points grid adds points to the points of the LODs before it.
 
 ## Table of contents
 
@@ -59,7 +59,7 @@ The keywords "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SH
 | --- | --- |
 | Writer | A program that makes a WebVDB file. |
 | Reader | A program that reads a WebVDB file. |
-| Grid | One named volumetric field. A grid has 1 channel (scalar) or 3 channels (vector). |
+| Grid | One named volumetric field (volume grid) or one named set of points (points grid). A volume grid has 1 channel (scalar) or 3 channels (vector). |
 | Channel | One scalar component of a grid value. |
 | Box | An axis-aligned box in world space: `[[minX, minY, minZ], [maxX, maxY, maxZ]]`. |
 | LOD | One level of detail of a grid: a regular 3D array of voxels. LOD 0 is the coarsest LOD. |
@@ -67,7 +67,8 @@ The keywords "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SH
 | Brick | A block of 8 x 8 x 8 voxels of one LOD. |
 | Brick channel | The 512 values of one channel of one brick. |
 | Background | The value of a grid where the grid has no data. |
-| Chunk | One compressed unit of data. A chunk is a mask chunk or a page chunk. |
+| Chunk | One compressed unit of data. A chunk is a mask chunk, a page chunk or a points chunk. |
+| Point | One position in world space, and optionally one colour. |
 | Data section | The bytes after the header. The data section contains all chunks. |
 
 ### 2.3. Notation
@@ -85,7 +86,7 @@ The keywords "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SH
 
 ### 3.1. Grids
 
-A file contains zero or more grids. Each grid has:
+A file contains zero or more grids. Each grid is a volume grid or a points grid (3.5). A volume grid has:
 
 - a name, which is unique in the file
 - a class (see 5.4)
@@ -94,7 +95,7 @@ A file contains zero or more grids. Each grid has:
 - a box
 - one or more LODs
 
-All grids of a file MUST have the same number of LODs.
+All grids of a file MUST have the same number of LODs. Sections 3.2 to 3.4 apply to volume grids.
 
 ### 3.2. LODs
 
@@ -154,6 +155,21 @@ Each LOD has one of two layouts:
 
 A writer MUST NOT omit a brick that has a value different from the background. A writer MAY store a brick that has only background values.
 
+### 3.5. Points grids
+
+A points grid has a name, a class, a box, a number of stored points `N`, and optionally one colour for each point. The box contains all stored points. Each point has a stored index `i` from `0` to `N - 1`.
+
+Each LOD of a points grid contains some of the stored points. Let `n` be the number of LODs. Point `i` is in LOD `k`, where `k` is the smallest LOD for which `i` is a multiple of `8^(n - 1 - k)`. Thus:
+
+- LOD 0 contains the points `0`, `8^(n - 1)`, `2 * 8^(n - 1)`, and so on.
+- Each LOD contains approximately 8 times the points of the LOD before it, the same as the voxels of a volume grid.
+- The points of LODs `0` to `k` are all stored points with an index that is a multiple of `8^(n - 1 - k)`.
+- The points of LODs `0` to `n - 1` are all stored points.
+
+A reader that shows LOD `k` shows the points of LODs `0` to `k`.
+
+A writer SHOULD give the stored indices in an order where near indices are near in space. Then each LOD is a uniform subset of the points. A writer MAY store fewer points than the source (for example every `m`-th source point).
+
 ## 4. File structure
 
 A file has three parts:
@@ -161,7 +177,7 @@ A file has three parts:
 | Offset | Size | Field | Value |
 | --- | --- | --- | --- |
 | 0 | 4 | magic | The ASCII bytes `W`, `V`, `D`, `B` (`0x57 0x56 0x44 0x42`) |
-| 4 | 4 | version | `uint32`. This document specifies version 1. |
+| 4 | 4 | version | `uint32`. This document specifies versions 1 and 2 (section 11). |
 | 8 | 4 | headerLength | `uint32`. The length of the header in bytes. |
 | 12 | headerLength | header | JSON text [RFC8259], UTF-8 [RFC3629], without a byte order mark |
 | 12 + headerLength | rest of file | data section | All chunks |
@@ -181,7 +197,7 @@ The header is one JSON object. A reader MUST ignore header members that this doc
 | `version` | integer | yes | MUST be equal to the version in the file structure (section 4). |
 | `source` | object | yes | The source file (5.3). |
 | `bake` | object | yes | The parameters that made the file (5.5). |
-| `brickDim` | integer | yes | MUST be 8 in version 1. |
+| `brickDim` | integer | yes | MUST be 8. |
 | `grids` | array of objects | yes | The grids (5.4), in chunk order (section 9). MAY be empty. |
 
 ### 5.3. Source object
@@ -193,9 +209,12 @@ The header is one JSON object. A reader MUST ignore header members that this doc
 
 ### 5.4. Grid object
 
+This section specifies the grid object of a volume grid. Section 5.7 specifies the grid object of a points grid.
+
 | Member | Type | Required | Description |
 | --- | --- | --- | --- |
 | `name` | string | yes | The grid name. MUST be unique in the file. |
+| `type` | string | no | `"volume"` or `"points"`. The default is `"volume"`. Version 2 only. `"points"`: see 5.7. |
 | `class` | string | yes | The grid class of the source grid: `"fog volume"`, `"level set"`, `"staggered"` or `"unknown"`. Section 8 specifies `"level set"`. A reader MUST process other values as `"unknown"`. |
 | `channels` | integer | no | 1 (scalar grid) or 3 (vector grid). The default is 1. |
 | `background` | number or array | yes | A float32 value if `channels` is 1. An array of 3 float32 values if `channels` is 3. |
@@ -214,7 +233,8 @@ The header is one JSON object. A reader MUST ignore header members that this doc
 | `layout` | string | yes | `"dense"` or `"sparse"`. The layout that the writer requested. |
 | `pageBricks` | integer | yes | The maximum number of bricks in one page chunk. |
 | `grids` | array of strings or `null` | yes | The names of the source grids that the writer selected. `null` selects all supported grids. |
-| `bbox` | box or `null` | no | The box that the writer used for all grids (section 10). `null` or absent: the writer calculated the box from the grids of the source file. |
+| `bbox` | box or `null` | no | The box that the writer used for all volume grids (section 10). `null` or absent: the writer calculated the box from the volume grids of the source file. |
+| `maxPoints` | integer | no | The maximum number of stored points of each points grid that the writer requested. |
 
 A reader MUST use `bits` and `lods` to decode the file. The other members record the parameters of the writer. A reader MUST NOT use them to decode the file.
 
@@ -241,6 +261,37 @@ A page reference is a chunk reference with one more member:
 | `bricks` | integer | yes | The number of bricks in the page. 1 or more. |
 
 A LOD with the dense layout MUST store all bricks. Thus `bricks` MUST be equal to `brickTotal` (3.3).
+
+### 5.7. Points grid object
+
+Version 2 only. A grid object with `type` equal to `"points"` has these members:
+
+| Member | Type | Required | Description |
+| --- | --- | --- | --- |
+| `name` | string | yes | The grid name. MUST be unique in the file. |
+| `type` | string | yes | `"points"`. |
+| `class` | string | yes | The grid class of the source grid. Same as 5.4. |
+| `count` | integer | yes | The number of stored points `N` (3.5). |
+| `sourceCount` | integer | no | The number of points of the source grid. |
+| `spacing` | number | no | The mean distance between the stored points, in world units. Readers can use it for the size of a point. With the points of LODs `0` to `k` only, the mean distance is approximately `spacing * cbrt(N / pointsOfLods0ToK)`. |
+| `colors` | boolean | yes | `true` if each point has a colour. |
+| `bbox` | box or `null` | yes | The box of the stored points. `null` if `count` is 0. |
+| `lods` | array of objects | yes | The points LODs, from LOD 0 to the finest LOD. |
+
+A points LOD object has these members:
+
+| Member | Type | Required | Description |
+| --- | --- | --- | --- |
+| `points` | integer | yes | The number of points of the LOD (3.5). MUST be equal to the sum of `points` of all pages. |
+| `pages` | array of points page references | yes | The points chunks (6.4), in file order. MAY be empty. |
+
+A points page reference is a chunk reference with one more member:
+
+| Member | Type | Required | Description |
+| --- | --- | --- | --- |
+| `points` | integer | yes | The number of points in the chunk. 1 or more. |
+
+The points of a LOD are in the chunks of that LOD in increasing stored index order. The sum of `points` of all LODs MUST be equal to `count`.
 
 ## 6. Chunks
 
@@ -283,6 +334,31 @@ words[index >>> 5] & (1 << (index & 31))
 Thus bit 0 (the least significant bit) of word 0 is brick 0. Bits after bit `brickTotal - 1` MUST be zero.
 
 The set of stored bricks in the mask MUST be equal to the set of indices in the pages of the LOD.
+
+### 6.4. Points chunk
+
+A points chunk contains some points of one LOD of one points grid. Let `count` be the `points` value of the points page reference. The inflated chunk has these fields, in this order, without padding:
+
+| Field | Type | Count | Description |
+| --- | --- | --- | --- |
+| pointCount | `uint32` | 1 | MUST be equal to `count`. |
+| min | `float32` | 3 | The minimum of the x, y and z positions of the points of the chunk. |
+| max | `float32` | 3 | The maximum of the x, y and z positions of the points of the chunk. |
+| xHigh | `uint8` | `count` | The high bytes of the x codes. |
+| xLow | `uint8` | `count` | The low bytes of the x codes. |
+| yHigh | `uint8` | `count` | The high bytes of the y codes. |
+| yLow | `uint8` | `count` | The low bytes of the y codes. |
+| zHigh | `uint8` | `count` | The high bytes of the z codes. |
+| zLow | `uint8` | `count` | The low bytes of the z codes. |
+| red | `uint8` | `count` | Present only if `colors` of the grid is `true`. |
+| green | `uint8` | `count` | Present only if `colors` of the grid is `true`. |
+| blue | `uint8` | `count` | Present only if `colors` of the grid is `true`. |
+
+Field `j` of each array is point `j` of the chunk. The code of an axis is `high * 256 + low`, from 0 to 65535. The separate byte planes compress better than interleaved values.
+
+A writer MUST calculate each code with the rules of 7.1, with `bits` equal to 16, and `min` and `max` of that axis of the chunk. If `min` is equal to `max`, all codes of that axis MUST be 0. A reader MUST decode each position with the rules of 7.2, with `bits` equal to 16. These rules do not use the `bits` value of the bake object.
+
+A colour channel value `c` from 0 to 1 is stored as `round(clamp(c, 0, 1) * 255)`. A reader decodes it as `byte / 255`.
 
 ## 7. Quantization
 
@@ -334,7 +410,7 @@ A writer MUST write the chunks in this order:
 1. For each LOD `k` from 0 to the finest LOD:
 2. For each grid, in the order of the `grids` array:
 3. The mask chunk of LOD `k` of the grid, if present.
-4. The page chunks of LOD `k` of the grid, in the order of the `pages` array.
+4. The page chunks or points chunks of LOD `k` of the grid, in the order of the `pages` array.
 
 The data section MUST contain only the chunks, in this order, without gaps. Thus the offset of the first chunk is 0, and the offset of each next chunk is the end of the chunk before it.
 
@@ -352,7 +428,7 @@ A sequence is an ordered set of WebVDB files. Each file contains one frame.
 
 - Each source frame MUST give one file, also a frame where all grids have no data. Thus file `i` is frame `i`.
 - All files of a sequence SHOULD have the same grids, in the same order.
-- All grids of all files of a sequence SHOULD have the same box. The writer records this box in `bake.bbox`. Thus a voxel of a frame is at the same world position as the same voxel of each other frame.
+- All volume grids of all files of a sequence SHOULD have the same box. The writer records this box in `bake.bbox`. Thus a voxel of a frame is at the same world position as the same voxel of each other frame. Points grids have the box of their points (5.7).
 
 ## 11. Versioning and extensions
 
@@ -360,6 +436,8 @@ A sequence is an ordered set of WebVDB files. Each file contains one frame.
 - A writer MUST increase the version for each change that a version 1 reader cannot read correctly when it ignores unknown members.
 - A writer MAY add header members without a version change, if a version 1 reader can ignore them and decode the file correctly.
 - A writer MUST NOT change the meaning of a specified member without a version change.
+
+Version 2 adds points grids (3.5, 5.7 and 6.4). A version 1 reader cannot read them. A writer MUST write version 2 if the file has a points grid. A writer MUST write version 1 if the file has no points grid. Then version 1 readers can read all files without points grids. A version 2 reader MUST read version 1 files.
 
 ## 12. Conformance
 
@@ -372,7 +450,7 @@ A conforming writer MUST obey all writer requirements of sections 3 to 10. Two r
 A conforming reader MUST:
 
 1. Validate the magic, the version and `brickDim`.
-2. Inflate and decode each chunk as specified in sections 6 and 7.
+2. Inflate and decode each chunk as specified in sections 6 and 7. A version 2 reader decodes points chunks as specified in 6.4.
 3. Use the background for the bricks that a sparse LOD does not store.
 4. Ignore the voxels outside each LOD (3.3).
 5. Apply the rules of section 8 to level set grids.
@@ -400,7 +478,7 @@ A WebVDB file can come from an untrusted source. A reader MUST validate the file
 - The header MUST be valid JSON with the required members and types.
 - Each chunk MUST be inside the data section: `offset + length` MUST NOT be more than the length of the data section.
 - Each brick index MUST be less than `brickTotal`.
-- The inflated size of each chunk MUST be equal to the size that the header gives (Appendix B and 6.3). A reader MUST stop to inflate a chunk when the output is larger than this size.
+- The inflated size of each chunk MUST be equal to the size that the header gives (Appendix B, 6.3 and 6.4). A reader MUST stop to inflate a chunk when the output is larger than this size.
 - A reader SHOULD set a maximum for `X * Y * Z * channels` of each LOD before it allocates memory.
 
 The header contains a file name and a digest of the source file. It contains no executable data.
@@ -491,3 +569,12 @@ Let `count` be the brick count of the page, `channels` the channel count of the 
 ```
 
 A reader can calculate `varying` after it reads mins and maxs.
+
+The size of an inflated points chunk (6.4) in bytes, with `count` the point count of the chunk and `c` equal to 3 if the grid has colours and 0 if not:
+
+```
+4                                   pointCount
++ 24                                min and max
++ 6 * count                         position codes
++ c * count                         colours
+```

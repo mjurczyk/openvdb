@@ -12,9 +12,16 @@
 //   codes                              (brickVoxels uint8 or uint16 values per brick channel with min !== max)
 // Mask chunk (sparse layout only), after inflate:
 //   uint32 words[ceil(brick total / 32)]   (bit set = brick is stored)
+// Points chunk (points grids, version 2), after inflate:
+//   uint32 point count
+//   float32 min[3], float32 max[3]     (box of the points of the chunk)
+//   uint8 codes[6 * count]             (x high bytes, x low bytes, y high, y low, z high, z low)
+//   uint8 colors[3 * count]            (red, green, blue; only if the grid has colors)
 
 export const wvdbMagic = 'WVDB';
-export const wvdbVersion = 1;
+// NOTE Newest version that this code reads. Writers use version 1 for files without points grids.
+export const wvdbVersion = 2;
+export const wvdbPointsVersion = 2;
 
 // NOTE Magic, version and header length
 export const wvdbPreambleSize = 12;
@@ -27,6 +34,14 @@ export const wvdbLayouts = {
   dense: 'dense',
   sparse: 'sparse',
 };
+
+export const wvdbGridTypes = {
+  volume: 'volume',
+  points: 'points',
+};
+
+// NOTE Point positions are 16-bit codes in the box of their chunk
+const pointCodeMax = 0xffff;
 
 export const getBrickCounts = ([x, y, z]) => [
   Math.ceil(x / brickDim),
@@ -193,6 +208,100 @@ export function decodeWVDBPage(bytes, { layout, bits, firstIndex = 0, channels =
   return { indices, values };
 }
 
+// NOTE positions: Float32Array(count * 3), colors: Float32Array(count * 3) or null (0.0 to 1.0).
+// High and low bytes are in separate planes. Deflate compresses the high bytes well.
+export const encodeWVDBPoints = (positions, colors) => {
+  const count = positions.length / 3;
+  const size = 4 + 24 + 6 * count + (colors ? 3 * count : 0);
+  const view = new DataView(new ArrayBuffer(size));
+  const bytes = new Uint8Array(view.buffer);
+
+  view.setUint32(0, count, true);
+
+  for (let axis = 0; axis < 3; axis++) {
+    let min = Infinity;
+    let max = -Infinity;
+
+    for (let point = 0; point < count; point++) {
+      min = Math.min(min, positions[point * 3 + axis]);
+      max = Math.max(max, positions[point * 3 + axis]);
+    }
+
+    min = count > 0 ? Math.fround(min) : 0.0;
+    max = count > 0 ? Math.fround(max) : 0.0;
+
+    view.setFloat32(4 + axis * 4, min, true);
+    view.setFloat32(16 + axis * 4, max, true);
+
+    const scale = min === max ? 0.0 : pointCodeMax / (max - min);
+    const high = 28 + axis * 2 * count;
+    const low = high + count;
+
+    for (let point = 0; point < count; point++) {
+      const code = Math.min(
+        Math.max(Math.round((positions[point * 3 + axis] - min) * scale), 0),
+        pointCodeMax
+      );
+
+      bytes[high + point] = code >>> 8;
+      bytes[low + point] = code & 0xff;
+    }
+  }
+
+  if (colors) {
+    const start = 28 + 6 * count;
+
+    for (let channel = 0; channel < 3; channel++) {
+      for (let point = 0; point < count; point++) {
+        const value = colors[point * 3 + channel];
+
+        bytes[start + channel * count + point] = Math.round(
+          Math.min(Math.max(Number.isFinite(value) ? value : 1.0, 0.0), 1.0) * 255.0
+        );
+      }
+    }
+  }
+
+  return bytes;
+};
+
+// NOTE Workers run this function from its source text. It must not use names from outside the function.
+// Returns positions and colors (or null) as Float32Array(count * 3).
+export function decodeWVDBPoints(bytes, { colors: hasColors }) {
+  const codeMax = 0xffff;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const count = view.getUint32(0, true);
+  const positions = new Float32Array(count * 3);
+  const colors = hasColors ? new Float32Array(count * 3) : null;
+
+  for (let axis = 0; axis < 3; axis++) {
+    const min = view.getFloat32(4 + axis * 4, true);
+    const max = view.getFloat32(16 + axis * 4, true);
+    const step = (max - min) / codeMax;
+    const high = 28 + axis * 2 * count;
+    const low = high + count;
+
+    for (let point = 0; point < count; point++) {
+      const code = (bytes[high + point] << 8) | bytes[low + point];
+
+      // NOTE The end codes give min and max exactly
+      positions[point * 3 + axis] = code === codeMax ? max : min + code * step;
+    }
+  }
+
+  if (colors) {
+    const start = 28 + 6 * count;
+
+    for (let channel = 0; channel < 3; channel++) {
+      for (let point = 0; point < count; point++) {
+        colors[point * 3 + channel] = bytes[start + channel * count + point] / 255.0;
+      }
+    }
+  }
+
+  return { positions, colors };
+}
+
 export const encodeWVDBMask = (indices, total) => {
   const words = new Uint32Array(Math.ceil(total / 32));
 
@@ -236,7 +345,7 @@ export const writeWVDBFile = (header, chunks) => {
   const view = new DataView(file.buffer);
 
   file.set(new TextEncoder().encode(wvdbMagic), 0);
-  view.setUint32(4, wvdbVersion, true);
+  view.setUint32(4, header.version, true);
   view.setUint32(8, headerBytes.length, true);
   file.set(headerBytes, wvdbPreambleSize);
 
@@ -279,13 +388,24 @@ export const readWVDBHeader = (bytes) => {
   };
 };
 
-// NOTE Chunks of LOD 0 to maxLod in file order
+// NOTE Chunks of LOD 0 to maxLod in file order. firstPoint is the number of points of a grid before the chunk.
 export const getWVDBChunks = (header, maxLod = Infinity) => {
   const chunks = [];
 
   header.grids.forEach((grid, gridIndex) => {
+    let firstPoint = 0;
+
     grid.lods.forEach(({ mask, pages }, lod) => {
       if (lod > maxLod) {
+        return;
+      }
+
+      if (grid.type === wvdbGridTypes.points) {
+        pages.forEach(({ offset, length, points }) => {
+          chunks.push({ gridIndex, lod, kind: 'points', offset, length, firstPoint });
+          firstPoint += points;
+        });
+
         return;
       }
 

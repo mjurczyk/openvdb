@@ -179,7 +179,7 @@ Loads a `.wvdb` file (see [WVDB files](#wvdb-files)) as a stream. `onLoad( volum
 
 - `WVDBAnimationLoader( manager ).setOptions( props ).load( urls, onLoad, onProgress, onError ): FrameVolumeAnimation`
 
-Loads a `.wvdb` sequence (one file per frame) as a `FrameVolumeAnimation`. LOD 0 of all frames loads first, then `onLoad( animation )` is called and the animation can play. Then LOD 1 of all frames, and so on. Each pass requests only the first bytes of each file, up to the end of that LOD (`Range: bytes=0-N`). This also works when the host compresses responses. Each pass reads the earlier LODs again. `props` are `FrameVolume` props for all frames. `emissiveGrid`, `baseColorGrid` and `maskGrid` are grid names, `emissiveScale` also scales the emission grid. `onProgress({ lod, loadedFrames, totalFrames })` is called when a frame gets a LOD. Also `setMaxLod( lod )` (the downloads stop after that LOD) and `setConcurrency( files )` (files that load at the same time in each pass, default: all).
+Loads a `.wvdb` sequence (one file per frame) as a `FrameVolumeAnimation`. LOD 0 of all frames loads first, then `onLoad( animation )` is called and the animation can play. Then LOD 1 of all frames, and so on. Each pass requests only the first bytes of each file, up to the end of that LOD (`Range: bytes=0-N`). This also works when the host compresses responses. Each pass reads the earlier LODs again. `props` are `FrameVolume` props for all frames. `emissiveGrid`, `baseColorGrid` and `maskGrid` are grid names, `emissiveScale` also scales the emission grid. Points grids are `VDBPoints` children of their frame. `onProgress({ lod, loadedFrames, totalFrames })` is called when a frame gets a LOD. Also `setMaxLod( lod )` (the downloads stop after that LOD) and `setConcurrency( files )` (files that load at the same time in each pass, default: all).
 
 ```js
 new OpenVDB.WVDBLoader().load('./assets/bunny_cloud.wvdb', (volumeData) => {
@@ -430,7 +430,7 @@ FrameVolume prop `levelSets` uses it for level set grids (the `class` metadata o
 
 ### VDBPoints
 
-- `VDBPoints( grid: OpenVDB.GridDescriptor, { maxPoints, size, color, opacity }, onConverted: ( points ) => void ): Three.Points | Three.Sprite`
+- `VDBPoints( grid: OpenVDB.GridDescriptor | WVDBVolumeData points grid, { maxPoints, size, color, opacity }, onConverted: ( points ) => void ): Three.Points | Three.Sprite`
 
 A point data grid (`grid.isPointData()`) stores particles: the points in each voxel and their attributes. `VDBPoints` shows them as round points. Positions come from the `P` attribute, colors from `Cd` (when the grid has it, multiplied by `color`). Codecs: `null`, `trnc`, `fxpt8`, `fxpt16`, `ufxpt8` and `ufxpt16`. Other attributes are not read.
 
@@ -439,6 +439,16 @@ A point data grid (`grid.isPointData()`) stores particles: the points in each vo
 `three-openvdb` (WebGPURenderer) draws a `Three.Sprite` with one instance for each point (`PointsNodeMaterial`), because WebGPU points are 1 pixel. `three-openvdb/webgl` draws `Three.Points` (`PointsMaterial`). The points are not lit and cast no shadows.
 
 FrameVolume prop `points`: `'fog'` (default, density from the point offsets in voxels) or `'points'` (each point data grid is a `VDBPoints` child of the volume, in `frameVolume.surfaces`, other grids stay fog). `VDBAnimationLoader` takes it in `setOptions()`.
+
+A points grid of `WVDBVolumeData` (`grid.isPoints`) has the decoded points of the LODs that are in. Call `volumeData.attach( points )`, so each new LOD adds its points. Only the new points go to the GPU. The default size grows smaller when more points are in. `WVDBAnimationLoader` shows points grids as `VDBPoints` children of their frame. They have no voxels, so there is no fog for them.
+
+```js
+new OpenVDB.WVDBLoader().load('./assets/sphere_points.wvdb', (volumeData) => {
+  const grid = Object.values(volumeData.grids).find(({ isPoints }) => isPoints);
+
+  scene.add(volumeData.attach(new OpenVDB.VDBPoints(grid)));
+});
+```
 
 `openvdb` has `getPointCount( grid )` and `createPointData( grid, { maxPoints } )`. It returns `{ positions, colors, count, totalCount, stride, spacing, task }`. `positions` and `colors` are `Float32Array` (`colors` is `null` without `Cd`). They are full when the generator `task` is done.
 
@@ -457,9 +467,11 @@ wvdb ./explosion_VDB        # folder of .vdb files -> ./explosion_VDB_wvdb/
 wvdb ./explosion_VDB.zip    # ZIP of .vdb files -> ./explosion_VDB_wvdb/
 ```
 
-Options: `--output`, `--grids <a,b>`, `--resolution` (default `128`, texels on the longest box side of the finest LOD, texels are cubes), `--lods` (default `3`), `--bits` (`8` or `16`, default `8`), `--layout` (`sparse` or `dense`, default `sparse`), `--page-bricks` (default `1024`), `--jobs` (files converted at the same time, default: CPU core count).
+Options: `--output`, `--grids <a,b>`, `--resolution` (default `128`, texels on the longest box side of the finest LOD, texels are cubes), `--lods` (default `3`), `--bits` (`8` or `16`, default `8`), `--layout` (`sparse` or `dense`, default `sparse`), `--page-bricks` (default `1024`), `--max-points` (default `4000000`, points kept of each point data grid, above it every n-th point is kept), `--jobs` (files converted at the same time, default: CPU core count).
 
 Each `.vdb` file gives one `.wvdb` file, also empty frames. All grids of a file use one box. All frames of a folder or ZIP use one box, so voxels do not move between frames.
+
+Point data grids become points grids: positions (16-bit in the box of each chunk) and colors (`Cd`, 8-bit). Each LOD has approximately 8 times the points of the LOD before it, and adds them to the points before it. Files with points grids are format version 2. Files without points grids stay version 1.
 
 ## Current Feature Support
 

@@ -9,6 +9,10 @@
 - `FrameVolume` instances make a new surface instance when the surface class of the new source frame is different
 - Examples: Points demo (`?demo=points`): `sphere_points.vdb` as points or fog. Custom VDB Render Auto shows point data grids as points
 - Examples: Custom VDB scales files with a longest side under 40 units up to 100 units (all axes the same)
+- `wvdb` CLI: point data grids become points grids (format version 2). Positions are 16-bit in the box of each chunk, colors (`Cd`) 8-bit. Each LOD adds approximately 8 times the points of the LOD before it. New option `--max-points` (default `4000000`). Files without points grids stay version 1
+- `VDBPoints` takes a points grid of `WVDBVolumeData`. `volumeData.attach( points )` adds the points of each new LOD. `WVDBAnimationLoader` shows points grids as `VDBPoints` children of their frame. Both `three-openvdb` and `three-openvdb/webgl`
+- `openvdb`: `encodeWVDBPoints`, `decodeWVDBPoints` and `wvdbGridTypes`. `wvdbVersion` is `2`
+- Examples: Points demo has a Model field: Boat (default, `boat_points.wvdb`, WVDB only) or Sphere. Sphere has a Format field: WVDB (default) or VDB
 
 - `LevelSetMesh`: the surface of a level set grid as a three.js mesh (marching cubes). Source: a level set `GridDescriptor` (`resolution`, default `200`) or a level set grid of `WVDBVolumeData` (`volumeData.attach( mesh )` builds it again for each LOD). Normals come from a Sobel gradient of the distance, then 2 passes of smoothing on the mesh. Any three.js material. Both `three-openvdb` and `three-openvdb/webgl`
 - Experimental `LevelSetSurface`: the surface of a level set, traced on the GPU in the box of the grid (`MeshStandardNodeMaterial`, lights, environment, shadows and depth at the traced point). Same sources as `LevelSetMesh`. Both `three-openvdb` and `three-openvdb/webgl`

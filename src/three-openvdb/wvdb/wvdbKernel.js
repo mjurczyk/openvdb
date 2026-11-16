@@ -1,7 +1,7 @@
 // NOTE Workers run this function from its source text. It must not use imports or names from outside the function.
-// decodePage and decodeMask are decodeWVDBPage and decodeWVDBMask from openvdb.
+// decodePage, decodeMask and decodePoints are decodeWVDBPage, decodeWVDBMask and decodeWVDBPoints from openvdb.
 // One kernel serves many readers. State is kept for each reader id.
-export function wvdbKernel(decodePage, decodeMask) {
+export function wvdbKernel(decodePage, decodeMask, decodePoints) {
   const brickDim = 8;
   const brickVoxels = brickDim * brickDim * brickDim;
 
@@ -227,7 +227,7 @@ export function wvdbKernel(decodePage, decodeMask) {
     // NOTE Each LOD has its own texture size. A LOD with one page gives its texture after that page.
     // A LOD with more pages starts from the previous LOD (upsampled) and gives a texture after each page,
     // so it gets sharper page by page.
-    chunk: async ({ readerId, gridIndex, lod: lodIndex, kind, firstIndex, bytes }) => {
+    chunk: async ({ readerId, gridIndex, lod: lodIndex, kind, firstIndex, firstPoint, bytes }) => {
       const config = configs[readerId];
 
       if (!config) {
@@ -235,6 +235,14 @@ export function wvdbKernel(decodePage, decodeMask) {
       }
 
       const grid = config.grids[gridIndex];
+
+      // NOTE Points chunks give the points of the chunk. The reader puts them after firstPoint.
+      if (kind === 'points') {
+        const { positions, colors } = decodePoints(await inflate(bytes), { colors: grid.colors });
+
+        return { type: 'points', gridIndex, lod: lodIndex, firstPoint, positions, colors };
+      }
+
       const lod = grid.lods[lodIndex];
       const gridKey = `${readerId}:${gridIndex}`;
       const key = `${gridKey}:${lodIndex}`;

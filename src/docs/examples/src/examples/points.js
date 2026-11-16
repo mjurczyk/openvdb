@@ -12,8 +12,11 @@ const getController = (id) =>
 
 export const examplePoints = ({ scene }) => {
   const params = {
-    model: 'sphere_points',
-    // NOTE 'points' (VDBPoints) or 'fog' (FrameVolume, density from the point offsets in voxels)
+    model: 'boat_points',
+    // NOTE 'wvdb' (streamed LODs, each LOD adds points) or 'vdb' (the full file)
+    format: 'wvdb',
+    // NOTE VDB only: 'points' (VDBPoints) or 'fog' (FrameVolume, density from the point offsets in voxels).
+    // WVDB points grids have no voxels, so they are always points.
     render: 'points',
     color: '#ffffff',
     upAxis: 'y',
@@ -35,6 +38,13 @@ export const examplePoints = ({ scene }) => {
     }
   };
 
+  // NOTE The boat has no .vdb in the assets (365 MB), so it is WVDB only
+  const hasVDB = () => params.model !== 'boat_points';
+
+  const getFormat = () => (hasVDB() ? params.format : 'wvdb');
+
+  const getRender = () => (getFormat() === 'wvdb' ? 'points' : params.render);
+
   const applyColor = () => {
     if (entry?.object?.isVDBPoints) {
       entry.object.material.color.set(params.color);
@@ -46,6 +56,7 @@ export const examplePoints = ({ scene }) => {
       return;
     }
 
+    entry.volumeData?.dispose();
     entry.object?.dispose();
     scene.remove(entry.pivot);
     entry = null;
@@ -92,11 +103,43 @@ export const examplePoints = ({ scene }) => {
 
     removePoints();
 
-    entry = { pivot: new Three.Group(), object: null };
+    entry = { pivot: new Three.Group(), object: null, volumeData: null };
     scene.add(entry.pivot);
 
     setLoading('points', true);
     setStatus('Loading...');
+
+    if (getFormat() === 'wvdb') {
+      // NOTE The points show after LOD 0. Each next LOD adds points.
+      entry.volumeData = new OpenVDB.WVDBLoader().load(
+        `./assets/${params.model}.wvdb`,
+        (volumeData) => {
+          if (!isCurrent()) {
+            return;
+          }
+
+          const grid = Object.values(volumeData.grids).find(({ isPoints }) => isPoints);
+          const object = new OpenVDB.VDBPoints(grid);
+
+          volumeData.attach(object);
+          addObject(object, grid.bbox);
+        },
+        ({ lod, lods, done }) => {
+          if (!isCurrent()) {
+            return;
+          }
+
+          setStatus(`LOD ${lod + 1} / ${lods}`);
+
+          if (done && lod === lods - 1) {
+            onBuilt(entry.object);
+          }
+        },
+        onError,
+      );
+
+      return;
+    }
 
     new OpenVDB.VDBLoader().load(
       `./assets/${params.model}.vdb`,
@@ -111,7 +154,7 @@ export const examplePoints = ({ scene }) => {
         setStatus('Building...');
 
         const object =
-          params.render === 'points'
+          getRender() === 'points'
             ? new OpenVDB.VDBPoints(grid, {}, onBuilt)
             : new OpenVDB.FrameVolume(grid, { resolution: 100, progressive: true }, onBuilt);
 
@@ -120,6 +163,12 @@ export const examplePoints = ({ scene }) => {
       undefined,
       onError,
     );
+  };
+
+  const showRenderFields = () => {
+    getController('format')?.show(hasVDB());
+    getController('render')?.show(getFormat() === 'vdb');
+    getController('color')?.show(getRender() === 'points');
   };
 
   const rebuildOnChange = (key) => (value) => {
@@ -135,12 +184,35 @@ export const examplePoints = ({ scene }) => {
       folder: 'Points',
       children: [
         {
+          id: 'model',
+          name: 'Model',
+          defaultValue: params.model,
+          options: { Boat: 'boat_points', Sphere: 'sphere_points' },
+          onChange: (value) => {
+            params.model = value;
+            showRenderFields();
+            rebuildOnChange('model')(value);
+          },
+        },
+        {
+          id: 'format',
+          name: 'Format',
+          defaultValue: params.format,
+          options: { WVDB: 'wvdb', VDB: 'vdb' },
+          onChange: (value) => {
+            params.format = value;
+            showRenderFields();
+            rebuildOnChange('format')(value);
+          },
+        },
+        {
           id: 'render',
           name: 'Render',
           defaultValue: params.render,
           options: { Points: 'points', Fog: 'fog' },
           onChange: (value) => {
-            getController('color')?.show(value === 'points');
+            params.render = value;
+            showRenderFields();
             rebuildOnChange('render')(value);
           },
         },
@@ -176,6 +248,7 @@ export const examplePoints = ({ scene }) => {
   ]);
 
   getController('status')?.disable();
+  showRenderFields();
 
   ready = true;
   rebuild();

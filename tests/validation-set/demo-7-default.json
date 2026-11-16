@@ -1,3 +1,5 @@
 {
-  "demo": "points"
+  "demo": "points",
+  "model": "sphere_points",
+  "format": "vdb"
 }

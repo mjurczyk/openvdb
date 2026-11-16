@@ -12,18 +12,21 @@ import {
   vec3sType,
   brickDim,
   brickVoxels,
+  createPointData,
   encodeWVDBMask,
   encodeWVDBPage,
+  encodeWVDBPoints,
   getBrickCounts,
   getBrickOrigin,
   sampleLevelSet,
   writeWVDBFile,
+  wvdbGridTypes,
   wvdbLayouts,
-  wvdbVersion,
+  wvdbPointsVersion,
 } from 'openvdb';
 
 export const bakeDefaults = {
-  // NOTE Grid names to keep. Null keeps all scalar grids.
+  // NOTE Grid names to keep. Null keeps all scalar, vector and point data grids.
   grids: null,
   // NOTE Texels on the longest box side of the finest LOD. Texels are cubes.
   resolution: 128,
@@ -32,6 +35,8 @@ export const bakeDefaults = {
   layout: wvdbLayouts.sparse,
   // NOTE Bricks per page chunk
   pageBricks: 1024,
+  // NOTE Points kept of each point data grid. Above it, every n-th point is kept. Same default as VDBPoints.
+  maxPoints: 4000000,
   // NOTE World box [[minX, minY, minZ], [maxX, maxY, maxZ]] for all grids. Null uses the box of all grids in the file.
   // Frames of a sequence use one box. Then voxels do not move between frames.
   bbox: null,
@@ -58,6 +63,13 @@ const getChannels = (grid) => {
 
   return vectorTypes.includes(valueType) ? 3 : 0;
 };
+
+// NOTE Point data grids give points grids (positions and colors), not voxels
+const isPointGrid = (grid) =>
+  grid instanceof GridDescriptor && !grid.isSkipped && grid.isPointData();
+
+// NOTE Points of one points page chunk
+const pagePoints = 1 << 18;
 
 const getBackground = (grid) => {
   const { background } = grid.root;
@@ -89,7 +101,7 @@ const isEmptyGrid = (grid) => {
   );
 };
 
-const validateOptions = ({ resolution, lods, bits, layout, pageBricks, bbox }) => {
+const validateOptions = ({ resolution, lods, bits, layout, pageBricks, maxPoints, bbox }) => {
   if (!Number.isInteger(resolution) || resolution < 1) {
     throw new Error(`Invalid resolution: ${resolution}`);
   }
@@ -110,20 +122,28 @@ const validateOptions = ({ resolution, lods, bits, layout, pageBricks, bbox }) =
     throw new Error(`Invalid page brick count: ${pageBricks}`);
   }
 
+  if (!Number.isInteger(maxPoints) || maxPoints < 1) {
+    throw new Error(`Invalid maximum point count: ${maxPoints}`);
+  }
+
   if (bbox && !(bbox.length === 2 && bbox.every((corner) => corner.length === 3))) {
     throw new Error('Invalid box.');
   }
 };
 
-// NOTE Grids of the file that bakeWVDB keeps
+const isSelected = (grid, names) => !names || names.includes(grid.gridName);
+
+// NOTE Grids of the file that bakeWVDB keeps, in file order
 const getBakedGrids = (vdb, names) =>
   Object.values(vdb.grids).filter(
-    (grid) => (!names || names.includes(grid.gridName)) && getChannels(grid) > 0
+    (grid) => isSelected(grid, names) && (getChannels(grid) > 0 || isPointGrid(grid))
   );
 
-// NOTE Box of all non-empty baked grids, or null when all are empty
+// NOTE Box of all non-empty baked volume grids, or null when all are empty.
+// Points grids have their own box, so they do not change it.
 export const getWVDBBox = (vdb, names = null) => {
   const boxes = getBakedGrids(vdb, names)
+    .filter((grid) => !isPointGrid(grid))
     .filter((grid) => !isEmptyGrid(grid))
     .map((grid) => grid.getPreciseWorldBbox());
 
@@ -410,6 +430,83 @@ const encodeLod = (values, dimensions, background, channels, options, compress) 
   };
 };
 
+// NOTE Point i is in the first LOD k where i is a multiple of 8^(lods - 1 - k). Each LOD has about 8 times more points.
+const getPointLods = (count, lods) =>
+  Array.from({ length: lods }, (_, lod) => {
+    const stride = 8 ** (lods - 1 - lod);
+    const coarserStride = stride * 8;
+    const indices = [];
+
+    for (let point = 0; point < count; point += stride) {
+      if (lod === 0 || point % coarserStride !== 0) {
+        indices.push(point);
+      }
+    }
+
+    return indices;
+  });
+
+const gatherPoints = (source, indices) => {
+  if (!source) {
+    return null;
+  }
+
+  const result = new Float32Array(indices.length * 3);
+
+  indices.forEach((point, index) => result.set(source.subarray(point * 3, point * 3 + 3), index * 3));
+
+  return result;
+};
+
+// NOTE Box of the points, or null without points
+const getPointsBox = (positions) => {
+  if (!positions.length) {
+    return null;
+  }
+
+  const min = [Infinity, Infinity, Infinity];
+  const max = [-Infinity, -Infinity, -Infinity];
+
+  for (let i = 0; i < positions.length; i++) {
+    min[i % 3] = Math.min(min[i % 3], positions[i]);
+    max[i % 3] = Math.max(max[i % 3], positions[i]);
+  }
+
+  return [min.map(Math.fround), max.map(Math.fround)];
+};
+
+const encodePointGrid = (grid, { lods, maxPoints }, compress) => {
+  const pointData = createPointData(grid, { maxPoints });
+
+  while (!pointData.task.next().done);
+
+  const { positions, colors, count, totalCount, spacing } = pointData;
+
+  return {
+    type: wvdbGridTypes.points,
+    class: grid.metadata?.class?.value || 'unknown',
+    count,
+    sourceCount: totalCount,
+    spacing: Math.fround(spacing),
+    colors: !!colors,
+    bbox: getPointsBox(positions),
+    lods: getPointLods(count, lods).map((indices) => {
+      const pages = [];
+
+      for (let start = 0; start < indices.length; start += pagePoints) {
+        const page = indices.slice(start, start + pagePoints);
+
+        pages.push({
+          points: page.length,
+          bytes: compress(encodeWVDBPoints(gatherPoints(positions, page), gatherPoints(colors, page))),
+        });
+      }
+
+      return { points: indices.length, pages };
+    }),
+  };
+};
+
 const getGridNames = (grids) => {
   const counts = {};
 
@@ -420,19 +517,29 @@ const getGridNames = (grids) => {
   return grids.map(({ gridName, uniqueName }) => (counts[gridName] > 1 ? uniqueName : gridName));
 };
 
+const getHeaderGrid = (grid, lods) => {
+  if (grid.type === wvdbGridTypes.points) {
+    const { name, type, class: gridClass, count, sourceCount, spacing, colors, bbox } = grid;
+
+    return { name, type, class: gridClass, count, sourceCount, spacing, colors, bbox, lods };
+  }
+
+  const { name, class: gridClass, channels, background, bbox, stats } = grid;
+
+  return { name, class: gridClass, channels, background, bbox, ...stats, lods };
+};
+
 // NOTE compress(Uint8Array) must return zlib (deflate) bytes. Same input and options give the same bytes.
 export const bakeWVDB = (vdb, options, { compress, source }) => {
   const settings = { ...bakeDefaults, ...options };
   validateOptions(settings);
 
-  const { resolution, lods, bits, layout, pageBricks } = settings;
+  const { resolution, lods, bits, layout, pageBricks, maxPoints } = settings;
 
   Object.values(vdb.grids)
-    .filter(
-      (grid) => (!settings.grids || settings.grids.includes(grid.gridName)) && !getChannels(grid)
-    )
+    .filter((grid) => isSelected(grid, settings.grids) && !getChannels(grid) && !isPointGrid(grid))
     .forEach((grid) =>
-      console.warn(`Grid "${grid.gridName}" is not a scalar or vector grid. Skipped.`)
+      console.warn(`Grid "${grid.gridName}" is not a scalar, vector or point data grid. Skipped.`)
     );
 
   const grids = getBakedGrids(vdb, settings.grids);
@@ -450,6 +557,10 @@ export const bakeWVDB = (vdb, options, { compress, source }) => {
   const dimensions = getFinestDimensions(size, resolution);
 
   const encodedGrids = grids.map((grid, gridIndex) => {
+    if (isPointGrid(grid)) {
+      return { name: names[gridIndex], ...encodePointGrid(grid, settings, compress) };
+    }
+
     const channels = getChannels(grid);
     const background = getBackground(grid);
     const gridClass = grid.metadata?.class?.value || 'unknown';
@@ -488,6 +599,22 @@ export const bakeWVDB = (vdb, options, { compress, source }) => {
 
   for (let lod = 0; lod < lods; lod++) {
     encodedGrids.forEach((grid, gridIndex) => {
+      if (grid.type === wvdbGridTypes.points) {
+        const { points, pages } = grid.lods[lod];
+
+        headerLods[gridIndex][lod] = {
+          points,
+          pages: pages.map((page) => {
+            const pageEntry = { offset: 0, length: 0, points: page.points };
+            chunks.push({ bytes: page.bytes, entry: pageEntry });
+
+            return pageEntry;
+          }),
+        };
+
+        return;
+      }
+
       const { dimensions, bricks, mask, pages } = grid.lods[lod];
       const entry = { dimensions, bricks };
 
@@ -507,20 +634,24 @@ export const bakeWVDB = (vdb, options, { compress, source }) => {
     });
   }
 
+  const hasPoints = encodedGrids.some(({ type }) => type === wvdbGridTypes.points);
+
   const header = {
-    version: wvdbVersion,
+    // NOTE Files without points grids stay version 1. Then version 1 readers can read them.
+    version: hasPoints ? wvdbPointsVersion : 1,
     source,
-    bake: { grids: settings.grids, resolution, lods, bits, layout, pageBricks, bbox: settings.bbox },
+    bake: {
+      grids: settings.grids,
+      resolution,
+      lods,
+      bits,
+      layout,
+      pageBricks,
+      bbox: settings.bbox,
+      ...(hasPoints && { maxPoints }),
+    },
     brickDim,
-    grids: encodedGrids.map((grid, gridIndex) => ({
-      name: grid.name,
-      class: grid.class,
-      channels: grid.channels,
-      background: grid.background,
-      bbox: grid.bbox,
-      ...grid.stats,
-      lods: headerLods[gridIndex],
-    })),
+    grids: encodedGrids.map((grid, gridIndex) => getHeaderGrid(grid, headerLods[gridIndex])),
   };
 
   return { bytes: writeWVDBFile(header, chunks), header };

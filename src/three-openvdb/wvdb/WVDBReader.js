@@ -1,12 +1,21 @@
-import { decodeWVDBMask, decodeWVDBPage, getWVDBChunks, readWVDBHeader, wvdbLayouts } from 'openvdb';
+import {
+  decodeWVDBMask,
+  decodeWVDBPage,
+  decodeWVDBPoints,
+  getWVDBChunks,
+  readWVDBHeader,
+  wvdbGridTypes,
+  wvdbLayouts,
+} from 'openvdb';
 import { wvdbKernel } from './wvdbKernel.js';
 
-const { fillTexels } = wvdbKernel(decodeWVDBPage, decodeWVDBMask);
+const { fillTexels } = wvdbKernel(decodeWVDBPage, decodeWVDBMask, decodeWVDBPoints);
 
 const workerSource = `
 const kernel = (${wvdbKernel.toString()})(
   (${decodeWVDBPage.toString()}),
-  (${decodeWVDBMask.toString()})
+  (${decodeWVDBMask.toString()}),
+  (${decodeWVDBPoints.toString()})
 );
 let queue = Promise.resolve();
 
@@ -15,7 +24,11 @@ self.onmessage = ({ data }) => {
     try {
       const result = await kernel[data.type](data.payload);
 
-      const transfer = result ? [result.data, result.distance].filter(Boolean).map(({ buffer }) => buffer) : [];
+      const transfer = result
+        ? [result.data, result.distance, result.positions, result.colors]
+            .filter(Boolean)
+            .map(({ buffer }) => buffer)
+        : [];
 
       self.postMessage({ result }, transfer);
     } catch (error) {
@@ -55,7 +68,7 @@ const createWorkerBackend = (url) => {
 };
 
 const createLocalBackend = () => {
-  const kernel = wvdbKernel(decodeWVDBPage, decodeWVDBMask);
+  const kernel = wvdbKernel(decodeWVDBPage, decodeWVDBMask, decodeWVDBPoints);
   let queue = Promise.resolve();
 
   return {
@@ -89,6 +102,29 @@ const getBackend = (readerId) => {
   return backends[readerId % backends.length];
 };
 
+const isPointsGrid = ({ type }) => type === wvdbGridTypes.points;
+
+// NOTE Arrays for the points of LOD 0 to finalLod. count is the number of points in.
+const createPointsGrid = (grid, finalLod) => {
+  const total = grid.lods.slice(0, finalLod + 1).reduce((sum, { points }) => sum + points, 0);
+
+  return {
+    name: grid.name,
+    class: grid.class,
+    isPoints: true,
+    bbox: grid.bbox,
+    positions: new Float32Array(total * 3),
+    colors: grid.colors ? new Float32Array(total * 3).fill(1.0) : null,
+    count: 0,
+    // NOTE Points of all LODs, and their mean distance in world units
+    totalCount: grid.count,
+    spacing: grid.spacing,
+    // NOTE Last LOD with all points in. -1 before LOD 0.
+    lod: -1,
+    chunksLeft: grid.lods.map(({ pages }) => pages.length),
+  };
+};
+
 const toByte = (value) => (Math.min(Math.max(value, 0.0), 1.0) * 255.0) | 0;
 
 // NOTE One texel of background: density for scalar grids, RGBA for vector grids
@@ -100,8 +136,25 @@ const getBackgroundTexel = ({ class: gridClass, background, channels = 1 }, scal
   return [gridClass === 'level set' ? 0 : toByte(background / scale)];
 };
 
+// NOTE Grid data that the worker needs to decode the chunks
+const getKernelGrid = (grid, scale) => ({
+  class: grid.class,
+  background: grid.background,
+  channels: grid.channels || 1,
+  scale,
+  backgroundTexel: getBackgroundTexel(grid, scale),
+  lods: grid.lods.map(({ dimensions, mask, pages }) => ({
+    dimensions,
+    layout: mask ? wvdbLayouts.sparse : wvdbLayouts.dense,
+    pages: pages.length,
+  })),
+});
+
+const getKernelPointsGrid = ({ type, colors }) => ({ type, colors: !!colors });
+
 // NOTE Reads a .wvdb file. Each grid has one texture (Uint8Array): density for scalar grids, RGBA for vector grids.
 // Each LOD gives a new texture at its own size. LOD 0 first, then each next LOD replaces it.
+// Points grids have positions and colors (Float32Array). Each LOD adds its points after the points before it.
 // The file is one request without a Range header. Hosts can compress responses, and then byte ranges
 // do not match the file. The reader keeps the bytes as they arrive and decodes LODs from them.
 export class WVDBReader {
@@ -385,6 +438,7 @@ export class WVDBReader {
     const tasks = [];
 
     this.loadedLod = lod;
+    this.advancePointsLods();
 
     // NOTE A file with no grids has no chunks. It is done at once.
     if (!this.chunks.length && onUpdate) {
@@ -409,6 +463,7 @@ export class WVDBReader {
           lod: chunk.lod,
           kind: chunk.kind,
           firstIndex: chunk.firstIndex,
+          firstPoint: chunk.firstPoint,
           bytes,
         },
         [bytes.buffer]
@@ -447,6 +502,12 @@ export class WVDBReader {
       );
 
     grids.forEach((grid) => {
+      if (isPointsGrid(grid)) {
+        this.grids[grid.name] = createPointsGrid(grid, this.finalLod);
+
+        return;
+      }
+
       const backgroundTexel = getBackgroundTexel(grid, getScale(grid));
 
       this.grids[grid.name] = {
@@ -477,19 +538,19 @@ export class WVDBReader {
       readerId: this.readerId,
       config: {
         bits: bake.bits,
-        grids: grids.map((grid) => ({
-          class: grid.class,
-          background: grid.background,
-          channels: grid.channels || 1,
-          scale: getScale(grid),
-          backgroundTexel: getBackgroundTexel(grid, getScale(grid)),
-          lods: grid.lods.map(({ dimensions, mask, pages }) => ({
-            dimensions,
-            layout: mask ? wvdbLayouts.sparse : wvdbLayouts.dense,
-            pages: pages.length,
-          })),
-        })),
+        grids: grids.map((grid) =>
+          isPointsGrid(grid) ? getKernelPointsGrid(grid) : getKernelGrid(grid, getScale(grid))
+        ),
       },
+    });
+  }
+
+  // NOTE Points grids: lod is the last LOD with all points in, up to loadedLod. LODs with no points are in at once.
+  advancePointsLods() {
+    Object.values(this.grids).forEach((grid) => {
+      while (grid.isPoints && grid.lod < this.loadedLod && grid.chunksLeft[grid.lod + 1] === 0) {
+        grid.lod++;
+      }
     });
   }
 
@@ -499,7 +560,16 @@ export class WVDBReader {
 
     grid.chunksLeft[lod]--;
 
-    if (result) {
+    // NOTE Each reader decodes its chunks in file order, so points arrive in order
+    if (grid.isPoints) {
+      if (result) {
+        grid.positions.set(result.positions, result.firstPoint * 3);
+        grid.colors?.set(result.colors, result.firstPoint * 3);
+        grid.count = result.firstPoint + result.positions.length / 3;
+      }
+
+      this.advancePointsLods();
+    } else if (result) {
       grid.data = result.data;
       grid.distance = result.distance || null;
       grid.dimensions = this.header.grids[chunk.gridIndex].lods[lod].dimensions;

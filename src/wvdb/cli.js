@@ -18,13 +18,15 @@ all frames use one box, so voxels do not move between frames.
 Options:
   -o, --output <path>     One .vdb input: output file. Folder or ZIP input: output folder.
                           Default: next to the input (<folder>_wvdb/ for folders and ZIP files)
-  --grids <a,b>           Grid names to keep. Default: all scalar grids
+  --grids <a,b>           Grid names to keep. Default: all scalar, vector and point data grids
   --resolution <n>        Texels on the longest box side of the finest LOD. Texels are cubes.
                           Default: ${bakeDefaults.resolution}
   --lods <n>              LOD count. Default: ${bakeDefaults.lods}
   --bits <8|16>           Quantization bits. Default: ${bakeDefaults.bits}
   --layout <sparse|dense> Brick layout. Default: ${bakeDefaults.layout}
   --page-bricks <n>       Bricks per page chunk. Default: ${bakeDefaults.pageBricks}
+  --max-points <n>        Points kept of each point data grid. Above it, every n-th point is kept.
+                          Default: ${bakeDefaults.maxPoints}
   -j, --jobs <n>          Files converted at the same time. Each job needs memory for one VDB.
                           Default: CPU core count
   -h, --help              Show this text
@@ -82,6 +84,9 @@ const parseArgs = (args) => {
         break;
       case '--page-bricks':
         options.pageBricks = readInteger(++index);
+        break;
+      case '--max-points':
+        options.maxPoints = readInteger(++index);
         break;
       case '-j':
       case '--jobs':
@@ -190,6 +195,9 @@ const readSource = ({ path, entry }) => {
   return zipFiles[path][entry].read();
 };
 
+// NOTE Mask and page chunks of one LOD of one grid. Points grids have pages only.
+const getLodChunks = ({ mask, pages }) => [mask, ...pages].filter(Boolean);
+
 const printLods = (fileSize, header) => {
   if (!header.grids.length) {
     return;
@@ -197,21 +205,37 @@ const printLods = (fileSize, header) => {
 
   // NOTE Bytes needed to show each LOD, counted from the file start
   const chunkBytes = header.grids
-    .flatMap(({ lods }) => lods.flatMap(({ mask, pages }) => [mask, ...pages].filter(Boolean)))
+    .flatMap(({ lods }) => lods.flatMap(getLodChunks))
     .reduce((sum, { length }) => sum + length, 0);
   const headerEnd = fileSize - chunkBytes;
+  const volumeGrids = header.grids.filter(({ type }) => type !== 'points');
+  const pointGrids = header.grids.filter(({ type }) => type === 'points');
 
   for (let lod = 0; lod < header.bake.lods; lod++) {
-    const chunks = header.grids.flatMap(({ lods }) =>
-      [lods[lod].mask, ...lods[lod].pages].filter(Boolean)
-    );
-    const end = Math.max(...chunks.map(({ offset, length }) => offset + length));
+    const chunks = header.grids.flatMap(({ lods }) => getLodChunks(lods[lod]));
+    const end = Math.max(0, ...chunks.map(({ offset, length }) => offset + length));
     const lodBytes = chunks.reduce((sum, { length }) => sum + length, 0);
-    const dimensions = header.grids[0].lods[lod].dimensions.join('x');
-    const bricks = header.grids.reduce((sum, { lods }) => sum + lods[lod].bricks, 0);
+    const parts = [];
+
+    if (volumeGrids.length) {
+      const dimensions = volumeGrids[0].lods[lod].dimensions.join('x');
+      const bricks = volumeGrids.reduce((sum, { lods }) => sum + lods[lod].bricks, 0);
+
+      parts.push(`${dimensions}, ${bricks} bricks`);
+    }
+
+    if (pointGrids.length) {
+      // NOTE Points of LOD 0 to this LOD
+      const points = pointGrids.reduce(
+        (sum, { lods }) => sum + lods.slice(0, lod + 1).reduce((total, { points }) => total + points, 0),
+        0
+      );
+
+      parts.push(`${points} points`);
+    }
 
     console.info(
-      `  LOD ${lod}: ${dimensions}, ${bricks} bricks, ${formatBytes(lodBytes)}, ` +
+      `  LOD ${lod}: ${parts.join(', ')}, ${formatBytes(lodBytes)}, ` +
         `loaded after ${formatBytes(headerEnd + end)}`
     );
   }
