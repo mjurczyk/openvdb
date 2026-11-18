@@ -20,7 +20,7 @@ npm run dev
 npm run build
 ```
 
-Copy `dist/` to `lantern/` on the `gh-pages` branch. The examples deploy replaces `index.html` and `assets/` only, so `lantern/` stays.
+Copy `dist/` to `lantern/` on the `gh-pages` branch. The examples deploy (see `src/docs/examples/README.md`) replaces all files but `lantern/`, so `lantern/` stays.
 
 ## Notes
 

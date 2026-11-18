@@ -2,6 +2,7 @@
 node_modules
 build
 .DS_Store
+src/docs/examples/dist
 
 # Test files
 test/compiled.index.js
