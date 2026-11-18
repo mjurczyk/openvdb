@@ -12,12 +12,13 @@ export const vdbList = {};
 
 export const loadAndCacheVDB = async (name, file) => {
   if (!vdbList[file]) {
-    const vdb = await new Promise(resolve => {
+    const vdb = await new Promise((resolve, reject) => {
       new OpenVDB.VDBLoader().load(file, (vdb) => {
-        resolve(vdb);  
-      }, null, () => {
+        resolve(vdb);
+      }, null, (error) => {
         alert('Could not load the VDB file.');
         console.error('Could not load the VDB file.', { name, file });
+        reject(error);
       });
     });
 
@@ -74,6 +75,8 @@ const groundedSkyboxes = {};
 let shownSkybox = null;
 // NOTE Only the last environment load changes the scene
 let environmentLoadId = 0;
+// NOTE Name of the last environment load
+let environmentName = null;
 
 // NOTE Resolves when the first environment is set. The first example loads its volume after this.
 let resolveFirstEnvironment;
@@ -154,10 +157,11 @@ const createSkyboxMap = (env) => {
 };
 
 const showGroundedSkybox = (scene, name, env) => {
+  hideGroundedSkybox(scene);
+
   const map = createSkyboxMap(env);
 
   if (groundedSkyboxes[name]) {
-    groundedSkyboxes[name].material.map.dispose();
     groundedSkyboxes[name].material.map = map;
     groundedSkyboxes[name].material.needsUpdate = true;
   } else {
@@ -169,21 +173,24 @@ const showGroundedSkybox = (scene, name, env) => {
     groundedSkyboxes[name] = skybox;
   }
 
-  hideGroundedSkybox(scene);
-
   shownSkybox = groundedSkyboxes[name];
   scene.add(shownSkybox);
   setCameraBounds({ center: shownSkybox.position, radius: groundedEnvironments[name].radius });
 };
 
+// NOTE The next show of a skybox gives it a new map, so a hidden skybox does not keep its map
 const hideGroundedSkybox = (scene) => {
   if (shownSkybox) {
     scene.remove(shownSkybox);
+    shownSkybox.material.map.dispose();
     shownSkybox = null;
   }
 
   setCameraBounds(null);
 };
+
+// NOTE A demo change keeps the shown skybox in the scene. The environment does not load again.
+export const isEnvironmentObject = (object) => object === shownSkybox;
 
 // NOTE A grounded skybox is a sphere with a flat ground at groundLevel. The camera stays in the sphere and above the ground.
 // The camera stays 1 unit (1% of a volume) above the ground. On the ground, the ground plane is seen edge-on.
@@ -254,7 +261,35 @@ const setCameraBounds = (bounds) => {
   limitCamera();
 };
 
+// NOTE The background can be the environment map, so a texture is disposed only when the scene does not use it
+const disposeUnusedTexture = (scene, texture) => {
+  if (
+    !texture?.isTexture ||
+    texture === scene.background ||
+    texture === environmentMaps?.full ||
+    texture === environmentMaps?.withoutLights
+  ) {
+    return;
+  }
+
+  texture.dispose();
+};
+
+const setBackground = (scene, background) => {
+  const previousBackground = scene.background;
+
+  scene.background = background;
+  disposeUnusedTexture(scene, previousBackground);
+};
+
 export const loadEnvironment = (scene, name) => {
+  // NOTE showGui() calls this on each demo change. The same environment does not load and decode again.
+  if (name === environmentName) {
+    return;
+  }
+
+  environmentName = name;
+
   const loadId = ++environmentLoadId;
   // NOTE The furnace map (utils/furnace.js) is its own background, with intensity 1
   const isFurnace = name === furnaceEnvironment;
@@ -266,13 +301,14 @@ export const loadEnvironment = (scene, name) => {
   // NOTE The current environment stays until the new one loads
   const onEnvironment = async (env) => {
     if (loadId !== environmentLoadId) {
+      env.dispose();
       return;
     }
 
     env.mapping = Three.EquirectangularReflectionMapping;
 
     if (useUltraHdrBackground) {
-      scene.background = env;
+      setBackground(scene, env);
       scene.backgroundIntensity = intensity;
     }
 
@@ -286,6 +322,7 @@ export const loadEnvironment = (scene, name) => {
     await nextRenderedFrame();
 
     if (loadId !== environmentLoadId) {
+      disposeUnusedTexture(scene, env);
       return;
     }
 
@@ -302,6 +339,7 @@ export const loadEnvironment = (scene, name) => {
 
     if (loadId !== environmentLoadId) {
       extraction?.texture?.dispose();
+      disposeUnusedTexture(scene, env);
       return;
     }
 
@@ -313,8 +351,9 @@ export const loadEnvironment = (scene, name) => {
     applyEnvironmentMap(scene);
     scene.environmentIntensity = intensity;
 
-    if (previousMaps && previousMaps.withoutLights !== previousMaps.full) {
-      previousMaps.withoutLights.dispose();
+    if (previousMaps) {
+      disposeUnusedTexture(scene, previousMaps.withoutLights);
+      disposeUnusedTexture(scene, previousMaps.full);
     }
 
     await nextRenderedFrame();
@@ -326,6 +365,12 @@ export const loadEnvironment = (scene, name) => {
   } else {
     loaders.ultraHdr.load(`./assets/${name}-HDR${ultraHdrSuffix}.jpg`, onEnvironment, undefined, (error) => {
       console.error('Could not load the environment.', { name, error });
+
+      // NOTE The next call with this name tries again
+      if (loadId === environmentLoadId) {
+        environmentName = null;
+      }
+
       resolveFirstEnvironment();
     });
   }
@@ -333,12 +378,13 @@ export const loadEnvironment = (scene, name) => {
   if (!useUltraHdrBackground) {
     loaders.texture.load(`./assets/${name}-${backgroundSize}.jpg`, (background) => {
       if (loadId !== environmentLoadId) {
+        background.dispose();
         return;
       }
 
       background.mapping = Three.EquirectangularRefractionMapping;
       background.colorSpace = Three.SRGBColorSpace;
-      scene.background = background;
+      setBackground(scene, background);
       scene.backgroundIntensity = 1.0;
     });
   }

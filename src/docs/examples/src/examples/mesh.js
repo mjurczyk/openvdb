@@ -1,6 +1,6 @@
 import * as Three from 'three';
 import * as OpenVDB from 'three-openvdb';
-import { gui, setGuiFields } from '../utils/gui';
+import { gui, setGuiFields, setDemoCleanup } from '../utils/gui';
 import { loaders, setEnvironmentLights } from '../utils/resources';
 import { setLoading } from '../utils/loading';
 import { createTransformFolder } from '../utils/transform';
@@ -329,6 +329,13 @@ export const exampleMesh = ({ scene }) => {
   ]);
 
   getController('status')?.disable();
+
+  // NOTE Old load callbacks see a new build id and do not add volumes
+  setDemoCleanup(() => {
+    buildId++;
+    removeVolume();
+    setLoading('mesh', false);
+  });
 
   ready = true;
   rebuild();

@@ -285,7 +285,7 @@ export const exampleFrame = ({ scene }) => {
     light.shadow.normalBias = 0.5;
   });
 
-  setInterval(() => {
+  const lightInterval = setInterval(() => {
     if (params.animateLights) {
       orbitPointPivot.rotateX(0.005);
       orbitSpotPivot.rotateY(0.005);
@@ -324,7 +324,7 @@ export const exampleFrame = ({ scene }) => {
   let lastTime = performance.now();
 
   // NOTE The explosion sequence plays in a FrameVolumeAnimation
-  setInterval(() => {
+  const animationInterval = setInterval(() => {
     const now = performance.now();
 
     entries.forEach(({ volume }) => volume.update?.((now - lastTime) / 1000.0));
@@ -612,6 +612,9 @@ export const exampleFrame = ({ scene }) => {
       addBunnies(center, size, () =>
         new OpenVDB.FrameVolume(vdb, { resolution: 100, progressive: true }, onBunnyConverted),
       );
+    }).catch((error) => {
+      console.error('VDBLoader', { error });
+      onBuilt();
     });
   };
 
@@ -628,6 +631,15 @@ export const exampleFrame = ({ scene }) => {
   // NOTE 0 turns the distance fade off. The cleanup turns it off for the other demos.
   setDemoCleanup(() => {
     OpenVDB.frameRenderer.settings.fadeRadius = Infinity;
+
+    clearInterval(lightInterval);
+    clearInterval(animationInterval);
+
+    // NOTE Old load callbacks see a new build id and do not add volumes
+    buildId++;
+    removeVolumes();
+    emission.light.dispose();
+    setLoading('frame', false);
   });
 
   const [multipleScatteringField, ...octaveScatteringFields] = createMultipleScatteringFields();

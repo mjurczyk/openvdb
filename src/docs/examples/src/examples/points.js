@@ -1,6 +1,6 @@
 import * as Three from 'three';
 import * as OpenVDB from 'three-openvdb';
-import { gui, setGuiFields } from '../utils/gui';
+import { gui, setGuiFields, setDemoCleanup } from '../utils/gui';
 import { setLoading } from '../utils/loading';
 import { createTransformFolder } from '../utils/transform';
 
@@ -249,6 +249,13 @@ export const examplePoints = ({ scene }) => {
 
   getController('status')?.disable();
   showRenderFields();
+
+  // NOTE Old load callbacks see a new build id and do not add objects
+  setDemoCleanup(() => {
+    buildId++;
+    removePoints();
+    setLoading('points', false);
+  });
 
   ready = true;
   rebuild();

@@ -1,6 +1,6 @@
 import * as Three from 'three';
 import * as OpenVDB from 'three-openvdb';
-import { gui, setGuiFields, activeDemo } from '../utils/gui';
+import { gui, setGuiFields, setDemoCleanup } from '../utils/gui';
 import { setLoading } from '../utils/loading';
 import { renderer } from '../main';
 import { isPhone } from '../utils/device';
@@ -67,7 +67,7 @@ export const exampleWVDB = ({ scene }) => {
   let textureCount = -1;
 
   // NOTE Sequences play in a FrameVolumeAnimation. Instances play on their own.
-  setInterval(() => {
+  const animationInterval = setInterval(() => {
     const now = performance.now();
     const delta = (now - lastTime) / 1000.0;
 
@@ -379,12 +379,23 @@ export const exampleWVDB = ({ scene }) => {
   getController('status')?.disable();
   getController('textures')?.disable();
 
+  let active = true;
+
+  // NOTE Old load callbacks see a new build id and do not add volumes
+  setDemoCleanup(() => {
+    active = false;
+    clearInterval(animationInterval);
+
+    buildId++;
+    removeVolume();
+    setLoading('wvdb', false);
+  });
+
   setLoading('wvdb', true);
 
   firstEnvironment.then(() => {
     // NOTE The user can change the demo before the first environment is set
-    if (activeDemo !== 'wvdb') {
-      setLoading('wvdb', false);
+    if (!active) {
       return;
     }
 

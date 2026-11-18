@@ -8,7 +8,7 @@ import { examplePoints } from "../examples/points";
 import { exampleSky } from "../examples/sky";
 import { scene } from "../main";
 import { isPhone } from "./device";
-import { loadEnvironment } from "./resources";
+import { loadEnvironment, isEnvironmentObject } from "./resources";
 import { resetTransformMode } from "./transform";
 
 export let gui = new GUI();
@@ -40,6 +40,27 @@ let demoCleanup = null;
 
 export const setDemoCleanup = (cleanup) => {
   demoCleanup = cleanup;
+};
+
+// NOTE Library objects share materials, for example the integrate material of all FrameVolumes. The demo cleanup disposes them.
+const isLibraryObject = (object) =>
+  object.isFrameVolume ||
+  object.isFrameVolumeAnimation ||
+  object.isFrameVolumeAnimationInstance ||
+  object.isLevelSetSurface ||
+  object.isLevelSetMesh ||
+  object.isVDBPoints ||
+  object.isFrameEmissionLight;
+
+// NOTE Disposes the meshes that a demo made. The environment objects stay for the next demo.
+const disposeDemoObject = (object) => {
+  if (isLibraryObject(object) || isEnvironmentObject(object)) {
+    return;
+  }
+
+  object.material?.dispose();
+  object.geometry?.dispose();
+  object.children.forEach(disposeDemoObject);
 };
 
 export const setActiveDemo = (id) => {
@@ -74,21 +95,15 @@ const guiBaseFields = () => [
           activeDemo = value;
           activeEnvironment = demoEnvironments[value] ?? activeEnvironment;
 
+          resetTransformMode();
+
+          // NOTE Before the cleanup, because the cleanup removes the groups of the demo from the scene
+          scene.children.forEach(disposeDemoObject);
+
           demoCleanup?.();
           demoCleanup = null;
 
-          resetTransformMode();
-
-          scene.traverse(child => {
-            if (child.material) {
-              child.material.dispose();
-            }
-
-            if (child.geometry) {
-              child.geometry.dispose();
-            }
-          });
-          scene.children = [];
+          scene.children.filter((child) => !isEnvironmentObject(child)).forEach((child) => scene.remove(child));
 
           dropTarget.style.display = value === 'vdb' ? '' : 'none';
 

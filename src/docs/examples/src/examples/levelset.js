@@ -1,6 +1,6 @@
 import * as Three from 'three';
 import * as OpenVDB from 'three-openvdb';
-import { gui, setGuiFields } from '../utils/gui';
+import { gui, setGuiFields, setDemoCleanup } from '../utils/gui';
 import { setEnvironmentLights } from '../utils/resources';
 import { setLoading } from '../utils/loading';
 import { createTransformFolder } from '../utils/transform';
@@ -321,6 +321,14 @@ export const exampleLevelSet = ({ scene }) => {
 
   getController('status')?.disable();
   getController('resolution')?.show(params.format === 'vdb');
+
+  // NOTE Old load callbacks see a new build id and do not add objects. The mesh material is not owned by the mesh.
+  setDemoCleanup(() => {
+    buildId++;
+    removeLevelSet();
+    material.dispose();
+    setLoading('levelset', false);
+  });
 
   ready = true;
   rebuild();
