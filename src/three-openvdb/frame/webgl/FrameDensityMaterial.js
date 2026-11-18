@@ -12,6 +12,7 @@ import {
   spectralPars,
   tileQuadVertexShader,
   createVolumeUniforms,
+  cubeUVReflectionPars,
 } from './frameShaderChunks.js';
 
 // NOTE Environment in the density pass: outward direction, none (only the slot light, in the lighting pass),
@@ -72,6 +73,7 @@ const fragmentShader = `
   #include <common>
   #include <lights_pars_begin>
   #include <envmap_common_pars_fragment>
+  ${cubeUVReflectionPars}
   #include <envmap_physical_pars_fragment>
 
   #ifdef FRAME_SPECTRAL

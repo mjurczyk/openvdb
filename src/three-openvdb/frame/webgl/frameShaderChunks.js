@@ -880,6 +880,11 @@ export const gridPars = `
   }
 `;
 
+// NOTE three.js r186 and older keep PMREM as a 2D atlas (ENVMAP_TYPE_CUBE_UV), read with textureCubeUV. r187 removed this chunk.
+export const cubeUVReflectionPars = Three.ShaderChunk.cube_uv_reflection_fragment === undefined
+  ? ''
+  : '#include <cube_uv_reflection_fragment>';
+
 // NOTE Environment lights (frameRenderer.settings.environmentLighting). World directions to the light.
 // NOTE Colors are isotropic irradiance, no phase. Count is 0 with the 'outward' environment.
 // NOTE Unshadowed is the sum of the environment grid light colors, clamped to 0 or more. Used outside the environment grid.

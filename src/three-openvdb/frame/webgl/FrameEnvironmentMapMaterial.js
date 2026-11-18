@@ -4,6 +4,7 @@ import {
   frameEnvironmentMapHeight,
   frameEnvironmentMapRoughness,
 } from '../core/frameEnvironment.js';
+import { cubeUVReflectionPars } from './frameShaderChunks.js';
 
 const vertexShader = `
   void main() {
@@ -16,6 +17,7 @@ const fragmentShader = `
 
   #include <common>
   #include <envmap_common_pars_fragment>
+  ${cubeUVReflectionPars}
 
   void main() {
     vec2 uv = gl_FragCoord.xy / vec2(${frameEnvironmentMapWidth}.0, ${frameEnvironmentMapHeight}.0);
@@ -26,6 +28,8 @@ const fragmentShader = `
 
     #if defined( USE_ENVMAP ) && defined( ENVMAP_TYPE_PMREM )
       radiance = textureLod(envMap, envMapRotation * direction, roughnessToMip(${frameEnvironmentMapRoughness})).rgb;
+    #elif defined( USE_ENVMAP ) && defined( ENVMAP_TYPE_CUBE_UV )
+      radiance = textureCubeUV(envMap, envMapRotation * direction, ${frameEnvironmentMapRoughness}).rgb;
     #endif
 
     gl_FragColor = vec4(radiance, uv.y);
