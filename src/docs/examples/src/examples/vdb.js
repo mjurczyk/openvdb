@@ -1,6 +1,6 @@
 import * as Three from 'three';
 import * as OpenVDB from 'three-openvdb';
-import { gui, setGuiFields, dropTarget } from '../utils/gui';
+import { gui, setGuiFields, setDemoCleanup, dropTarget } from '../utils/gui';
 import { SimpleDropzone } from 'simple-dropzone';
 import zip from 'zip-js-esm';
 import { setLoading } from '../utils/loading';
@@ -621,7 +621,7 @@ export const exampleVDB = ({ scene }) => {
     topSpotLight,
   ];
 
-  setInterval(() => {
+  const lightInterval = setInterval(() => {
     if (params.animateLights) {
       orbitPointPivot.rotateX(0.005);
       orbitSpotPivot.rotateY(0.005);
@@ -630,7 +630,7 @@ export const exampleVDB = ({ scene }) => {
 
   let lastTime = performance.now();
 
-  setInterval(() => {
+  const animationInterval = setInterval(() => {
     const now = performance.now();
 
     updateCopies((now - lastTime) / 1000.0);
@@ -648,6 +648,20 @@ export const exampleVDB = ({ scene }) => {
 
     lastTime = now;
   }, 1000 / 60);
+
+  // NOTE The animation is at module level. The cleanup removes it, so a new visit starts empty.
+  setDemoCleanup(() => {
+    clearInterval(lightInterval);
+    clearInterval(animationInterval);
+
+    dropId++;
+    removeAnimation();
+    lastFiles = null;
+    targetScene = null;
+    emission.light.dispose();
+    setLoading('vdb', false);
+    dropTarget.innerHTML = '[Drop .VDB / .WVDB / .ZIP here]';
+  });
 
   const setParam = (key) => (value) => {
     params[key] = value;
