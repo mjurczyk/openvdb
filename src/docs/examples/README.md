@@ -1,12 +1,12 @@
 ### Building Examples
 
-- run `npm run build:examples`
-- Commit the new docs version
-- Run `git subtree push --prefix=src/docs/examples/dist/ origin gh-pages`, or:
+Run `npm run build:examples`. The build goes to `dist/`. Git ignores `dist/`, do not commit it.
 
-```bash
-git push origin `git subtree split --prefix=src/docs/examples/dist/ main`:gh-pages --force
-```
+### Deploy
+
+The site is the `gh-pages` branch. Run `npm run deploy:examples` on a commit without local changes.
+
+The script (`scripts/deploy-examples.mjs`) builds the examples, replaces all files on `gh-pages` but `lantern/` (see `src/docs/lantern/README.md`), and pushes one commit `Rebuild examples for vX.Y.Z (branch commit)`. The push is a fast-forward. Do not use `--force`. If the push is rejected, `gh-pages` changed: run the script again.
 
 ## Ground Explosion
 
