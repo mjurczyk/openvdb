@@ -11,6 +11,7 @@ import {
   environmentPars,
   createVolumeUniforms,
   tileQuadVertexShader,
+  cubeUVReflectionPars,
 } from './frameShaderChunks.js';
 import { frameLights } from '../core/frameLights.js';
 
@@ -52,6 +53,7 @@ const fragmentShader = `
   #include <common>
   #include <lights_pars_begin>
   #include <envmap_common_pars_fragment>
+  ${cubeUVReflectionPars}
   #include <envmap_physical_pars_fragment>
 
   // NOTE Shadow march inside the source volume only. Other volumes do not cast shadows.
