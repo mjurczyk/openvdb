@@ -221,10 +221,11 @@ const renderUniform = (value, type, read) => uniform(value, type).setGroup(rende
 // NOTE Receivers read the drawn state: the values of the camera that drew each map or cascade tile.
 // NOTE A map that waits for the frame budget is older, but its values match, so its shadow stays in place.
 const createReceiverUniforms = (entry) => {
-  const { drawn, cascades } = entry;
+  const { drawn, cascades, isPoint } = entry;
 
   return {
     enabled: renderUniform(0, 'int', () => entry.enabled.value),
+    viewProjection: cascades || isPoint ? null : renderUniform(new Three.Matrix4(), 'mat4', () => drawn.viewProjection),
     rayUniforms: {
       frameShadowOrigin: renderUniform(new Three.Vector3(), 'vec3', () => drawn.origin),
       frameShadowForward: renderUniform(new Three.Vector3(), 'vec3', () => drawn.forward),
@@ -290,19 +291,18 @@ const getCascadeLookup = (receiver) => {
 };
 
 // NOTE Volume transmittance at a receiver, from the Beer shadow map of the light. Part of the light shadow filter.
-// NOTE uv is the shadow map uv (spot) or the direction from the light (point). Directional lights pick a cascade.
+// NOTE The map coordinate comes from the drawn state, not from the three.js shadow matrix. Directional lights pick a cascade.
 // NOTE updateBefore renders the shadow map before the first receiver of each render.
 class FrameVolumeShadowNode extends Three.Node {
   static get type() {
     return 'FrameVolumeShadowNode';
   }
 
-  constructor(shadows, entry, uv) {
+  constructor(shadows, entry) {
     super('float');
 
     this.shadows = shadows;
     this.entry = entry;
-    this.uv = uv;
     this.updateBeforeType = Three.NodeUpdateType.RENDER;
   }
 
@@ -323,9 +323,9 @@ class FrameVolumeShadowNode extends Three.Node {
     const { entry } = this;
     const { map, spectralMap, isPoint, receiver } = entry;
     const spectral = this.isSpectral(builder);
-    let { uv } = this;
     let { rayUniforms } = receiver;
     let inside = receiver.enabled.equal(1);
+    let uv;
 
     if (receiver.cascades) {
       const lookup = getCascadeLookup({ ...receiver, size: entry.size });
@@ -333,8 +333,17 @@ class FrameVolumeShadowNode extends Three.Node {
       uv = lookup.uv;
       rayUniforms = lookup.rayUniforms;
       inside = inside.and(lookup.inside);
-    } else if (!isPoint) {
+    } else if (isPoint) {
+      // NOTE Cube map direction from the light position of the draw
+      uv = positionWorld.sub(rayUniforms.frameShadowOrigin);
+    } else {
+      // NOTE Spot map uv, with the y flip of three.js ShadowNode
+      const clip = receiver.viewProjection.mul(vec4(positionWorld, 1.0));
+      const ndc = clip.xy.div(clip.w);
+
+      uv = vec2(ndc.x.mul(0.5).add(0.5), float(0.5).sub(ndc.y.mul(0.5)));
       inside = inside
+        .and(clip.w.greaterThan(0.0))
         .and(uv.x.greaterThanEqual(0.0))
         .and(uv.x.lessThanEqual(1.0))
         .and(uv.y.greaterThanEqual(0.0))
@@ -487,6 +496,7 @@ export class FrameVolumeShadows {
           forward: new Three.Vector3(0.0, 0.0, -1.0),
           perspective: 0,
           far: 1.0,
+          viewProjection: new Three.Matrix4(),
           cascadeCount: 0,
           cascadeBreaks: new Three.Vector4(),
         },
@@ -622,6 +632,7 @@ export class FrameVolumeShadows {
 
     // NOTE ShadowNode calls the filter when it builds. The base filter is the filter of three.js or of the user.
     // NOTE Point lights give the direction from the light (bd3D), other lights give shadowCoord.
+    // NOTE The volume shadow node does not use them. It finds its map coordinate from the drawn state.
     const filter = (inputs) => {
       const type = renderer.shadowMap.type;
       const baseFilter = userFilter || (entry.isPoint ? getPointShadowFilter(type) : shadowFilters[type]);
@@ -642,9 +653,7 @@ export class FrameVolumeShadows {
 
       baseInputs.shadow = shadow;
 
-      const uv = entry.isPoint ? inputs.bd3D : inputs.shadowCoord.xy;
-
-      return baseFilter(baseInputs).mul(new FrameVolumeShadowNode(this, entry, uv));
+      return baseFilter(baseInputs).mul(new FrameVolumeShadowNode(this, entry));
     };
 
     filter.isFrameVolumeShadowFilter = true;
@@ -938,6 +947,7 @@ export class FrameVolumeShadows {
         drawn.forward.copy(rayUniforms.frameShadowForward.value);
         drawn.perspective = rayUniforms.frameShadowPerspective.value;
         drawn.far = rayUniforms.frameShadowFar.value;
+        drawn.viewProjection.multiplyMatrices(shadowCamera.projectionMatrix, shadowCamera.matrixWorldInverse);
       },
     });
   }
