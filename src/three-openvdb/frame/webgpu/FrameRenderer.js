@@ -619,7 +619,11 @@ export class FrameRenderer {
       this.froxelUniforms.froxelRange.value.set(collected.result.near, collected.result.far);
     }
 
-    this.updateMipmapFlags(collected.result.hasMipmaps());
+    // NOTE With no volume and no caster, these materials draw nothing.
+    // NOTE Keep the flag, then the shaders do not build again.
+    if (collected.result.volumes.length > 0 || collected.result.casters.length > 0) {
+      this.updateMipmapFlags(collected.result.hasMipmaps());
+    }
 
     return collected.result;
   }
