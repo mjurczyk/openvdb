@@ -8,6 +8,8 @@ import {
   marchShadow,
   getFeatures,
   getTwoSidedIndirect,
+  getMultiScaleIndirect,
+  buildMips,
   runNetwork,
 } from './features.mjs';
 import { makeSceneSetup } from './dataset.mjs';
@@ -48,7 +50,7 @@ for (let i = 0; i < count; i++) {
   }
 }
 
-const modes = ['1D', '2D', 'OCT', 'N'];
+const modes = ['1D', '2D', 'OCT', 'N', 'MS'];
 const rows = new Map();
 const add = (key, target, values) => {
   const row = rows.get(key) ?? { count: 0, target: 0, error: modes.map(() => 0), bias: modes.map(() => 0) };
@@ -72,6 +74,7 @@ for (let sceneIndex = 0; sceneIndex < meta.sceneCount; sceneIndex += 10) {
   const r = grid.resolution;
   const away = lightDirection.map((value) => -value);
   const start = sceneStart.get(sceneIndex);
+  const binomialLevels = buildMips(grid, levels[0].data, 'binomial');
 
   points.forEach((index, sample) => {
     const offset = (start + sample) * floats;
@@ -93,6 +96,14 @@ for (let sceneIndex = 0; sceneIndex < meta.sceneCount; sceneIndex += 10) {
       getTwoSidedIndirect(front, back),
       data[offset + neuralInputs + 3],
       Math.exp(Math.min(runNetwork(network, features), 4)),
+      getMultiScaleIndirect(
+        grid,
+        binomialLevels,
+        position,
+        lightDirection,
+        1 - trainingPhaseG,
+        Math.exp(-front[0]),
+      ),
     ];
     const white = data[offset + 19] === 0;
 

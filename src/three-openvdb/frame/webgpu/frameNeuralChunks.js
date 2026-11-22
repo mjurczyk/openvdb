@@ -42,9 +42,10 @@ const dense = (inputs, weightOffset, biasOffset) => {
   return outputs;
 };
 
-// NOTE gridUniforms, grid nodes (createGridNodes), the grid atlas texture node, the mip texture nodes (levels 1 and up)
+// NOTE Grid mip sampling. Also used by multipleScattering 'multi-scale' (frameMultiScaleChunks.js).
+// gridUniforms, grid nodes (createGridNodes), the grid atlas texture node, the mip texture nodes (levels 1 and up)
 // and their atlas layout uniforms (columns, width, height)
-export const createNeuralNodes = (gridUniforms, grid, densityMap, mipMaps, mipLayouts) => {
+export const createNeuralMipNodes = (gridUniforms, grid, densityMap, mipMaps, mipLayouts) => {
   const { frameGridCount, frameGridVoxel, frameGridResolution } = gridUniforms;
   const lastCascade = () => frameGridCount.sub(1);
 
@@ -68,6 +69,19 @@ export const createNeuralNodes = (gridUniforms, grid, densityMap, mipMaps, mipLa
   };
 
   const unit = () => maxComponent(frameGridVoxel.element(lastCascade()));
+
+  return { sampleLevel, unit };
+};
+
+// NOTE The network. Arguments: the same as createNeuralMipNodes.
+export const createNeuralNodes = (gridUniforms, grid, densityMap, mipMaps, mipLayouts) => {
+  const { sampleLevel, unit } = createNeuralMipNodes(
+    gridUniforms,
+    grid,
+    densityMap,
+    mipMaps,
+    mipLayouts,
+  );
 
   // NOTE Inputs that do not depend on the light: (local 0 to 3), (local 4, local 5, albedo input, 0)
   const getLocalInputs = (worldPosition) => {

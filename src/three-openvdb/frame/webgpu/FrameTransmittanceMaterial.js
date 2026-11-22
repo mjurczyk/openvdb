@@ -37,7 +37,8 @@ import {
   frameIsotropicDiffusion,
   frameTwoSidedDiffusion,
 } from './frameShaderChunks.js';
-import { createNeuralNodes } from './frameNeuralChunks.js';
+import { createNeuralNodes, createNeuralMipNodes } from './frameNeuralChunks.js';
+import { createMultiScaleNodes } from './frameMultiScaleChunks.js';
 import { frameNeuralLevels } from '../core/frameNeuralIndirect.js';
 
 // NOTE Light slots: sky up, sky down, then 6 lights. Targets 0 and 1: total transmittance of all slots.
@@ -69,15 +70,18 @@ export class FrameTransmittanceMaterial extends Three.NodeMaterial {
     // (core/frameSpectrum.js). The renderer draws this pass one time for each group in use, into its own targets.
     this.frameShadowAbsorptionMap = texture(new Three.Texture());
     this.frameSpectralGroup = uniform(0, 'int');
-    // NOTE multipleScattering 'neural': mips of the last cascade (FrameGridMipMaterial), levels 1 and up
+    // NOTE multipleScattering 'neural' and 'multi-scale': mips of the last cascade (FrameGridMipMaterial), levels 1 and up
     this.frameNeuralMipMaps = Array.from({ length: frameNeuralLevels - 1 }, () => texture(new Three.Texture()));
     // NOTE and their atlas layouts (columns, width, height)
     this.frameNeuralMipLayouts = Array.from({ length: frameNeuralLevels - 1 }, () =>
       uniform(new Three.Vector3(1.0, 1.0, 1.0)),
     );
+    // NOTE multipleScattering 'multi-scale': mip levels toward the light (core/framePhase.js)
+    this.frameMultiScaleLevels = uniform(1, 'int');
     this.frameUniforms = { gridUniforms, lightUniforms };
     this.spectral = false;
     this.neural = false;
+    this.multiScale = false;
 
     this.buildNodes();
 
@@ -105,6 +109,15 @@ export class FrameTransmittanceMaterial extends Three.NodeMaterial {
     }
   }
 
+  // NOTE multipleScattering 'multi-scale' (not spectral): scattered light of the light slots from the grid mips
+  setMultiScale(multiScale) {
+    if (multiScale !== this.multiScale) {
+      this.multiScale = multiScale;
+      this.buildNodes();
+      this.needsUpdate = true;
+    }
+  }
+
   buildNodes() {
     if (this.spectral) {
       this.buildSpectralNodes();
@@ -119,6 +132,19 @@ export class FrameTransmittanceMaterial extends Three.NodeMaterial {
     const { frameSkyDirection } = lightUniforms;
     const neural = this.neural
       ? createNeuralNodes(gridUniforms, grid, this.frameShadowDensityMap, this.frameNeuralMipMaps, this.frameNeuralMipLayouts)
+      : null;
+    const multiScale = this.multiScale
+      ? createMultiScaleNodes(
+          createNeuralMipNodes(
+            gridUniforms,
+            grid,
+            this.frameShadowDensityMap,
+            this.frameNeuralMipMaps,
+            this.frameNeuralMipLayouts,
+          ),
+          this.frameMultiScaleLevels,
+          this.frameMultipleScattering,
+        )
       : null;
 
     const transmittance0 = property('vec4');
@@ -215,6 +241,18 @@ export class FrameTransmittanceMaterial extends Three.NodeMaterial {
         if (neural) {
           result.y.assign(
             result.x.add(neural.neuralLight(worldPosition, direction, opticalDepth, local[0], local[1])),
+          );
+        }
+
+        // NOTE Multi-scale: total is direct + the scattered light of the bulk toward the light, never more than 1
+        if (multiScale) {
+          result.y.assign(
+            min(
+              result.x.add(
+                multiScale.multiScaleLight(worldPosition, direction, select(isDirection, float(1e20), length(toLight))),
+              ),
+              1.0,
+            ),
           );
         }
       });

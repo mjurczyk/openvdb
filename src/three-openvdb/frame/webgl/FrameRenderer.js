@@ -23,6 +23,7 @@ import {
   getFrameMultipleScattering,
   getFrameScatteringOctaves,
   getFrameTwoSidedDiffusion,
+  getFrameMultiScaleLevels,
   isFrameDiffusion,
 } from '../core/framePhase.js';
 import { getAtlasLayout, getFroxelSize } from '../core/frameLayout.js';
@@ -220,8 +221,11 @@ export class FrameRenderer {
     environmentShOrder: 1,
     // NOTE Multiple scattering in the shadows of all lights (core/framePhase.js). 'neural': scattered light of the
     // scene lights from a network (core/frameNeuralIndirect.js), diffusion elsewhere. true: diffusion toward the light
-    // (1D). 'two-sided': diffusion toward and away from the light (2D). 'octaves': indirect light octaves. false: single scattering.
+    // (1D). 'two-sided': diffusion toward and away from the light (2D). 'octaves': indirect light octaves.
+    // 'multi-scale': scattered light of the scene lights from grid mips toward the light, diffusion elsewhere. false: single scattering.
     multipleScattering: 'neural',
+    // NOTE Grid mip levels that 'multi-scale' reads toward the light (1 to 6)
+    multiScaleLevels: 6,
     scatteringOctaves: 4,
     scatteringOctaveExtinction: 0.5,
     scatteringOctaveContribution: 0.5,
@@ -345,7 +349,7 @@ export class FrameRenderer {
   transmittanceScene = createScene();
   transmittanceMesh = new Three.Mesh(createFullscreenGeometry(), this.transmittanceMaterial);
 
-  // NOTE multipleScattering 'neural': mips of the last grid cascade, levels 1 and up (FrameGridMipMaterial)
+  // NOTE multipleScattering 'neural' and 'multi-scale': mips of the last grid cascade, levels 1 and up (FrameGridMipMaterial)
   gridMipMaterial = new FrameGridMipMaterial();
   gridMipScene = createScene();
   gridMipMesh = new Three.Mesh(createFullscreenGeometry(), this.gridMipMaterial);
@@ -687,18 +691,33 @@ export class FrameRenderer {
     return this.settings.multipleScattering === 'neural' && !this.isSpectral();
   }
 
-  // NOTE Mips of the last grid cascade for the network. Drawn again only when the grid changes.
+  // NOTE multipleScattering 'multi-scale' uses the grid mips only with grey 'frame' lighting. Other cases use diffusion.
+  isMultiScale() {
+    return this.settings.multipleScattering === 'multi-scale' && !this.isSpectral();
+  }
+
+  // NOTE Mips of the last grid cascade for the network (box filter) or multi-scale (binomial filter).
+  // Drawn again only when the grid or the filter changes.
   renderGridMips(renderer, camera) {
     const { frameGridResolution, frameGridColumns, frameGridCount } = this.gridUniforms;
     const resolution = frameGridResolution.value;
     const source = this.shadowDensityTarget;
-    const signature = [this.gridVersion, source.texture.id, resolution, frameGridCount.value, frameGridColumns.value];
+    const binomial = this.isMultiScale();
+    const signature = [
+      this.gridVersion,
+      source.texture.id,
+      resolution,
+      frameGridCount.value,
+      frameGridColumns.value,
+      binomial ? 1 : 0,
+    ];
 
     if (sameValues(signature, this.gridMipSignature)) {
       return;
     }
 
     this.gridMipSignature = signature;
+    this.gridMipMaterial.setBinomial(binomial);
 
     const { uniforms } = this.gridMipMaterial;
     const transmittanceUniforms = this.transmittanceMaterial.uniforms;
@@ -1189,8 +1208,10 @@ export class FrameRenderer {
 
       this.transmittanceMesh.layers.mask = camera.layers.mask;
       this.transmittanceMaterial.setNeural(this.isNeural());
+      this.transmittanceMaterial.setMultiScale(this.isMultiScale());
+      transmittanceUniforms.frameMultiScaleLevels.value = getFrameMultiScaleLevels(this.settings);
 
-      if (this.isNeural()) {
+      if (this.isNeural() || this.isMultiScale()) {
         this.gridMipMesh.layers.mask = camera.layers.mask;
         this.renderGridMips(renderer, camera);
       }
@@ -1321,6 +1342,7 @@ export class FrameRenderer {
       shadowLightCount,
       uniforms.frameMultipleScattering.value,
       this.transmittanceMaterial.neural ? 1 : 0,
+      this.transmittanceMaterial.multiScale ? uniforms.frameMultiScaleLevels.value : 0,
       uniforms.frameTwoSided.value,
     );
     pushVector(values, uniforms.frameScatteringOctaves.value);
