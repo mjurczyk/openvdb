@@ -1,10 +1,11 @@
 import * as Three from 'three';
 
-// NOTE Box filter mips of the last world shadow grid cascade, for multipleScattering 'neural' (core/frameNeuralIndirect.js).
-// Level k (1 to frameNeuralLevels - 1) has resolution / 2^k voxels on each side. Its z slices are tiles in an atlas
-// (core/frameLayout.js getAtlasLayout), the same as the grid atlas. Each texel is the mean of 2 x 2 x 2 texels of the
-// level before it. The source is the grid atlas (level 1) or the atlas of the level before. The same as
-// webgpu/FrameGridMipMaterial.js.
+// NOTE Mips of the last world shadow grid cascade, for multipleScattering 'neural' (core/frameNeuralIndirect.js)
+// and 'multi-scale'. Level k (1 to frameNeuralLevels - 1) has resolution / 2^k voxels on each side. Its z slices are
+// tiles in an atlas (core/frameLayout.js getAtlasLayout), the same as the grid atlas. The source is the grid atlas
+// (level 1) or the atlas of the level before. The same as webgpu/FrameGridMipMaterial.js.
+// NOTE Box (neural, its training data): each texel is the mean of 2 x 2 x 2 texels of the level before it.
+// NOTE Binomial (multi-scale): weights 1 3 3 1 on 4 x 4 x 4 texels. Gaussian-like, so coarse levels alias less.
 
 const vertexShader = `
   void main() {
@@ -27,9 +28,9 @@ const fragmentShader = `
   // NOTE Source texel of voxel (x, y, z), edge voxels clamped
   vec2 frameLoadSource(float x, float y, float z) {
     float last = frameMipSourceResolution - 1.0;
-    float tile = frameMipSourceTile + min(z, last);
+    float tile = frameMipSourceTile + clamp(z, 0.0, last);
     vec2 tileXY = vec2(mod(tile, frameMipSourceColumns), floor(tile / frameMipSourceColumns));
-    vec2 texel = tileXY * frameMipSourceResolution + vec2(min(x, last), min(y, last));
+    vec2 texel = tileXY * frameMipSourceResolution + clamp(vec2(x, y), 0.0, last);
 
     return texelFetch(frameMipSource, ivec2(texel), 0).rg;
   }
@@ -44,15 +45,31 @@ const fragmentShader = `
     float y = fragCoord.y - tile.y * frameMipResolution;
     vec2 sum = vec2(0.0);
 
-    for (int i = 0; i < 8; i++) {
-      sum += frameLoadSource(
-        x * 2.0 + float(i & 1),
-        y * 2.0 + float((i >> 1) & 1),
-        z * 2.0 + float((i >> 2) & 1)
-      );
-    }
+    #ifdef FRAME_MIP_BINOMIAL
+      // NOTE Taps 2x - 1 to 2x + 2 on each axis, weights 1 3 3 1 (sum 8, 512 for 3 axes)
+      for (int i = 0; i < 64; i++) {
+        ivec3 tap = ivec3(i & 3, (i >> 2) & 3, (i >> 4) & 3);
+        vec3 weights = vec3(tap.x == 1 || tap.x == 2 ? 3.0 : 1.0, tap.y == 1 || tap.y == 2 ? 3.0 : 1.0, tap.z == 1 || tap.z == 2 ? 3.0 : 1.0);
 
-    frameMip = vec4(sum / 8.0, 0.0, 1.0);
+        sum += weights.x * weights.y * weights.z * frameLoadSource(
+          x * 2.0 - 1.0 + float(tap.x),
+          y * 2.0 - 1.0 + float(tap.y),
+          z * 2.0 - 1.0 + float(tap.z)
+        );
+      }
+
+      frameMip = vec4(sum / 512.0, 0.0, 1.0);
+    #else
+      for (int i = 0; i < 8; i++) {
+        sum += frameLoadSource(
+          x * 2.0 + float(i & 1),
+          y * 2.0 + float((i >> 1) & 1),
+          z * 2.0 + float((i >> 2) & 1)
+        );
+      }
+
+      frameMip = vec4(sum / 8.0, 0.0, 1.0);
+    #endif
   }
 `;
 
@@ -76,5 +93,16 @@ export class FrameGridMipMaterial extends Three.ShaderMaterial {
       depthWrite: false,
       blending: Three.NoBlending,
     });
+
+    this.binomial = false;
+  }
+
+  // NOTE true: binomial filter (multi-scale). false: box filter (neural).
+  setBinomial(binomial) {
+    if (binomial !== this.binomial) {
+      this.binomial = binomial;
+      this.defines = binomial ? { FRAME_MIP_BINOMIAL: '' } : {};
+      this.needsUpdate = true;
+    }
   }
 }

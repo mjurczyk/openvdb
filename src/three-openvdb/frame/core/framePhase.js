@@ -1,6 +1,7 @@
 import { frameMieTable, frameMieTableSize } from './frameMieTable.js';
 import { frameMieRgbTable } from './frameMieRgbTable.js';
 import { frameSpectrumWavelengths } from './frameSpectrum.js';
+import { frameNeuralLevels } from './frameNeuralIndirect.js';
 
 const clampG = (g) => Math.min(0.99, Math.max(-0.99, Number(g) || 0.0));
 const clampWeight = (weight) => Math.min(1.0, Math.max(0.0, Number(weight) || 0.0));
@@ -96,8 +97,18 @@ const getFramePhaseAsymmetry = (source) => {
 };
 
 // NOTE Modes of multipleScattering with the diffusion approximation: true (1D, toward the light only),
-// 'two-sided' (2D, toward and away from the light) and 'neural' (diffusion where the network is not used)
+// 'two-sided' (2D, toward and away from the light), 'neural' and 'multi-scale' (diffusion where they are not used)
 export const isFrameDiffusion = (mode) => !!mode && mode !== 'octaves';
+
+// NOTE multipleScattering 'multi-scale' reads the grid mips of 'neural': level 0 (the grid) to frameNeuralLevels - 1
+export const frameMaxMultiScaleLevels = frameNeuralLevels;
+
+// NOTE Mip levels that 'multi-scale' reads toward the light (settings.multiScaleLevels, 1 to frameMaxMultiScaleLevels)
+export const getFrameMultiScaleLevels = (settings) =>
+  Math.min(
+    frameMaxMultiScaleLevels,
+    Math.max(1, Math.round(Number(settings.multiScaleLevels) || frameMaxMultiScaleLevels)),
+  );
 
 // NOTE 1.0 for multipleScattering 'two-sided': the shadows of scene lights march away from the light too (frameTwoSidedDiffusion)
 export const getFrameTwoSidedDiffusion = (mode) => (mode === 'two-sided' ? 1.0 : 0.0);

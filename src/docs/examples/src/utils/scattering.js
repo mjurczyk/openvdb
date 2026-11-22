@@ -7,6 +7,7 @@ const setFrameSetting = (key) => (value) => {
 // NOTE Rendering folder fields of frameRenderer.settings.multipleScattering.
 // Off is single scattering: dense volumes get dark inside. 1D: diffusion toward the light. 2D: diffusion toward and
 // away from the light. OCT: octaves (the octave fields are used only by it). N: neural network.
+// MS: multi-scale grid mips toward the light (the Multi-Scale Levels field is used only by it).
 export const createMultipleScatteringFields = () => [
   {
     id: 'multipleScattering',
@@ -18,8 +19,17 @@ export const createMultipleScatteringFields = () => [
       '2D': 'two-sided',
       OCT: 'octaves',
       N: 'neural',
+      MS: 'multi-scale',
     },
     onChange: setFrameSetting('multipleScattering'),
+  },
+  {
+    id: 'multiScaleLevels',
+    name: 'Multi-Scale Levels',
+    defaultValue: OpenVDB.frameRenderer.settings.multiScaleLevels,
+    min: 1,
+    max: 6,
+    onChange: setFrameSetting('multiScaleLevels'),
   },
   {
     id: 'scatteringOctaves',

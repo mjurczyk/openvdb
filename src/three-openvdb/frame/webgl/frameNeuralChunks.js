@@ -45,7 +45,8 @@ const hidden1 = Array.from({ length: hiddenVectors }, (_, i) => `frameHidden1${i
 const hidden2 = Array.from({ length: hiddenVectors }, (_, i) => `frameHidden2${i}`);
 const levels = Array.from({ length: frameNeuralLevels }, (_, level) => level);
 
-export const neuralPars = `
+// NOTE Grid mip uniforms and sampling. Also used by multipleScattering 'multi-scale' (frameMultiScaleChunks.js).
+export const neuralMipPars = `
   ${levels
     .slice(1)
     .map((level) => `uniform sampler2D frameNeuralMipMap${level};\n  uniform vec3 frameNeuralMipLayout${level};`)
@@ -87,7 +88,10 @@ export const neuralPars = `
 
     return max(voxel.x, max(voxel.y, voxel.z));
   }
+`;
 
+// NOTE The network. Needs neuralMipPars before it.
+export const neuralPars = `
   // NOTE Inputs that do not depend on the light: (local 0 to 3), (local 4, local 5, albedo input, 0)
   void frameNeuralLocalInputs(vec3 worldPosition, out vec4 local0, out vec4 local1) {
     float h = frameNeuralUnit();

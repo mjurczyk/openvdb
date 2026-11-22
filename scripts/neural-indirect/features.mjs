@@ -49,9 +49,12 @@ export const fitGrid = (boxMin, boxMax, resolution = gridResolution) => {
   return { resolution, voxel, min, size, unit: Math.max(voxel[0], voxel[1], voxel[2]) };
 };
 
-// NOTE Box filter mips of a two-channel grid (extinction, absorption), the same as FrameGridMipMaterial.
+// NOTE Mips of a two-channel grid (extinction, absorption), the same as FrameGridMipMaterial.
+// filter 'box' (neural): mean of 2 x 2 x 2 texels. 'binomial' (multi-scale): weights 1 3 3 1 on 4 x 4 x 4 texels.
 // Returns levels 0 to neuralLevels - 1: { resolution, data: Float32Array(resolution^3 * 2) }.
-export const buildMips = (grid, data) => {
+const binomialWeights = [1, 3, 3, 1];
+
+export const buildMips = (grid, data, filter = 'box') => {
   const levels = [{ resolution: grid.resolution, data }];
 
   for (let level = 1; level < neuralLevels; level++) {
@@ -65,18 +68,38 @@ export const buildMips = (grid, data) => {
         for (let x = 0; x < resolution; x++) {
           let extinction = 0;
           let absorption = 0;
+          const index = (x + (y + z * resolution) * resolution) * 2;
+
+          if (filter === 'binomial') {
+            const clampIndex = (value) => Math.min(Math.max(value, 0), sourceResolution - 1);
+
+            for (let i = 0; i < 64; i++) {
+              const [tx, ty, tz] = [i & 3, (i >> 2) & 3, (i >> 4) & 3];
+              const sx = clampIndex(x * 2 - 1 + tx);
+              const sy = clampIndex(y * 2 - 1 + ty);
+              const sz = clampIndex(z * 2 - 1 + tz);
+              const sourceIndex = (sx + (sy + sz * sourceResolution) * sourceResolution) * 2;
+              const weight = binomialWeights[tx] * binomialWeights[ty] * binomialWeights[tz];
+
+              extinction += source.data[sourceIndex] * weight;
+              absorption += source.data[sourceIndex + 1] * weight;
+            }
+
+            target[index] = extinction / 512;
+            target[index + 1] = absorption / 512;
+
+            continue;
+          }
 
           for (let i = 0; i < 8; i++) {
             const sx = Math.min(x * 2 + (i & 1), sourceResolution - 1);
             const sy = Math.min(y * 2 + ((i >> 1) & 1), sourceResolution - 1);
             const sz = Math.min(z * 2 + ((i >> 2) & 1), sourceResolution - 1);
-            const index = (sx + (sy + sz * sourceResolution) * sourceResolution) * 2;
+            const sourceIndex = (sx + (sy + sz * sourceResolution) * sourceResolution) * 2;
 
-            extinction += source.data[index];
-            absorption += source.data[index + 1];
+            extinction += source.data[sourceIndex];
+            absorption += source.data[sourceIndex + 1];
           }
-
-          const index = (x + (y + z * resolution) * resolution) * 2;
 
           target[index] = extinction / 8;
           target[index + 1] = absorption / 8;
@@ -250,6 +273,59 @@ export const getFeatures = (grid, levels, position, direction, depths, out) => {
     featureSample[0] > 0 ? Math.sqrt(Math.min(Math.max(featureSample[1] / featureSample[0], 0), 1)) : 0;
 
   return out;
+};
+
+const multiScaleSample = [0, 0];
+const multiScaleBulk = [0, 0];
+const multiScaleValues = [0, 0, 0];
+
+// NOTE Scattered light (total - direct) of multipleScattering 'multi-scale', the same as frameMultiScaleLight and
+// the total clamp of FrameTransmittanceMaterial. levels: binomial mips. direct: direct transmittance of the slot march.
+export const getMultiScaleIndirect = (
+  grid,
+  levels,
+  position,
+  direction,
+  multipleScattering,
+  direct,
+  count = neuralLevels,
+) => {
+  const [dx, dy, dz] = direction;
+  // NOTE Frisvad basis, pole at -y
+  const pole = dy < -0.9999;
+  const a = 1 / Math.max(dy + 1, 1e-4);
+  const b = -dx * dz * a;
+  const u = pole ? [1, 0, 0] : [1 - dx * dx * a, -dx, b];
+  const v = pole ? [0, 0, 1] : [b, -dz, 1 - dz * dz * a];
+  const depths = [0, 0, 0];
+
+  for (let level = 0; level < count; level++) {
+    const scale = grid.unit * 2 ** level;
+    const start = scale - grid.unit;
+    const center = position.map((value, axis) => value + direction[axis] * (start + 0.5 * scale));
+
+    multiScaleBulk[0] = 0;
+    multiScaleBulk[1] = 0;
+
+    for (let point = 0; point < 5; point++) {
+      const axis = point < 1 ? null : point < 3 ? u : v;
+      const sign = point % 2 === 1 ? 1 : -1;
+      const [x, y, z] = center.map((value, i) => value + (axis ? axis[i] * scale * sign : 0));
+
+      sampleMip(grid, levels, level, x, y, z, multiScaleSample);
+      multiScaleBulk[0] += multiScaleSample[0] * 0.2;
+      multiScaleBulk[1] += multiScaleSample[1] * 0.2;
+    }
+
+    shadowStep(multiScaleBulk[0], multiScaleBulk[1], multipleScattering, multiScaleValues);
+    depths[0] += multiScaleValues[0] * scale;
+    depths[1] += multiScaleValues[1] * scale;
+    depths[2] += multiScaleValues[2] * scale;
+  }
+
+  const scattered = Math.max(Math.exp(-diffusionDepth(depths)) - Math.exp(-depths[0]), 0);
+
+  return Math.min(direct + scattered, 1) - direct;
 };
 
 // NOTE Scattered light (total - direct) of the existing modes, for the comparison of the training script.

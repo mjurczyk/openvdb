@@ -1,6 +1,7 @@
 import * as Three from 'three';
 import { gridPars, noisePars, shadowPars, spectralPars } from './frameShaderChunks.js';
-import { neuralPars } from './frameNeuralChunks.js';
+import { neuralMipPars, neuralPars } from './frameNeuralChunks.js';
+import { multiScalePars } from './frameMultiScaleChunks.js';
 import { frameNeuralLevels } from '../core/frameNeuralIndirect.js';
 
 // NOTE Light slots: sky up, sky down, then 6 lights. Targets 0 and 1: total transmittance of all slots.
@@ -15,8 +16,8 @@ const vertexShader = `
   }
 `;
 
-// NOTE The network code is in the source only when it is used (neural)
-const createFragmentShader = (neural) => `
+// NOTE The network and multi-scale code is in the source only when it is used
+const createFragmentShader = (neural, multiScale) => `
   precision highp float;
 
   #define FRAME_SHADOW_SLOTS ${frameShadowLightSlots}
@@ -44,10 +45,15 @@ const createFragmentShader = (neural) => `
   // NOTE multipleScattering 'neural' (not spectral): scattered light of the light slots from the network.
   // Local inputs are the same for all slots.
   #ifdef FRAME_NEURAL
-    ${neural ? neuralPars : ''}
+    ${neural ? neuralMipPars + neuralPars : ''}
 
     vec4 frameNeuralLocal0;
     vec4 frameNeuralLocal1;
+  #endif
+
+  // NOTE multipleScattering 'multi-scale' (not spectral): scattered light of the light slots from the grid mips
+  #ifdef FRAME_MULTI_SCALE
+    ${multiScale ? neuralMipPars + multiScalePars : ''}
   #endif
 
   // NOTE (extinction, absorption)
@@ -133,6 +139,11 @@ const createFragmentShader = (neural) => `
     // NOTE Neural: total is direct + the network light
     #ifdef FRAME_NEURAL
       shadow.y = shadow.x + frameNeuralLight(worldPosition, direction, opticalDepth, frameNeuralLocal0, frameNeuralLocal1);
+    #endif
+
+    // NOTE Multi-scale: total is direct + the scattered light of the bulk toward the light, never more than 1
+    #ifdef FRAME_MULTI_SCALE
+      shadow.y = min(shadow.x + frameMultiScaleLight(worldPosition, direction, isDirection ? 1e20 : length(toLight)), 1.0);
     #endif
 
     return shadow;
@@ -366,17 +377,19 @@ export class FrameTransmittanceMaterial extends Three.ShaderMaterial {
         frameScatteringOctaves: { value: new Three.Vector4() },
         // NOTE multipleScattering 'two-sided' (core/framePhase.js). 1.0 marches the light slots both ways.
         frameTwoSided: { value: 0.0 },
-        // NOTE multipleScattering 'neural': mips of the last cascade (FrameGridMipMaterial), levels 1 and up
-        // NOTE and their atlas layouts (columns, width, height)
+        // NOTE multipleScattering 'neural' and 'multi-scale': mips of the last cascade (FrameGridMipMaterial),
+        // NOTE levels 1 and up, and their atlas layouts (columns, width, height)
         ...Object.fromEntries(
           Array.from({ length: frameNeuralLevels - 1 }, (_, i) => [
             [`frameNeuralMipMap${i + 1}`, { value: null }],
             [`frameNeuralMipLayout${i + 1}`, { value: new Three.Vector3(1.0, 1.0, 1.0) }],
           ]).flat(),
         ),
+        // NOTE multipleScattering 'multi-scale': mip levels toward the light (core/framePhase.js)
+        frameMultiScaleLevels: { value: 1 },
       },
       vertexShader,
-      fragmentShader: createFragmentShader(false),
+      fragmentShader: createFragmentShader(false, false),
       depthTest: false,
       depthWrite: false,
       blending: Three.NoBlending,
@@ -386,13 +399,19 @@ export class FrameTransmittanceMaterial extends Three.ShaderMaterial {
     this.spectral = false;
     // NOTE multipleScattering 'neural' (not spectral): the network gives the scattered light of the light slots
     this.neural = false;
+    // NOTE multipleScattering 'multi-scale' (not spectral): the grid mips give the scattered light of the light slots
+    this.multiScale = false;
   }
 
   updateDefines() {
-    this.fragmentShader = createFragmentShader(this.neural && !this.spectral);
+    const neural = this.neural && !this.spectral;
+    const multiScale = this.multiScale && !this.spectral;
+
+    this.fragmentShader = createFragmentShader(neural, multiScale);
     this.defines = {
       ...(this.spectral ? { FRAME_SPECTRAL: '' } : {}),
-      ...(this.neural && !this.spectral ? { FRAME_NEURAL: '' } : {}),
+      ...(neural ? { FRAME_NEURAL: '' } : {}),
+      ...(multiScale ? { FRAME_MULTI_SCALE: '' } : {}),
     };
     this.needsUpdate = true;
   }
@@ -407,6 +426,13 @@ export class FrameTransmittanceMaterial extends Three.ShaderMaterial {
   setNeural(neural) {
     if (neural !== this.neural) {
       this.neural = neural;
+      this.updateDefines();
+    }
+  }
+
+  setMultiScale(multiScale) {
+    if (multiScale !== this.multiScale) {
+      this.multiScale = multiScale;
       this.updateDefines();
     }
   }

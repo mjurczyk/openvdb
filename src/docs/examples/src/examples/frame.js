@@ -642,7 +642,7 @@ export const exampleFrame = ({ scene }) => {
     setLoading('frame', false);
   });
 
-  const [multipleScatteringField, ...octaveScatteringFields] = createMultipleScatteringFields();
+  const [multipleScatteringField, multiScaleLevelsField, ...octaveScatteringFields] = createMultipleScatteringFields();
 
   setGuiFields([
     {
@@ -893,6 +893,7 @@ export const exampleFrame = ({ scene }) => {
           onChange: setFrameSetting('environmentSamples'),
         },
         multipleScatteringField,
+        multiScaleLevelsField,
         {
           folder: 'Octave Scattering',
           closed: true,
