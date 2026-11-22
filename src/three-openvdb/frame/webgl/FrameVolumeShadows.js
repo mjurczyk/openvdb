@@ -81,15 +81,20 @@ const initTarget = (renderer, target, cube) => {
 const isShadowLight = (light) =>
   (light.isDirectionalLight || light.isSpotLight || light.isPointLight) && light.castShadow;
 
-// NOTE An object and all its parents are visible
-const isVisible = (object) => {
+// NOTE An object and all its parents are visible, and its root is the rendered scene.
+// NOTE A removed light, or a light of another scene, takes no part of the update budget.
+const isVisible = (object, scene) => {
+  let root = object;
+
   for (let current = object; current; current = current.parent) {
     if (!current.visible) {
       return false;
     }
+
+    root = current;
   }
 
-  return true;
+  return root === scene;
 };
 
 // NOTE The object is in a scene. A removed light is not.
@@ -1126,7 +1131,7 @@ export class FrameVolumeShadows {
     const work = [];
 
     this.entries.forEach((entry) => {
-      entry.enabled = entry.light.castShadow && isVisible(entry.light);
+      entry.enabled = entry.light.castShadow && isVisible(entry.light, scene);
 
       if (entry.enabled) {
         this.collectWork(entry, camera, renderer, work);

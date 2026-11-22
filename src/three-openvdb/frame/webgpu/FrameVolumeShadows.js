@@ -382,15 +382,20 @@ class FrameVolumeShadowNode extends Three.Node {
   }
 }
 
-// NOTE An object and all its parents are visible
-const isVisible = (object) => {
+// NOTE An object and all its parents are visible, and its root is the rendered scene.
+// NOTE A removed light, or a light of another scene, takes no part of the update budget.
+const isVisible = (object, scene) => {
+  let root = object;
+
   for (let current = object; current; current = current.parent) {
     if (!current.visible) {
       return false;
     }
+
+    root = current;
   }
 
-  return true;
+  return root === scene;
 };
 
 // NOTE The object is in a scene. A removed light is not.
@@ -987,7 +992,7 @@ export class FrameVolumeShadows {
     const work = [];
 
     this.entries.forEach((entry) => {
-      const active = entry.light.castShadow && isVisible(entry.light);
+      const active = entry.light.castShadow && isVisible(entry.light, scene);
 
       entry.enabled.value = active ? 1 : 0;
 
