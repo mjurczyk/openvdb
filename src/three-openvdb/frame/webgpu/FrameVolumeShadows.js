@@ -30,6 +30,7 @@ import {
   frameShadowDepth,
   frameMaxShadowSteps,
 } from './FrameVolumeShadowMaterial.js';
+import { withoutMRT } from './frameMRT.js';
 
 // NOTE The default filters of three.js ShadowNode, in shadow map type order. PCFSoftShadowMap has no filter.
 const shadowFilters = [BasicShadowFilter, PCFShadowFilter, null, VSMShadowFilter];
@@ -1026,7 +1027,7 @@ export class FrameVolumeShadows {
     }
 
     entry.renderId = renderId;
-    this.updateMaps(renderer, scene, camera, renderId);
+    withoutMRT(renderer, () => this.updateMaps(renderer, scene, camera, renderId));
   }
 
   // NOTE Puts back the filter of each light. Then a new FrameVolumeShadows installs again.

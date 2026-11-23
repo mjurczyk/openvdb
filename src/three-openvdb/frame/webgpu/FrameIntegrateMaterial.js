@@ -27,6 +27,7 @@ import {
   max,
   vec4,
   positionGeometry,
+  output,
 } from 'three/tsl';
 import { frameSample, frameSliceDepth, maxComponent } from './frameShaderChunks.js';
 
@@ -66,6 +67,21 @@ export class FrameIntegrateMaterial extends Three.NodeMaterial {
     this.transparent = true;
     this.depthTest = false;
     this.depthWrite = false;
+  }
+
+  // NOTE three.js applies the MRT of the renderer only to materials without a fragmentNode
+  // NOTE Effect passes with an MRT (for example pixelationPass) need all targets. The volume goes to 'output', the MRT gives the others.
+  setupOutput(builder, outputNode) {
+    const result = super.setupOutput(builder, outputNode);
+    const mrt = builder.renderer.getMRT();
+
+    if (mrt === null || builder.renderer.getRenderTarget() === null) {
+      return result;
+    }
+
+    output.assign(result);
+
+    return mrt;
   }
 
   // NOTE WebGLRenderer blended on the sRGB canvas. WebGPURenderer blends in linear space.

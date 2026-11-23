@@ -16,6 +16,7 @@ import { FrameVolumeShadows } from './FrameVolumeShadows.js';
 import { FrameEnvironmentMapMaterial } from './FrameEnvironmentMapMaterial.js';
 import { FrameEnvironmentGridMaterial } from './FrameEnvironmentGridMaterial.js';
 import { updateVolumeMipmaps, disposeVolumeMipmaps } from './frameMipmaps.js';
+import { withoutMRT, isDataPass } from './frameMRT.js';
 import {
   setVolumeUniforms,
   frameMaxShadowCascades,
@@ -444,8 +445,8 @@ export class FrameRenderer {
 
     const frame = renderer.info.render.calls;
 
-    // NOTE Override passes (depth, normals) of other effects must not draw or start the frame
-    if (scene.overrideMaterial) {
+    // NOTE Override passes and data passes (depth, normals) of other effects must not draw or start the frame
+    if (scene.overrideMaterial || isDataPass(renderer)) {
       proxy.geometry.instanceCount = 0;
 
       return;
@@ -457,13 +458,17 @@ export class FrameRenderer {
       return;
     }
 
-    this.volumeShadows.update(renderer, scene);
+    const volumes = withoutMRT(renderer, () => {
+      this.volumeShadows.update(renderer, scene);
 
-    const { volumes, casters } = this.collectVolumes(renderer, scene, camera);
+      const collected = this.collectVolumes(renderer, scene, camera);
 
-    if (volumes.length > 0) {
-      this.renderFrame(renderer, scene, camera, volumes, casters);
-    }
+      if (collected.volumes.length > 0) {
+        this.renderFrame(renderer, scene, camera, collected.volumes, collected.casters);
+      }
+
+      return collected.volumes;
+    });
 
     // NOTE Nested renders increase info.render.calls. Keep the new value.
     // Then other proxies in this frame skip.

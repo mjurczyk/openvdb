@@ -46,6 +46,7 @@ import {
   frameEmissionAtlasSize as atlasSize,
 } from '../core/FrameEmissionLight.js';
 import { updateVolumeMipmaps } from './frameMipmaps.js';
+import { withoutMRT } from './frameMRT.js';
 import {
   frameFragCoord,
   frameLoad,
@@ -435,7 +436,7 @@ class FrameEmissionLightNode extends Three.AnalyticLightNode {
       return;
     }
 
-    this.light.updateProbes(frame.renderer, frame.scene, frame.camera);
+    withoutMRT(frame.renderer, () => this.light.updateProbes(frame.renderer, frame.scene, frame.camera));
   }
 
   update(frame) {

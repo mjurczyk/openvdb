@@ -11,6 +11,7 @@ import { isPhone } from './utils/device';
 import { updateShadowMaps } from './utils/shadowMaps';
 import { updateTransformMode } from './utils/transform';
 import { updateFroxelCap } from './utils/froxelCap';
+import { renderWithPostProcessing, resizePostProcessing } from './utils/postProcessing';
 
 export const camera = new Three.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.01, 10000.0);
 export const scene = new Three.Scene();
@@ -56,6 +57,7 @@ const init = () => {
     camera.updateProjectionMatrix();
 
     renderer.setSize(window.innerWidth, window.innerHeight);
+    resizePostProcessing(window.innerWidth, window.innerHeight);
   });
 };
 
@@ -70,7 +72,7 @@ const animate = () => {
 
   updateTransformMode();
   updateShadowMaps(scene);
-  renderer.render(scene, camera);
+  renderWithPostProcessing(renderer, scene, camera);
   readFurnace(renderer);
 
   stats.end();
