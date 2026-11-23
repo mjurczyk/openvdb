@@ -6,10 +6,11 @@ import { exampleMesh } from "../examples/mesh";
 import { exampleLevelSet } from "../examples/levelset";
 import { examplePoints } from "../examples/points";
 import { exampleSky } from "../examples/sky";
-import { scene } from "../main";
+import { scene, camera, renderer } from "../main";
 import { isPhone } from "./device";
 import { loadEnvironment, isEnvironmentObject } from "./resources";
 import { resetTransformMode } from "./transform";
+import { setPostProcessing } from "./postProcessing";
 
 export let gui = new GUI();
 export const dropTarget = document.querySelector('#dropzone');
@@ -29,6 +30,9 @@ export const demos = {
 
 // NOTE All demos share the environment. A demo change keeps it.
 let activeEnvironment = 'desert';
+
+// NOTE All demos share the post-processing. A demo change keeps it.
+let activePostProcessing = 'off';
 
 // NOTE These demos start with their own environment
 const demoEnvironments = {
@@ -131,6 +135,23 @@ const guiBaseFields = () => [
           activeEnvironment = value;
 
           loadEnvironment(scene, value);
+        }
+      },
+      {
+        id: 'postProcessing',
+        name: 'Post Processing',
+        options: {
+          Off: 'off',
+          Output: 'output',
+          Bloom: 'bloom',
+          '3D LUT': 'lut',
+          Pixel: 'pixel',
+        },
+        defaultValue: activePostProcessing,
+        onChange: (value) => {
+          activePostProcessing = value;
+
+          setPostProcessing(renderer, scene, camera, value);
         }
       },
     ]
