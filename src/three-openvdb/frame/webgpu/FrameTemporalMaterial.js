@@ -151,8 +151,7 @@ export class FrameTemporalMaterial extends Three.NodeMaterial {
 
             // NOTE The history counts less as the froxel moves: a quarter of a cell of motion in a frame uses only the
             // current froxel. The reprojected history of a moving froxel is resampled and lags, which shows as the
-            // volume fading in and out. A still camera moves no froxel, so the history still gathers the jittered
-            // samples.
+            // volume fading in and out.
             const motion = length(vec3(previousUv.sub(uv).mul(froxelGrid.xy), previousSlice.sub(slice)));
             const blend = mix(this.frameTemporalBlend, 1.0, clamp(motion.mul(4.0), 0.0, 1.0)).toVar();
             const histories = maps.map(([, historyMap]) =>

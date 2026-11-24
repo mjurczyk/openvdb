@@ -42,6 +42,7 @@ const init = () => {
   scene.background = new Three.Color(0x598eff);
 
   renderer.outputColorSpace = Three.SRGBColorSpace
+  renderer.toneMapping = Three.ACESFilmicToneMapping;
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.shadowMap.enabled = true;
 

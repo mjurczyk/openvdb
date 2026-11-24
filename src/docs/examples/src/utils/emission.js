@@ -6,7 +6,7 @@ export const createEmissionDemo = (scene) => {
   const params = {
     emissionLight: false,
     emissionIntensity: 1.0,
-    emissionResolution: 16,
+    emissionResolution: 8,
     emissionCascades: 1,
     sceneMeshes: false,
   };

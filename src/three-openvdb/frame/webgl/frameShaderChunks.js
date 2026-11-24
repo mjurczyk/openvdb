@@ -61,22 +61,6 @@ export const froxelPars = `
   }
 `;
 
-// NOTE Per-pixel noise that changes each frame. Jitter turns banding into noise, temporal accumulation removes the noise.
-// Interleaved gradient noise - https://www.iryoku.com/next-generation-post-processing-in-call-of-duty-advanced-warfare
-export const noisePars = `
-  uniform float frameJitter;
-
-  // NOTE Returns 0.5 when jitter is off (frameJitter is negative)
-  float frameNoise(vec2 pixel) {
-    if (frameJitter < 0.0) {
-      return 0.5;
-    }
-
-    float noise = fract(52.9829189 * fract(dot(pixel, vec2(0.06711056, 0.00583715))));
-
-    return fract(noise + frameJitter);
-  }
-`;
 
 // NOTE Lorenz-Mie phase tables, see getFrameMieTexels. Float values, read with texelFetch and a linear blend.
 export const frameMieTexture = new Three.DataTexture(

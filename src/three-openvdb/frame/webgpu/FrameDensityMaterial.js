@@ -30,7 +30,6 @@ import {
   getFroxelLod,
   getSampledLod,
   getBoxSteps,
-  frameNoise,
   frameTileVertex,
   createVolumeUniforms,
   createVolumeNodes,
@@ -160,7 +159,7 @@ export class FrameDensityMaterial extends FrameEnvironmentMaterial {
     const { frameViewToLocal, frameLocalToView, frameOpacity, frameScatterColor, frameWorldScale } =
       this.volumeUniforms;
     const { frameCameraMatrixWorld } = densityShadowUniforms;
-    const { froxelSubSteps, frameJitter } = froxelUniforms;
+    const { froxelSubSteps } = froxelUniforms;
 
     const densityAlbedo = property('vec4');
     const densityEmission = property('vec4');
@@ -195,10 +194,9 @@ export class FrameDensityMaterial extends FrameEnvironmentMaterial {
       const transmittance = float(1.0).toVar();
       const visibleWeight = float(0.0).toVar();
       const visibleTSum = float(0.0).toVar();
-      const jitter = frameNoise(frameJitter, fragCoord).toVar();
 
       Loop({ start: int(0), end: steps, type: 'int', condition: '<' }, ({ i }) => {
-        const t = boxSegment.x.add(segment.mul(float(i).add(jitter).div(subStepCount))).toVar();
+        const t = boxSegment.x.add(segment.mul(float(i).add(0.5).div(subStepCount))).toVar();
         const extinction = volume
           .sampleExtinction(mix(localNear, localFar, t), lod)
           .mul(frameOpacity)
@@ -383,7 +381,7 @@ export class FrameDensityMaterial extends FrameEnvironmentMaterial {
       frameExtinctionSpectrum,
     } = this.volumeUniforms;
     const { frameCameraMatrixWorld, frameScatteringOctaves, frameEnvironmentMode } = densityShadowUniforms;
-    const { froxelSubSteps, frameJitter } = froxelUniforms;
+    const { froxelSubSteps } = froxelUniforms;
 
     const densityAlbedo = property('vec4');
     const densityEmission = property('vec4');
@@ -417,10 +415,9 @@ export class FrameDensityMaterial extends FrameEnvironmentMaterial {
       const transmittance = vec3(1.0).toVar();
       const visibleWeight = float(0.0).toVar();
       const visibleTSum = float(0.0).toVar();
-      const jitter = frameNoise(frameJitter, fragCoord).toVar();
 
       Loop({ start: int(0), end: steps, type: 'int', condition: '<' }, ({ i }) => {
-        const t = boxSegment.x.add(segment.mul(float(i).add(jitter).div(subStepCount))).toVar();
+        const t = boxSegment.x.add(segment.mul(float(i).add(0.5).div(subStepCount))).toVar();
         const extinction = volume
           .sampleExtinction(mix(localNear, localFar, t), lod)
           .mul(frameOpacity)

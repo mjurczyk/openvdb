@@ -31,7 +31,7 @@ export const createSpectralFields = (params, setParam) => [
   {
     id: 'medium',
     name: 'Medium',
-    defaultValue: 'custom',
+    defaultValue: params.medium ?? 'custom',
     options: mediumOptions,
     onChange: (value) => {
       const props = OpenVDB.getFrameMediumProps(value);

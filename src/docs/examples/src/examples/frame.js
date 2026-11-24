@@ -29,8 +29,6 @@ const explosion = {
   emissiveGrid: 'flames',
   // NOTE Approximately the 99th percentile of the flames grid
   emissiveScale: 6.0,
-  baseColor: '#555555',
-  extinction: 350.0,
   // NOTE Emissive values for each emission spectrum. Physical spectra need flame temperatures.
   // Minimum 0 K: grid value 0 (smoke) gives no emission.
   spectra: {
@@ -40,7 +38,6 @@ const explosion = {
   },
   // NOTE Emission light settings for the explosion
   lightIntensity: 25.0,
-  probes: 32,
   fps: 60,
   // NOTE On phones the sequence stops at LOD 1 (64³), the same as the Streaming demo
   maxLod: isPhone ? 1 : Infinity,
@@ -92,6 +89,8 @@ const getBunnyGridData = (vdb, center, size) => {
 export const exampleFrame = ({ scene }) => {
   const params = {
     source: 'bunny',
+    // NOTE Medium preset of the Spectral folder. Each VDB starts with its own medium.
+    medium: 'cloud',
     upAxis: 'y',
     format: 'wvdb',
     baseColor: '#ffffff',
@@ -665,16 +664,15 @@ export const exampleFrame = ({ scene }) => {
             // NOTE Each VDB starts with its own up axis
             getController('upAxis')?.setValue(value === 'explosion' ? explosion.upAxis : 'y');
 
+            if (['bunny', 'twoBunnies', 'bunnyGrid'].includes(value)) {
+              getController('medium')?.setValue('cloud');
+            }
+
             // NOTE The explosion turns on its emission light. The floor stays as it is.
             if (value === 'explosion') {
+              getController('medium')?.setValue('soot');
               getController('emissionLight')?.setValue(true);
               getController('emissionIntensity')?.setValue(explosion.lightIntensity);
-              getController('emissionResolution')?.setValue(explosion.probes);
-              getController('fogColor')?.setValue(explosion.baseColor);
-              // NOTE Normalized density keeps the extinction. Then all VDBs have about the same opacity.
-              if (!params.normalizeDensity) {
-                getController('extinction')?.setValue(explosion.extinction);
-              }
               applyExplosionSpectrum(params.emissionSpectrum);
               getController('castShadow')?.setValue(true);
             }
@@ -938,20 +936,12 @@ export const exampleFrame = ({ scene }) => {
               defaultValue: params.mipmapFilter,
               options: {
                 Box: 'box',
-                'Gaussian (Experimental)': 'gaussian',
+                Gaussian: 'gaussian',
               },
               onChange: (value) => {
                 params.mipmapFilter = value;
 
                 applyParams();
-              },
-            },
-            {
-              id: 'jitter',
-              name: 'Jitter',
-              defaultValue: OpenVDB.frameRenderer.settings.jitter,
-              onChange: (value) => {
-                OpenVDB.frameRenderer.settings.jitter = value;
               },
             },
             {

@@ -87,7 +87,6 @@ export const createFroxelUniforms = () => ({
   froxelProjectionInverse: uniform(new Three.Matrix4()),
   froxelSubSteps: uniform(6, 'int'),
   froxelAtlasSize: uniform(new Three.Vector2(1.0, 1.0)),
-  frameJitter: uniform(0.5),
   frameFadeRadius: uniform(0.0),
 });
 
@@ -173,15 +172,6 @@ export const getBoxSteps = (volume, localNear, localFar, segment, sampledLod, fr
   const steps = ceil(exp2(volume.getLod(boxLength).sub(sampledLod)).mul(2.0));
 
   return int(clamp(steps, 1.0, float(froxelSubSteps))).toVar();
-};
-
-// NOTE Per-pixel noise that changes each frame. Jitter turns banding into noise, temporal accumulation removes the noise.
-// Interleaved gradient noise - https://www.iryoku.com/next-generation-post-processing-in-call-of-duty-advanced-warfare
-// NOTE Returns 0.5 when jitter is off (frameJitter is negative).
-export const frameNoise = (jitter, pixel) => {
-  const noise = fract(float(52.9829189).mul(fract(dot(pixel, vec2(0.06711056, 0.00583715)))));
-
-  return select(jitter.lessThan(0.0), float(0.5), fract(noise.add(jitter)));
 };
 
 // NOTE Henyey-Greenstein phase divided by the isotropic phase 1 / (4 PI). g = 0 gives 1.
@@ -1031,7 +1021,7 @@ export const frameMaxShadowCascades = 4;
 
 // NOTE World-space shadow grid cascades. Cascade 0 is the finest, near the camera.
 // All cascades are z slices (tiles) in one 2D atlas.
-export const createGridUniforms = (frameJitter) => ({
+export const createGridUniforms = () => ({
   frameGridMin: uniformArray(
     Array.from({ length: frameMaxShadowCascades }, () => new Three.Vector3()),
     'vec3',
@@ -1048,7 +1038,6 @@ export const createGridUniforms = (frameJitter) => ({
   frameGridResolution: uniform(1.0),
   frameGridColumns: uniform(1.0),
   frameGridAtlasSize: uniform(new Three.Vector2(1.0, 1.0)),
-  frameJitter,
 });
 
 // NOTE Environment grid: environment light of each voxel of the last shadow grid cascade, in its own atlas

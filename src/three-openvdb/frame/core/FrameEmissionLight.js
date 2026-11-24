@@ -72,7 +72,7 @@ export class FrameEmissionLightBase extends Three.Light {
       color = 0xffffff,
       intensity = 1.0,
       // NOTE Probes on each axis of each cascade, 2 to 32
-      resolution = 16,
+      resolution = 8,
       // NOTE Size of the last cascade, as a multiple of the box of all emitting volumes. Past it, light falls off with distance squared.
       range = 3.0,
       // NOTE 1 is one grid for all volumes. More cascades (up to 4) add finer grids around the camera.

@@ -200,7 +200,7 @@ export const exampleLevelSet = ({ scene }) => {
         } else {
           const volume = new OpenVDB.FrameVolume(
             grid,
-            { resolution: params.resolution, progressive: true },
+            { resolution: params.resolution, progressive: true, levelSets: 'fog' },
             onBuilt,
           );
 

@@ -25,7 +25,6 @@ import {
 } from 'three/tsl';
 import {
   frameFragCoord,
-  frameNoise,
   frameFullscreenVertex,
   createGridNodes,
   frameShadowStep,
@@ -167,7 +166,7 @@ export class FrameTransmittanceMaterial extends Three.NodeMaterial {
     // NOTE Each step moves one voxel of the finest cascade at the probe, on the fastest axis of the direction.
     // The march goes to coarser cascades when it leaves a fine cascade.
     // NOTE opticalDepth (optional float variable) gets the direct optical depth
-    const march = (origin, direction, maxDistance, jitter, opticalDepth = null) => {
+    const march = (origin, direction, maxDistance, opticalDepth = null) => {
       const depths = vec3(0.0).toVar();
       const traveled = float(0.0).toVar();
       const probe = vec3(origin).toVar();
@@ -188,7 +187,7 @@ export class FrameTransmittanceMaterial extends Three.NodeMaterial {
           maxDistance.sub(traveled),
         ).toVar();
 
-        const sample = gridExtinction(probe.add(direction.mul(stepLength).mul(jitter))).toVar();
+        const sample = gridExtinction(probe.add(direction.mul(stepLength).mul(0.5))).toVar();
 
         depths.addAssign(
           frameShadowStep(sample.x, sample.y, this.frameMultipleScattering).mul(stepLength),
@@ -217,7 +216,7 @@ export class FrameTransmittanceMaterial extends Three.NodeMaterial {
 
     // NOTE Light w is 1.0 for a light direction, 2.0 or more for a light position
     // NOTE Neural: total is direct + the network light. local: the light-independent network inputs of the voxel.
-    const lightTransmittance = (slot, worldPosition, jitter, local) => {
+    const lightTransmittance = (slot, worldPosition, local) => {
       const result = vec4(1.0, 1.0, 0.0, 0.0).toVar();
 
       If(int(slot).lessThan(this.frameShadowLightCount), () => {
@@ -228,12 +227,12 @@ export class FrameTransmittanceMaterial extends Three.NodeMaterial {
         const opticalDepth = neural ? float(0.0).toVar() : null;
 
         result.assign(
-          march(worldPosition, direction, select(isDirection, float(1e20), length(toLight)), jitter, opticalDepth),
+          march(worldPosition, direction, select(isDirection, float(1e20), length(toLight)), opticalDepth),
         );
 
         // NOTE Two-sided: diffusion of the slab between the light side and the far side (frameTwoSidedDiffusion)
         If(this.frameTwoSided.greaterThan(0.5), () => {
-          const back = march(worldPosition, direction.negate(), float(1e20), jitter).toVar();
+          const back = march(worldPosition, direction.negate(), float(1e20)).toVar();
 
           result.y.assign(frameTwoSidedDiffusion(result.x, result.z, result.w, back.z));
         });
@@ -289,16 +288,15 @@ export class FrameTransmittanceMaterial extends Three.NodeMaterial {
         }
 
         If(nearExtinction.greaterThan(0.0), () => {
-          const jitter = frameNoise(gridUniforms.frameJitter, fragCoord).toVar();
           const skyDirection = normalize(frameSkyDirection).toVar();
           const local = neural ? neural.getLocalInputs(worldPosition) : null;
 
           const lights = Array.from({ length: frameShadowLightSlots }, (_, slot) =>
-            lightTransmittance(slot, worldPosition, jitter, local).toVar(),
+            lightTransmittance(slot, worldPosition, local).toVar(),
           );
 
-          const skyUp = march(worldPosition, skyDirection, float(1e20), jitter).toVar();
-          const skyDown = march(worldPosition, skyDirection.negate(), float(1e20), jitter).toVar();
+          const skyUp = march(worldPosition, skyDirection, float(1e20)).toVar();
+          const skyDown = march(worldPosition, skyDirection.negate(), float(1e20)).toVar();
 
           transmittance0.assign(vec4(skyTotal(skyUp, skyDown), skyTotal(skyDown, skyUp), lights[0].y, lights[1].y));
           transmittance1.assign(vec4(lights[2].y, lights[3].y, lights[4].y, lights[5].y));
@@ -340,7 +338,7 @@ export class FrameTransmittanceMaterial extends Three.NodeMaterial {
 
     // NOTE The same march as the grey pass, with the depths of each channel. Stops when all channels are dark.
     // Returns { x: direct, y: total, z: reduced depth, w: effective depth }. enabled false: no march, 1.0 and depths 0.0.
-    const march = (enabled, origin, direction, maxDistance, jitter) => {
+    const march = (enabled, origin, direction, maxDistance) => {
       const direct = vec3(1.0).toVar();
       const total = vec3(1.0).toVar();
       const reduced = vec3(0.0).toVar();
@@ -374,7 +372,7 @@ export class FrameTransmittanceMaterial extends Three.NodeMaterial {
             maxDistance.sub(traveled),
           ).toVar();
 
-          const sample = gridSample(probe.add(direction.mul(stepLength).mul(jitter)));
+          const sample = gridSample(probe.add(direction.mul(stepLength).mul(0.5)));
           const step = frameSpectralShadowStep(sample.extinction, sample.absorption, this.frameMultipleScattering);
 
           depths.x.addAssign(step.x.mul(stepLength));
@@ -408,18 +406,18 @@ export class FrameTransmittanceMaterial extends Three.NodeMaterial {
       );
 
     // NOTE March of a light slot. Light w is 1.0 for a light direction, 2.0 or more for a light position.
-    const marchSlot = (enabled, slot, worldPosition, jitter) => {
+    const marchSlot = (enabled, slot, worldPosition) => {
       // NOTE Group 3 has no second slot (slot 6). The clamp keeps the read in the array, the march is off.
       const light = this.frameShadowLights.element(min(slot, int(frameShadowLightSlots - 1))).toVar();
       const isDirection = light.w.lessThan(1.5);
       const toLight = light.xyz.sub(worldPosition).toVar();
       const direction = select(isDirection, normalize(light.xyz), normalize(toLight)).toVar();
       const active = enabled.and(slot.lessThan(this.frameShadowLightCount)).toVar();
-      const front = march(active, worldPosition, direction, select(isDirection, float(1e20), length(toLight)), jitter);
+      const front = march(active, worldPosition, direction, select(isDirection, float(1e20), length(toLight)));
 
       // NOTE Two-sided: diffusion of the slab between the light side and the far side, for each channel
       If(this.frameTwoSided.greaterThan(0.5), () => {
-        const back = march(active, worldPosition, direction.negate(), float(1e20), jitter);
+        const back = march(active, worldPosition, direction.negate(), float(1e20));
 
         front.y.assign(frameTwoSidedDiffusion(front.x, front.z, front.w, back.z));
       });
@@ -455,7 +453,6 @@ export class FrameTransmittanceMaterial extends Three.NodeMaterial {
         }
 
         If(nearExtinction.greaterThan(0.0), () => {
-          const jitter = frameNoise(gridUniforms.frameJitter, fragCoord).toVar();
           const skyDirection = normalize(frameSkyDirection).toVar();
           const isSkyGroup = group.equal(0).toVar();
           const slotA = group.mul(2).sub(1).toVar();
@@ -466,17 +463,15 @@ export class FrameTransmittanceMaterial extends Three.NodeMaterial {
             worldPosition,
             skyDirection,
             float(1e20),
-            jitter,
           );
           const second = march(
             isSkyGroup,
             worldPosition,
             skyDirection.negate(),
             float(1e20),
-            jitter,
           );
-          const slotFirst = marchSlot(isSkyGroup.not(), max(slotA, int(0)), worldPosition, jitter);
-          const slotSecond = marchSlot(bool(true), select(isSkyGroup, int(0), slotA.add(1)), worldPosition, jitter);
+          const slotFirst = marchSlot(isSkyGroup.not(), max(slotA, int(0)), worldPosition);
+          const slotSecond = marchSlot(bool(true), select(isSkyGroup, int(0), slotA.add(1)), worldPosition);
 
           const a = {
             x: select(isSkyGroup, skyTotal(first, second), slotFirst.y).toVar(),

@@ -189,7 +189,6 @@ export class FrameRenderer {
     far: Infinity,
     // NOTE View distance where the volume density is 0. Density fades from the camera to it, as FogExp2. Infinity: no fade.
     fadeRadius: Infinity,
-    jitter: false,
     temporal: true,
     temporalBlend: 0.2,
     lighting: 'frame',
@@ -197,7 +196,7 @@ export class FrameRenderer {
     shadowCascades: 1,
     shadowDistance: 512,
     // NOTE Phase of all volumes with 'frame' lighting. 'volume' lighting uses the phase of each FrameVolume.
-    phase: 'henyey-greenstein',
+    phase: 'dual-lobe',
     phaseG: 0.8,
     phaseBackG: -0.3,
     phaseBackWeight: 0.2,
@@ -232,7 +231,7 @@ export class FrameRenderer {
     scatteringOctavePhase: 0.5,
     // NOTE Extinction of each channel (FrameVolume extinctionScale, angstromExponent) and
     // multiple scattering with the albedo of each channel. false: grey extinction, luminance albedo.
-    spectral: false,
+    spectral: true,
   };
 
   // NOTE Canvas and drawing buffer sizes that settings.pixelsPerFroxel holds (core/frameLayout.js getFroxelSize)
@@ -243,7 +242,6 @@ export class FrameRenderer {
     froxelRange: { value: new Three.Vector2(0.1, 1.0) },
     froxelProjectionInverse: { value: new Three.Matrix4() },
     froxelSubSteps: { value: 6 },
-    frameJitter: { value: 0.5 },
     frameFadeRadius: { value: 0.0 },
   };
 
@@ -275,7 +273,6 @@ export class FrameRenderer {
     frameGridResolution: { value: 1.0 },
     frameGridColumns: { value: 1.0 },
     frameGridAtlasSize: { value: new Three.Vector2(1.0, 1.0) },
-    frameJitter: this.froxelUniforms.frameJitter,
   };
 
   gridTileUniforms = {
@@ -370,7 +367,6 @@ export class FrameRenderer {
   previousViewMatrix = new Three.Matrix4();
   previousProjectionMatrix = new Three.Matrix4();
   previousRange = new Three.Vector2(0.1, 1.0);
-  jitterIndex = 0;
 
   // NOTE Environment lights. A small map of the environment is read one time for each environment change.
   environmentLights = new FrameEnvironmentLights((renderer, scene) =>
@@ -991,12 +987,6 @@ export class FrameRenderer {
     renderer.shadowMap.needsUpdate = false;
     renderer.setClearColor(0x000000, 0.0);
 
-    // NOTE Golden ratio steps give a new, evenly spread jitter value for each frame
-    this.froxelUniforms.frameJitter.value = this.settings.jitter
-      ? (this.jitterIndex * 0.618034) % 1.0
-      : -1.0;
-    this.jitterIndex = (this.jitterIndex + 1) % 1024;
-
     this.renderDepth(renderer, scene, camera);
 
     if (this.isFrameLighting()) {
@@ -1327,7 +1317,7 @@ export class FrameRenderer {
   }
 
   // NOTE Whether the transmittance targets already hold what this render would draw: the same grid content, targets,
-  // shadow lights and settings. A jittered grid changes in each frame, so it is always drawn.
+  // shadow lights and settings.
   transmittanceUnchanged(shadowLightCount, spectralGroups) {
     const uniforms = this.transmittanceMaterial.uniforms;
     const values = this.nextTransmittanceSignature;
@@ -1356,13 +1346,7 @@ export class FrameRenderer {
       pushVector(values, uniforms.frameShadowLights.value[i]);
     }
 
-    const jittered = this.froxelUniforms.frameJitter.value >= 0.0;
-    const same = !jittered && sameValues(values, this.transmittanceSignature);
-
-    // NOTE A jittered draw matches no signature, so the first frame after jitter is turned off draws again
-    if (jittered) {
-      values.length = 0;
-    }
+    const same = sameValues(values, this.transmittanceSignature);
 
     this.nextTransmittanceSignature = this.transmittanceSignature;
     this.transmittanceSignature = values;

@@ -349,7 +349,7 @@ export const loadEnvironment = (scene, name) => {
     environmentSources = extraction?.lights ?? [];
     environmentLights.setLights(environmentSources);
     applyEnvironmentMap(scene);
-    scene.environmentIntensity = intensity;
+    scene.environmentIntensity = 1.0;
 
     if (previousMaps) {
       disposeUnusedTexture(scene, previousMaps.withoutLights);
