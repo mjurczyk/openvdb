@@ -156,7 +156,7 @@ export const examplePoints = ({ scene }) => {
         const object =
           getRender() === 'points'
             ? new OpenVDB.VDBPoints(grid, {}, onBuilt)
-            : new OpenVDB.FrameVolume(grid, { resolution: 100, progressive: true }, onBuilt);
+            : new OpenVDB.FrameVolume(grid, { resolution: 100, progressive: true, points: 'fog' }, onBuilt);
 
         addObject(object, bbox);
       },

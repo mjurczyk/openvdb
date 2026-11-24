@@ -2,7 +2,6 @@ import * as Three from 'three';
 import {
   froxelPars,
   volumePars,
-  noisePars,
   phasePars,
   shadowPars,
   scatteringPars,
@@ -42,7 +41,6 @@ const fragmentShader = `
 
   ${froxelPars}
   ${volumePars}
-  ${noisePars}
   ${phasePars}
   ${shadowPars}
   ${scatteringPars}
@@ -75,7 +73,7 @@ const fragmentShader = `
     float worldStep = localStep * length(mat3(frameLocalToView) * direction);
     float stepScale = worldStep * frameAbsorbance;
     vec3 depths = vec3(0.0);
-    vec3 probe = origin + direction * localStep * frameNoise(gl_FragCoord.xy + vec2(17.0, 31.0));
+    vec3 probe = origin + direction * localStep * 0.5;
 
     for (int i = 0; i < frameShadowSteps; i++) {
       float extinction = frameSampleExtinction(probe, stepLod) * stepScale;
@@ -129,7 +127,7 @@ const fragmentShader = `
       float stepScale = worldStep * frameAbsorbance;
       FrameSpectralDepths unit = frameSpectralShadowUnit(frameExtinctionSpectrum, albedo);
       float opticalDepth = 0.0;
-      vec3 probe = origin + direction * localStep * frameNoise(gl_FragCoord.xy + vec2(17.0, 31.0));
+      vec3 probe = origin + direction * localStep * 0.5;
 
       for (int i = 0; i < frameShadowSteps; i++) {
         opticalDepth += frameSampleExtinction(probe, stepLod) * stepScale;
@@ -264,10 +262,9 @@ const fragmentShader = `
     FrameLight transmittance = FrameLight(1.0);
     float visibleWeight = 0.0;
     float visibleTSum = 0.0;
-    float jitter = frameNoise(gl_FragCoord.xy);
 
     for (int i = 0; i < steps; i++) {
-      float t = boxSegment.x + segment * (float(i) + jitter) / float(steps);
+      float t = boxSegment.x + segment * (float(i) + 0.5) / float(steps);
       vec3 probe = mix(localNear, localFar, t);
       float opticalDepth = frameSampleExtinction(probe, lod) * frameOpacity *
         frameDistanceFade(mix(viewNear, viewFar, t)) * subStepLength;

@@ -15,9 +15,9 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 // NOTE Older three releases name RenderPipeline PostProcessing.
 const RenderPipeline = ThreeWebGPU.RenderPipeline ?? ThreeWebGPU.PostProcessing;
 
-const bloomStrength = 0.5;
+const bloomStrength = 0.05;
 const bloomRadius = 0.4;
-const bloomThreshold = 0.8;
+const bloomThreshold = 1.0;
 const lutSize = 32;
 const pixelSize = 4;
 

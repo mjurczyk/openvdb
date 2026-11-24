@@ -8,11 +8,11 @@ export const gridResolution = 64;
 export const neuralLevels = 6;
 export const neuralInputs = 3 * neuralLevels + 2;
 export const neuralHidden = 32;
-// NOTE The settings phase of the training (frameRenderer.settings default: Henyey-Greenstein, g 0.8)
+// NOTE The settings phase of the training: Henyey-Greenstein, g 0.8
 export const trainingPhaseG = 0.8;
-// NOTE Shadow march: frameShadowMarchDepth limit and step jitter of the shader (frameJitter 0.5)
+// NOTE Shadow march: frameShadowMarchDepth limit and step offset of the shader (half a step)
 const marchDepthLimit = 6.0;
-const marchJitter = 0.5;
+const marchOffset = 0.5;
 const maxShadowSteps = 1024;
 
 // NOTE Small deterministic random generator (mulberry32). Returns numbers in [0, 1).
@@ -218,7 +218,7 @@ export const marchShadow = (grid, levels, position, direction, multipleScatterin
       break;
     }
 
-    const offset = stepLength * marchJitter;
+    const offset = stepLength * marchOffset;
     const sx = x + direction[0] * offset;
     const sy = y + direction[1] * offset;
     const sz = z + direction[2] * offset;

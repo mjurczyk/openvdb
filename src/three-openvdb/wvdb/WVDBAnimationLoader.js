@@ -189,7 +189,7 @@ class WVDBAnimationLoader extends Three.Loader {
       }
     });
 
-    const { levelSets = 'fog' } = props;
+    const { levelSets = 'surface' } = props;
     const auxGrids = gridOptions.map((key) => props[key]).filter(Boolean);
     const levelSetGrids =
       levelSets === 'fog'

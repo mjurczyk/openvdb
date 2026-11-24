@@ -7,7 +7,6 @@ import {
   Discard,
   float,
   int,
-  vec2,
   vec3,
   vec4,
   mat3,
@@ -32,7 +31,6 @@ import {
   getFroxelLod,
   getSampledLod,
   getBoxSteps,
-  frameNoise,
   frameTileVertex,
   frameShadowAbsorption,
   frameShadowStep,
@@ -142,7 +140,7 @@ export class FrameInjectMaterial extends FrameEnvironmentMaterial {
   createFragmentNode(spectralOutputs = null) {
     const spectral = spectralOutputs !== null;
     const { froxelUniforms, lightUniforms, volumeUniforms } = this;
-    const { froxelGrid, froxelSubSteps, froxelAtlasSize, frameJitter } = froxelUniforms;
+    const { froxelGrid, froxelSubSteps, froxelAtlasSize } = froxelUniforms;
     const {
       frameAmbientColor,
       frameLightProbe,
@@ -203,10 +201,9 @@ export class FrameInjectMaterial extends FrameEnvironmentMaterial {
       const transmittance = (spectral ? vec3(1.0) : float(1.0)).toVar();
       const visibleWeight = float(0.0).toVar();
       const visibleTSum = float(0.0).toVar();
-      const jitter = frameNoise(frameJitter, fragCoord).toVar();
 
       Loop({ start: int(0), end: steps, type: 'int', condition: '<' }, ({ i }) => {
-        const t = boxSegment.x.add(segment.mul(float(i).add(jitter).div(subStepCount))).toVar();
+        const t = boxSegment.x.add(segment.mul(float(i).add(0.5).div(subStepCount))).toVar();
         const opticalDepth = volume
           .sampleExtinction(mix(localNear, localFar, t), lod)
           .mul(frameOpacity)
@@ -236,7 +233,6 @@ export class FrameInjectMaterial extends FrameEnvironmentMaterial {
       const rayDirection = normalize(
         mat3(this.frameCameraMatrixWorld).mul(viewFar.sub(viewNear)),
       ).toVar();
-      const shadowNoise = frameNoise(frameJitter, fragCoord.add(vec2(17.0, 31.0))).toVar();
       const albedo = volume.sampleAlbedo(localPosition, lod).toVar();
 
       // NOTE Shadow march inside this volume only. Call in the Fn body.
@@ -254,7 +250,7 @@ export class FrameInjectMaterial extends FrameEnvironmentMaterial {
             const worldStep = localStep.mul(length(mat3(frameLocalToView).mul(direction)));
             const stepScale = worldStep.mul(frameAbsorbance).toVar();
             const depths = vec3(0.0).toVar();
-            const probe = localPosition.add(direction.mul(localStep).mul(shadowNoise)).toVar();
+            const probe = localPosition.add(direction.mul(localStep).mul(0.5)).toVar();
 
             Loop(this.frameShadowSteps, () => {
               const extinction = volume.sampleExtinction(probe, stepLod).mul(stepScale).toVar();
@@ -306,7 +302,7 @@ export class FrameInjectMaterial extends FrameEnvironmentMaterial {
             const worldStep = localStep.mul(length(mat3(frameLocalToView).mul(direction)));
             const stepScale = worldStep.mul(frameAbsorbance).toVar();
             const opticalDepth = float(0.0).toVar();
-            const probe = localPosition.add(direction.mul(localStep).mul(shadowNoise)).toVar();
+            const probe = localPosition.add(direction.mul(localStep).mul(0.5)).toVar();
 
             Loop(this.frameShadowSteps, () => {
               opticalDepth.addAssign(volume.sampleExtinction(probe, stepLod).mul(stepScale));

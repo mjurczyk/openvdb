@@ -3,7 +3,6 @@ import {
   froxelPars,
   volumePars,
   gridPars,
-  noisePars,
   environmentPars,
   environmentGridPars,
   phasePars,
@@ -44,7 +43,6 @@ const fragmentShader = `
   ${froxelPars}
   ${volumePars}
   ${gridPars}
-  ${noisePars}
   ${environmentPars}
   ${environmentGridPars}
   ${phasePars}
@@ -114,10 +112,9 @@ const fragmentShader = `
       vec3 transmittance = vec3(1.0);
       float visibleWeight = 0.0;
       float visibleTSum = 0.0;
-      float jitter = frameNoise(gl_FragCoord.xy);
 
       for (int i = 0; i < steps; i++) {
-        float t = boxSegment.x + segment * (float(i) + jitter) / float(steps);
+        float t = boxSegment.x + segment * (float(i) + 0.5) / float(steps);
         float extinction = frameSampleExtinction(mix(localNear, localFar, t), lod) * frameOpacity *
           frameDistanceFade(mix(viewNear, viewFar, t));
         vec3 stepTransmittance = exp(-frameExtinctionSpectrum * extinction * subStepLength);
@@ -242,10 +239,9 @@ const fragmentShader = `
       float transmittance = 1.0;
       float visibleWeight = 0.0;
       float visibleTSum = 0.0;
-      float jitter = frameNoise(gl_FragCoord.xy);
 
       for (int i = 0; i < steps; i++) {
-        float t = boxSegment.x + segment * (float(i) + jitter) / float(steps);
+        float t = boxSegment.x + segment * (float(i) + 0.5) / float(steps);
         float extinction = frameSampleExtinction(mix(localNear, localFar, t), lod) * frameOpacity *
           frameDistanceFade(mix(viewNear, viewFar, t));
         float stepTransmittance = exp(-extinction * subStepLength);

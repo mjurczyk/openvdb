@@ -173,7 +173,7 @@ export class FrameVolume extends Three.Group {
 
     const {
       // NOTE Texels on the longest box side
-      resolution = 100,
+      resolution = 200,
       // NOTE Raw data only: [x, y, z] texels. Default: resolution on each axis.
       dimensions: rawDimensions,
       progressive = false,
@@ -190,7 +190,7 @@ export class FrameVolume extends Three.Group {
       // A preset name of frameAngstromExponents ('cloud', 'dust', 'smoke', 'air') or a number.
       angstromExponent = 'cloud',
       // NOTE Phase of direct lights: 'isotropic', 'henyey-greenstein', 'dual-lobe', 'lorenz-mie' or 'lorenz-mie-rgb'
-      phase = 'henyey-greenstein',
+      phase = 'dual-lobe',
       phaseG = 0.8,
       phaseBackG = -0.3,
       phaseBackWeight = 0.2,
@@ -217,17 +217,17 @@ export class FrameVolume extends Three.Group {
       shadowSteps = 32,
       // NOTE CPU mipmaps for far volumes and coarse shadow cascades. false saves memory (+25%) and GPU time.
       mipmaps = true,
-      // NOTE Experimental. 'box' (2 x 2 x 2 mean) or 'gaussian' (sigma = 2^i voxels at level i, less shimmer).
+      // NOTE 'box' (2 x 2 x 2 mean) or 'gaussian' (sigma = 2^i voxels at level i, less shimmer).
       // NOTE Gaussian levels are built on the CPU after the conversion. Box levels show until then.
       mipmapFilter = 'box',
       // NOTE World box for all grids. Animation frames share one box. Then voxels do not move.
       bbox: sharedBbox,
       // NOTE Level set grids of VDB sources: 'fog' (density 1.0 in the narrow band), 'surface'
       // (a LevelSetSurface child, other grids stay fog) or 'surfaceOnly' (other grids are not shown)
-      levelSets = 'fog',
+      levelSets = 'surface',
       // NOTE Point data grids of VDB sources: 'fog' (density from the point offsets in voxels)
       // or 'points' (a VDBPoints child, other grids stay fog)
-      points = 'fog',
+      points = 'points',
     } = instanceSource ? { ...getProps(instanceSource), ...props } : props;
 
     this.baseColor = new Three.Color(baseColor);

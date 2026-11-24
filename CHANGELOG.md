@@ -1,5 +1,10 @@
 # Unreleased
 
+- Breaking: new defaults. `FrameVolume`: `resolution` `200` (was `100`), `phase` `'dual-lobe'` (was `'henyey-greenstein'`), `levelSets` `'surface'` (was `'fog'`), `points` `'points'` (was `'fog'`). `WVDBAnimationLoader` `levelSets` `'surface'`. `frameRenderer.settings`: `phase` `'dual-lobe'`, `spectral` `true`. `FrameEmissionLight` `resolution` `8` (was `16`)
+- `FrameVolume` `mipmapFilter` is no longer experimental
+- Breaking: remove `frameRenderer.settings.jitter`. Samples are at the middle of each step. `temporal` stays
+- Docs: the main README has a docs map. The API docs are in the README of each folder: `src/openvdb`, `src/three-openvdb` (`frame`, `wvdb`, `levelset`, `points`) and `src/wvdb`
+- Examples: no Jitter field. Mipmap Filter has no Experimental label. Emission light Probes start with 8³. Explosion does not change Probes, Base Color or Extinction
 - Experimental multi-scale multiple scattering: `frameRenderer.settings.multipleScattering: 'multi-scale'`. The scattered light of the scene lights comes from the grid density mips at 2^k voxels toward the light (5 points for each level, Disney "Deep Scattering" §4.2), with the diffusion approximation, no network. The direct light stays the explicit shadow march. `multiScaleLevels` (default `6`, `1` to `6`) sets the levels. Binomial mip filter for this mode. Grey `'frame'` lighting only, other cases use `true`. Both `three-openvdb` and `three-openvdb/webgl`
 - Examples: the Multiple Scattering field of Rendering Frame and Custom VDB has the option MS, with a Multi-Scale Levels field
 - Experimental `FrameVolume` prop `mipmapFilter`: `'box'` (default) or `'gaussian'` (sigma = 2^i voxels at level i, Disney "Deep Scattering" §6). Less shimmer on far volumes and coarse shadow cascades. Gaussian levels are built on the CPU in steps after the conversion, box levels show until then. Same GPU memory and format. Static volumes, `.wvdb` LODs and animation frames (`FrameVolumeAnimation` shares it). Both `three-openvdb` and `three-openvdb/webgl`

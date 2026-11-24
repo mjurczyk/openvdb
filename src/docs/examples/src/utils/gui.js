@@ -29,14 +29,14 @@ export const demos = {
 };
 
 // NOTE All demos share the environment. A demo change keeps it.
-let activeEnvironment = 'desert';
+let activeEnvironment = 'sky-midday';
 
 // NOTE All demos share the post-processing. A demo change keeps it.
-let activePostProcessing = 'off';
+let activePostProcessing = 'bloom';
 
 // NOTE These demos start with their own environment
 const demoEnvironments = {
-  sky: 'desert',
+  sky: 'sky-midday',
 };
 
 // NOTE A demo can set a function that undoes its global changes. A demo change calls it.

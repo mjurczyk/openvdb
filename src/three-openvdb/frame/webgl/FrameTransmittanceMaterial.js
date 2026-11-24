@@ -1,5 +1,5 @@
 import * as Three from 'three';
-import { gridPars, noisePars, shadowPars, spectralPars } from './frameShaderChunks.js';
+import { gridPars, shadowPars, spectralPars } from './frameShaderChunks.js';
 import { neuralMipPars, neuralPars } from './frameNeuralChunks.js';
 import { multiScalePars } from './frameMultiScaleChunks.js';
 import { frameNeuralLevels } from '../core/frameNeuralIndirect.js';
@@ -33,7 +33,6 @@ const createFragmentShader = (neural, multiScale) => `
   #endif
 
   ${gridPars}
-  ${noisePars}
   ${shadowPars}
   ${spectralPars}
 
@@ -71,7 +70,7 @@ const createFragmentShader = (neural, multiScale) => `
   // The march goes to coarser cascades when it leaves a fine cascade.
   // NOTE Returns (direct, total, reduced depth, effective depth). Sky up and down use z and w for the diffusion total.
   // opticalDepth gets the direct optical depth.
-  vec4 frameMarch(vec3 origin, vec3 direction, float maxDistance, float jitter, out float opticalDepth) {
+  vec4 frameMarch(vec3 origin, vec3 direction, float maxDistance, out float opticalDepth) {
     vec3 depths = vec3(0.0);
     float traveled = 0.0;
     vec3 probe = origin;
@@ -88,7 +87,7 @@ const createFragmentShader = (neural, multiScale) => `
 
       stepLength = min(stepLength, maxDistance - traveled);
 
-      vec2 extinction = frameGridExtinction(probe + direction * stepLength * jitter);
+      vec2 extinction = frameGridExtinction(probe + direction * stepLength * 0.5);
 
       depths += frameShadowStep(extinction.x, extinction.y) * stepLength;
       probe += direction * stepLength;
@@ -100,10 +99,10 @@ const createFragmentShader = (neural, multiScale) => `
     return vec4(frameShadowTransmittance(depths), depths.z, depths.y);
   }
 
-  vec4 frameMarch(vec3 origin, vec3 direction, float maxDistance, float jitter) {
+  vec4 frameMarch(vec3 origin, vec3 direction, float maxDistance) {
     float opticalDepth;
 
-    return frameMarch(origin, direction, maxDistance, jitter, opticalDepth);
+    return frameMarch(origin, direction, maxDistance, opticalDepth);
   }
 
   // NOTE Sky up and down are isotropic, and opposite. Diffusion: two-sided total (frameIsotropicDiffusion).
@@ -115,7 +114,7 @@ const createFragmentShader = (neural, multiScale) => `
     return front.y;
   }
 
-  vec2 frameLightTransmittance(int slot, vec3 worldPosition, float jitter) {
+  vec2 frameLightTransmittance(int slot, vec3 worldPosition) {
     if (slot >= frameShadowLightCount) {
       return vec2(1.0);
     }
@@ -126,12 +125,12 @@ const createFragmentShader = (neural, multiScale) => `
     bool isDirection = light.w < 1.5;
     vec3 direction = isDirection ? normalize(light.xyz) : normalize(toLight);
     float opticalDepth;
-    vec4 front = frameMarch(worldPosition, direction, isDirection ? 1e20 : length(toLight), jitter, opticalDepth);
+    vec4 front = frameMarch(worldPosition, direction, isDirection ? 1e20 : length(toLight), opticalDepth);
     vec2 shadow = front.xy;
 
     // NOTE Two-sided: diffusion of the slab between the light side and the far side (frameTwoSidedDiffusion)
     if (frameTwoSided > 0.5) {
-      vec4 back = frameMarch(worldPosition, -direction, 1e20, jitter);
+      vec4 back = frameMarch(worldPosition, -direction, 1e20);
 
       shadow.y = frameTwoSidedDiffusion(front.x, front.z, front.w, back.z);
     }
@@ -156,7 +155,7 @@ const createFragmentShader = (neural, multiScale) => `
     uniform int frameSpectralGroup;
 
     // NOTE The same march as frameMarch, with the depths of each channel. Stops when all channels are dark.
-    FrameSpectralDepths frameSpectralMarchDepths(vec3 origin, vec3 direction, float maxDistance, float jitter) {
+    FrameSpectralDepths frameSpectralMarchDepths(vec3 origin, vec3 direction, float maxDistance) {
       FrameSpectralDepths depths = FrameSpectralDepths(vec3(0.0), vec3(0.0), vec3(0.0));
       float traveled = 0.0;
       vec3 probe = origin;
@@ -173,7 +172,7 @@ const createFragmentShader = (neural, multiScale) => `
 
         stepLength = min(stepLength, maxDistance - traveled);
 
-        vec3 samplePosition = probe + direction * stepLength * jitter;
+        vec3 samplePosition = probe + direction * stepLength * 0.5;
         int sampleCascade = frameFindCascade(samplePosition, 0);
 
         if (sampleCascade >= 0) {
@@ -195,12 +194,12 @@ const createFragmentShader = (neural, multiScale) => `
       return depths;
     }
 
-    FrameSpectralShadow frameSpectralMarch(bool enabled, vec3 origin, vec3 direction, float maxDistance, float jitter) {
+    FrameSpectralShadow frameSpectralMarch(bool enabled, vec3 origin, vec3 direction, float maxDistance) {
       if (!enabled) {
         return FrameSpectralShadow(vec3(1.0), vec3(1.0));
       }
 
-      return frameSpectralShadowTransmittance(frameSpectralMarchDepths(origin, direction, maxDistance, jitter));
+      return frameSpectralShadowTransmittance(frameSpectralMarchDepths(origin, direction, maxDistance));
     }
 
     // NOTE Sky up and down are isotropic, and opposite. Diffusion: two-sided total of each channel (frameIsotropicDiffusion).
@@ -213,7 +212,7 @@ const createFragmentShader = (neural, multiScale) => `
     }
 
     // NOTE March of a light slot. Slot 6 (group 3) is off.
-    FrameSpectralShadow frameSpectralLightMarch(bool enabled, int slot, vec3 worldPosition, float jitter) {
+    FrameSpectralShadow frameSpectralLightMarch(bool enabled, int slot, vec3 worldPosition) {
       if (!enabled || slot >= frameShadowLightCount || slot >= FRAME_SHADOW_SLOTS) {
         return FrameSpectralShadow(vec3(1.0), vec3(1.0));
       }
@@ -223,12 +222,12 @@ const createFragmentShader = (neural, multiScale) => `
       // NOTE w is 1.0 for a light direction, 2.0 for a light position
       bool isDirection = light.w < 1.5;
       vec3 direction = isDirection ? normalize(light.xyz) : normalize(toLight);
-      FrameSpectralDepths front = frameSpectralMarchDepths(worldPosition, direction, isDirection ? 1e20 : length(toLight), jitter);
+      FrameSpectralDepths front = frameSpectralMarchDepths(worldPosition, direction, isDirection ? 1e20 : length(toLight));
       FrameSpectralShadow shadow = frameSpectralShadowTransmittance(front);
 
       // NOTE Two-sided: diffusion of the slab between the light side and the far side, for each channel
       if (frameTwoSided > 0.5) {
-        FrameSpectralDepths back = frameSpectralMarchDepths(worldPosition, -direction, 1e20, jitter);
+        FrameSpectralDepths back = frameSpectralMarchDepths(worldPosition, -direction, 1e20);
 
         shadow.total = frameTwoSidedDiffusion(shadow.direct, front.reduced, front.effective, back.reduced);
       }
@@ -267,7 +266,6 @@ const createFragmentShader = (neural, multiScale) => `
         return;
       }
 
-      float jitter = frameNoise(gl_FragCoord.xy);
       bool isSkyGroup = frameSpectralGroup == 0;
       int slotA = frameSpectralGroup * 2 - 1;
 
@@ -276,15 +274,15 @@ const createFragmentShader = (neural, multiScale) => `
       vec3 skyDownTotal = vec3(1.0);
 
       if (isSkyGroup) {
-        FrameSpectralDepths skyUp = frameSpectralMarchDepths(worldPosition, frameSkyDirection, 1e20, jitter);
-        FrameSpectralDepths skyDown = frameSpectralMarchDepths(worldPosition, -frameSkyDirection, 1e20, jitter);
+        FrameSpectralDepths skyUp = frameSpectralMarchDepths(worldPosition, frameSkyDirection, 1e20);
+        FrameSpectralDepths skyDown = frameSpectralMarchDepths(worldPosition, -frameSkyDirection, 1e20);
 
         skyUpTotal = frameSpectralSkyTotal(skyUp, skyDown);
         skyDownTotal = frameSpectralSkyTotal(skyDown, skyUp);
       }
 
-      FrameSpectralShadow first = frameSpectralLightMarch(!isSkyGroup, max(slotA, 0), worldPosition, jitter);
-      FrameSpectralShadow second = frameSpectralLightMarch(true, isSkyGroup ? 0 : slotA + 1, worldPosition, jitter);
+      FrameSpectralShadow first = frameSpectralLightMarch(!isSkyGroup, max(slotA, 0), worldPosition);
+      FrameSpectralShadow second = frameSpectralLightMarch(true, isSkyGroup ? 0 : slotA + 1, worldPosition);
 
       // NOTE Entries (x, y): sky (up, down) or a slot (total, direct)
       vec3 ax = isSkyGroup ? skyUpTotal : first.total;
@@ -330,21 +328,19 @@ const createFragmentShader = (neural, multiScale) => `
         return;
       }
 
-      float jitter = frameNoise(gl_FragCoord.xy);
-
       #ifdef FRAME_NEURAL
         frameNeuralLocalInputs(worldPosition, frameNeuralLocal0, frameNeuralLocal1);
       #endif
 
-      vec2 light0 = frameLightTransmittance(0, worldPosition, jitter);
-      vec2 light1 = frameLightTransmittance(1, worldPosition, jitter);
-      vec2 light2 = frameLightTransmittance(2, worldPosition, jitter);
-      vec2 light3 = frameLightTransmittance(3, worldPosition, jitter);
-      vec2 light4 = frameLightTransmittance(4, worldPosition, jitter);
-      vec2 light5 = frameLightTransmittance(5, worldPosition, jitter);
+      vec2 light0 = frameLightTransmittance(0, worldPosition);
+      vec2 light1 = frameLightTransmittance(1, worldPosition);
+      vec2 light2 = frameLightTransmittance(2, worldPosition);
+      vec2 light3 = frameLightTransmittance(3, worldPosition);
+      vec2 light4 = frameLightTransmittance(4, worldPosition);
+      vec2 light5 = frameLightTransmittance(5, worldPosition);
 
-      vec4 skyUp = frameMarch(worldPosition, frameSkyDirection, 1e20, jitter);
-      vec4 skyDown = frameMarch(worldPosition, -frameSkyDirection, 1e20, jitter);
+      vec4 skyUp = frameMarch(worldPosition, frameSkyDirection, 1e20);
+      vec4 skyDown = frameMarch(worldPosition, -frameSkyDirection, 1e20);
 
       frameTransmittance0 = vec4(frameSkyTotal(skyUp, skyDown), frameSkyTotal(skyDown, skyUp), light0.y, light1.y);
       frameTransmittance1 = vec4(light2.y, light3.y, light4.y, light5.y);
