@@ -326,7 +326,6 @@ export class FrameRenderer {
   });
   transmittanceMaterial = new FrameTransmittanceMaterial({
     ...this.gridUniforms,
-    ...this.environmentUniforms,
   });
   volumeShadows = new FrameVolumeShadows(this);
   depthMaterial = new Three.MeshBasicMaterial({ colorWrite: false, side: Three.DoubleSide });

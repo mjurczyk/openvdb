@@ -121,7 +121,7 @@ export class FrameLightingMaterial extends Three.NodeMaterial {
   // NOTE Spectral lighting. The density pass has no light slots, so the slots are sampled here,
   // at the extinction-weighted visible position of all volumes in the froxel. Albedo and extinction are of each channel.
   createSpectralFragmentNode(outputs) {
-    const { froxelUniforms, lightUniforms, densityShadowUniforms } = this;
+    const { froxelUniforms, lightUniforms } = this;
     const {
       frameAmbientColor,
       frameLightProbe,
@@ -274,8 +274,7 @@ export class FrameLightingMaterial extends Three.NodeMaterial {
     })();
   }
 
-  // NOTE spectralOutputs: { color, alpha } property nodes of the spectral targets. null: one target.
-  createFragmentNode(spectralOutputs = null) {
+  createFragmentNode() {
     const { froxelUniforms, lightUniforms, densityShadowUniforms } = this;
     const {
       frameAmbientColor,
@@ -424,13 +423,6 @@ export class FrameLightingMaterial extends Three.NodeMaterial {
       const emission = densityEmission.rgb.div(extinction);
       const radiance = albedo.mul(irradiance).mul(1.0 / Math.PI).add(emission);
       const alpha = float(1.0).sub(exp(extinction.negate().mul(length(viewFar.sub(viewNear)))));
-
-      if (spectralOutputs) {
-        spectralOutputs.color.assign(vec4(radiance.mul(alpha), alpha));
-        spectralOutputs.alpha.assign(vec4(alpha, alpha, 0.0, alpha));
-
-        return vec4(0.0);
-      }
 
       return vec4(radiance.mul(alpha), alpha);
     })();

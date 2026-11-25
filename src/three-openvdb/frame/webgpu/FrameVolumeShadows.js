@@ -75,12 +75,6 @@ const fullscreenGeometry = new Three.BufferGeometry().setAttribute(
   new Three.Float32BufferAttribute([-1, -1, 0, 3, -1, 0, -1, 3, 0], 3),
 );
 
-const pushMatrix = (signature, matrix) => {
-  for (let i = 0; i < 16; i++) {
-    signature.push(matrix.elements[i]);
-  }
-};
-
 const targetOptions = {
   type: Three.HalfFloatType,
   format: Three.RGBAFormat,
@@ -122,8 +116,6 @@ const initTarget = (renderer, target, cube) => {
 
   return target;
 };
-
-const sameSignature = (a, b) => a.length === b.length && a.every((value, index) => value === b[index]);
 
 const isShadowLight = (light) =>
   (light.isDirectionalLight || light.isSpotLight || light.isPointLight) && light.castShadow;
