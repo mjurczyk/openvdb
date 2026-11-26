@@ -792,8 +792,9 @@ export class FrameVolumeShadows {
         );
     };
 
+    // NOTE The default key of three.js is the text of onBeforeCompile. That is now this patch, so add the text of the user hook.
     material.customProgramCacheKey = function () {
-      return `${customProgramCacheKey.call(this)}|frameVolumeShadows:${state.active ? 1 : 0}:${state.spectral ? 1 : 0}`;
+      return `${customProgramCacheKey.call(this)}|${onBeforeCompile.toString()}|frameVolumeShadows:${state.active ? 1 : 0}:${state.spectral ? 1 : 0}`;
     };
 
     material.onBeforeRender = function (renderer, scene, ...rest) {
