@@ -550,7 +550,8 @@ const patchMaterial = (material) => {
   };
 
   material.customProgramCacheKey = function () {
-    return `${customProgramCacheKey.call(this)}|${onBeforeCompile.toString()}|frameEmission:${state.lights.length}`;
+    // NOTE Use the light ids, not the count. onBeforeCompile binds the uniforms of each light, thus other lights need a new program.
+    return `${customProgramCacheKey.call(this)}|${onBeforeCompile.toString()}|frameEmission:${state.key}`;
   };
 
   material.onBeforeRender = function (renderer, scene, ...rest) {
