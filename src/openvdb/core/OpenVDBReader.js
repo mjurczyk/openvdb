@@ -15,13 +15,6 @@ export class OpenVDBReader {
     GridSharedContext.tagContext(this, new GridSharedContext());
   }
 
-  // TODO Pre-fill VDB structure without reading actual values
-  async prepare(source) {
-    await Compression.prepareModules();
-
-    GridSharedContext.getContext(this).bufferIterator = new BufferIterator(source);
-  }
-
   // NOTE With metadataOnly, grids have metadata and transforms (for example the world box), but no tree.
   // With topologyOnly, grids also have the tree topology (active voxels, evalActiveVoxelBoundingBox), but no leaf values.
   // Grids of files without grid offsets (before version 2.16) are read in full.

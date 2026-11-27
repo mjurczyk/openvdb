@@ -38,13 +38,4 @@ export class GridSharedContext {
   static getContext(target) {
     return target.sharedContext;
   }
-
-  static assert(target) {
-    if (!target.sharedContext) {
-      console.error('GridSharedContext', 'assert', 'expected GridSharedContext to exist', {
-        target,
-      });
-      throw new Error('GridSharedContext: expected GridSharedContext to exist.');
-    }
-  }
 }

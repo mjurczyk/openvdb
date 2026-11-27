@@ -93,7 +93,6 @@ export class ChildNode {
     this.depth = depth;
     this.leaf = depth >= treeLayout.leafDepth;
     this.log2dim = treeLayout.log2dims[depth];
-    this.nodeType = this.isLeaf() ? 'leaf' : 'internal';
     this.total = treeLayout.totals[depth];
     this.dim = 1 << this.total;
     this.numValues = 1 << (3 * this.log2dim);
@@ -119,7 +118,6 @@ export class ChildNode {
     }
 
     this.table = [];
-    this.firstChild = null;
 
     this.values = [];
 
@@ -137,36 +135,6 @@ export class ChildNode {
 
   isInternalNode() {
     return !this.isLeaf();
-  }
-
-  getValueCoords(offset) {
-    const vec = new Vector3();
-
-    let x = offset >> (2 * this.log2dim);
-    offset &= (1 << (2 * this.log2dim)) - 1;
-    let y = offset >> this.log2dim;
-    let z = offset & ((1 << this.log2dim) - 1);
-
-    vec.set(x, y, z);
-
-    const childTotal = this.total - this.log2dim;
-
-    vec.x = vec.x << childTotal;
-    vec.y = vec.y << childTotal;
-    vec.z = vec.z << childTotal;
-
-    return vec;
-  }
-
-  forEachValue(callback = () => {}) {
-    this.valueMask.forEachOn((indices) => {
-      callback({
-        wordIndex: indices.wordIndex,
-        bitIndex: indices.bitIndex,
-        offset: indices.offset,
-        coords: this.getValueCoords(indices.offset),
-      });
-    });
   }
 
   readValues() {
@@ -208,7 +176,6 @@ export class ChildNode {
       child.readNode(this.depth + 1, {
         id: indices.offset,
         origin: vec,
-        indices: indices,
         background: this.background,
       });
 
@@ -218,10 +185,6 @@ export class ChildNode {
 
       this.table[indices.offset] = child;
       this.leavesCount += child.leavesCount;
-
-      if (!this.firstChild) {
-        this.firstChild = child;
-      }
 
       GridSharedContext.cleanContext(child);
     });
@@ -527,12 +490,6 @@ export class ChildNode {
     return localBbox;
   }
 
-  getFirstChild() {
-    return this.firstChild;
-  }
-
-  valueCache = {};
-
   contains(position) {
     const [min, max] = this.getLocalBbox();
 
@@ -564,10 +521,6 @@ export class ChildNode {
       );
     }
   }
-
-  reads = 0.0;
-  readsMiss = 0.0;
-  readsOk = 0.0;
 
   getValue(position, accessor = null) {
     if (!this.contains(position)) {
@@ -620,15 +573,11 @@ export class ChildNode {
   }
 
   getLeafAt(position, accessor = null) {
-    this.reads++;
-
     if (!this.contains(position)) {
-      this.readsMiss++;
       return null;
     }
 
     if (this.isLeaf()) {
-      this.readsOk++;
       return this;
     }
 
@@ -639,11 +588,9 @@ export class ChildNode {
     const targetChild = this.table[this.coordToOffset(position)];
 
     if (targetChild) {
-      this.readsMiss++;
       return targetChild.getLeafAt(position, accessor);
     }
 
-    this.readsOk++;
     return null;
   }
 }

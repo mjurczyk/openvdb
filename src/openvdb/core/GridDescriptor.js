@@ -276,7 +276,6 @@ export class GridDescriptor {
     );
   }
 
-  valueCache = {};
   accessor = new Accessor(this);
 
   // NOTE Scratch vector for lookups. Nodes do not keep the position after a call.

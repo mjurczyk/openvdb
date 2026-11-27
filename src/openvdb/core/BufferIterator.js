@@ -65,10 +65,6 @@ export class BufferIterator {
     this.view = new DataView(source.buffer, source.byteOffset, source.byteLength);
   }
 
-  reset() {
-    this.offset = 0;
-  }
-
   readUint8() {
     const value = this.view.getUint8(this.offset);
     this.offset += 1;
