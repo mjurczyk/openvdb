@@ -22,8 +22,8 @@ const createTexture3D = (data, dimensions, format, mipmaps) => {
 };
 
 // NOTE Level sets store signed distance. Active voxels give density 1.0. Scale maps to 1.0.
-const sampleDensity = (grid, position, scale = 1.0) => {
-  if (grid.isLevelSet?.()) {
+const sampleDensity = (grid, isLevelSet, position, scale = 1.0) => {
+  if (isLevelSet) {
     return grid.isActive(position) ? 1.0 : 0.0;
   }
 
@@ -433,10 +433,10 @@ export class FrameVolume extends Three.Group {
     const onTimeout = () => {
       // NOTE Unblocking conversion
       // REF https://github.com/gkjohnson/three-mesh-bvh/blob/master/example/voxelize.js#L326
-      const startTime = window.performance.now();
+      const startTime = performance.now();
       const current = tasks[convertedGrids];
 
-      while (current && window.performance.now() - startTime < 12) {
+      while (current && performance.now() - startTime < 12) {
         const { value, done } = current.task.next();
 
         if (done) {
@@ -504,6 +504,11 @@ export class FrameVolume extends Three.Group {
 
     const toIndex = (target) => target.transform.applyInverseTransformMap(position.copy(world));
 
+    // NOTE The level set flag is the same for all voxels of a grid. Read it one time.
+    const isLevelSet = Boolean(grid.isLevelSet?.());
+    const isEmissiveLevelSet = Boolean(emissive && auxGrids.emissive.isLevelSet());
+    const isMaskLevelSet = Boolean(mask && auxGrids.mask.isLevelSet());
+
     // NOTE Filled row by row. It is complete when the last row is converted.
     const densityStats = { sum: 0.0, count: 0 };
     volume.densityStats = densityStats;
@@ -519,7 +524,7 @@ export class FrameVolume extends Three.Group {
             (z + 0.5) / depth - 0.5
           ).multiply(size).add(center);
 
-          density[index] = sampleDensity(grid, toIndex(grid)) * 255.0;
+          density[index] = sampleDensity(grid, isLevelSet, toIndex(grid)) * 255.0;
 
           if (density[index] > 0) {
             densityStats.sum += density[index] / 255.0;
@@ -528,12 +533,17 @@ export class FrameVolume extends Three.Group {
 
           if (emissive) {
             emissive[index] =
-              sampleDensity(auxGrids.emissive, toIndex(auxGrids.emissive), this.emissiveScale) *
-              255.0;
+              sampleDensity(
+                auxGrids.emissive,
+                isEmissiveLevelSet,
+                toIndex(auxGrids.emissive),
+                this.emissiveScale
+              ) * 255.0;
           }
 
           if (mask) {
-            mask[index] = sampleDensity(auxGrids.mask, toIndex(auxGrids.mask)) * 255.0;
+            mask[index] =
+              sampleDensity(auxGrids.mask, isMaskLevelSet, toIndex(auxGrids.mask)) * 255.0;
           }
 
           if (baseColor) {
