@@ -573,7 +573,7 @@ export const volumePars = `
   uniform bool frameUseEmissiveMap;
   uniform bool frameUseBaseColorMap;
   uniform bool frameUseMaskMap;
-  // NOTE Whether the density and mask textures have mipmaps. Without them textureLod reads level 0 at any lod.
+  // NOTE Whether this volume reads mip levels. Shared textures can have levels for an instance or a source with mipmaps.
   uniform bool frameMipmaps;
 
   uniform vec3 frameBaseColor;
@@ -618,10 +618,15 @@ export const volumePars = `
     return max(0.0, log2(localSize * max(texels.x, max(texels.y, texels.z))));
   }
 
+  // NOTE Mip level that the samples read. Level 0 without mipmaps.
+  float frameSampledLod(float lod) {
+    return frameMipmaps ? lod : 0.0;
+  }
+
   // NOTE Sub-steps for the part of a slice inside the volume box: two for each voxel of the mip level that is read, at
-  // most maxSteps. That level is the froxel width's with mipmaps and 0 without, as textureLod then reads level 0.
+  // most maxSteps. That level is the froxel width's with mipmaps and 0 without.
   int frameBoxSteps(vec3 localNear, vec3 localFar, float segment, float widthLod, int maxSteps) {
-    float sampledLod = frameMipmaps ? widthLod : 0.0;
+    float sampledLod = frameSampledLod(widthLod);
     float steps = ceil(exp2(frameLod(length(localFar - localNear) * segment) - sampledLod) * 2.0);
 
     return int(clamp(steps, 1.0, float(maxSteps)));
@@ -630,10 +635,11 @@ export const volumePars = `
   // NOTE Returns extinction for each world unit
   float frameSampleExtinction(vec3 localPosition, float lod) {
     vec3 uv = frameWrapUv(localPosition + 0.5 + frameOffset3D);
-    float value = textureLod(frameDensityMap, uv, lod).r;
+    float sampledLod = frameSampledLod(lod);
+    float value = textureLod(frameDensityMap, uv, sampledLod).r;
 
     if (frameUseMaskMap) {
-      value *= textureLod(frameMaskMap, localPosition + 0.5, lod).r;
+      value *= textureLod(frameMaskMap, localPosition + 0.5, sampledLod).r;
     }
 
     value = value > frameDensityCutoff ? value : 0.0;
@@ -674,7 +680,7 @@ export const volumePars = `
     vec3 albedo = frameBaseColor;
 
     if (frameUseBaseColorMap) {
-      albedo *= textureLod(frameBaseColorMap, frameWrapUv(localPosition + 0.5 + frameOffset3D), lod).rgb;
+      albedo *= textureLod(frameBaseColorMap, frameWrapUv(localPosition + 0.5 + frameOffset3D), frameSampledLod(lod)).rgb;
     }
 
     return albedo;
@@ -725,7 +731,7 @@ export const volumePars = `
       return vec3(0.0);
     }
 
-    float value = textureLod(frameEmissiveMap, frameWrapUv(localPosition + 0.5 + frameOffset3D), lod).r;
+    float value = textureLod(frameEmissiveMap, frameWrapUv(localPosition + 0.5 + frameOffset3D), frameSampledLod(lod)).r;
     float temperature = mix(frameTemperatureRange.x, frameTemperatureRange.y, value);
 
     // NOTE Emitted power increases with temperature^4 (Stefan-Boltzmann). Range top gives 1.0.
@@ -979,8 +985,9 @@ export const setVolumeUniforms = (uniforms, frameVolume, volume) => {
   uniforms.frameUseEmissiveMap.value = !!volume.emissiveMap3D;
   uniforms.frameUseBaseColorMap.value = !!volume.baseColorMap3D;
   uniforms.frameUseMaskMap.value = !!volume.maskMap3D;
-  // NOTE Read from the textures, since frameVolume.mipmaps only reaches them in updateMipmaps
+  // NOTE Shared textures can have levels that this volume does not use (updateMipmaps)
   uniforms.frameMipmaps.value =
+    frameVolume.mipmaps &&
     !!volume.densityMap3D?.generateMipmaps &&
     (!volume.maskMap3D || volume.maskMap3D.generateMipmaps);
   uniforms.frameBaseColor.value.copy(frameVolume.baseColor);
