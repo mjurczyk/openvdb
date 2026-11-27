@@ -17,11 +17,16 @@ const toPublishedPackage = (fields) => (contents) => {
   return `${JSON.stringify(packageJson, null, 2)}\n`;
 };
 
-export const copyPackageFiles = (name, fields) =>
+// NOTE Set thirdPartyNotices for packages that bundle openvdb. THIRD_PARTY_NOTICES lists its third-party code.
+export const copyPackageFiles = (name, fields, { thirdPartyNotices = false } = {}) =>
   copy({
     targets: [
       { src: './package.json', dest: getOutputDir(name), transform: toPublishedPackage(fields) },
       { src: './README.md', dest: getOutputDir(name) },
+      { src: '../../LICENSE', dest: getOutputDir(name) },
+      ...(thirdPartyNotices
+        ? [{ src: '../../THIRD_PARTY_NOTICES', dest: getOutputDir(name) }]
+        : []),
     ],
   });
 
@@ -37,7 +42,12 @@ const getExports = (entries) =>
   );
 
 // NOTE ESM and CJS builds of a library package. Each entry point is a separate bundle.
-export const createLibraryConfigs = ({ name, external = [], entries = ['index'] }) =>
+export const createLibraryConfigs = ({
+  name,
+  external = [],
+  entries = ['index'],
+  thirdPartyNotices = false,
+}) =>
   entries.flatMap((entry, index) => [
     {
       input: `./${entry}.js`,
@@ -49,11 +59,11 @@ export const createLibraryConfigs = ({ name, external = [], entries = ['index'] 
         uglify(),
         ...(index === 0
           ? [
-              copyPackageFiles(name, {
-                main: './index.cjs',
-                module: './index.js',
-                exports: getExports(entries),
-              }),
+              copyPackageFiles(
+                name,
+                { main: './index.cjs', module: './index.js', exports: getExports(entries) },
+                { thirdPartyNotices },
+              ),
             ]
           : []),
       ],

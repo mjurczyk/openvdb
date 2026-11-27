@@ -13,6 +13,10 @@ export default {
   plugins: [
     cleanOutputDir('webvdb'),
     nodeResolve(),
-    copyPackageFiles('webvdb', { bin: { wvdb: './cli.mjs' }, dependencies: {} }),
+    copyPackageFiles(
+      'webvdb',
+      { bin: { wvdb: './cli.mjs' }, dependencies: {} },
+      { thirdPartyNotices: true },
+    ),
   ],
 };
