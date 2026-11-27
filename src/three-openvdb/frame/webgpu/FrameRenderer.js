@@ -372,12 +372,20 @@ export class FrameRenderer {
   lightState = {
     camera: null,
     hemiCount: 0,
+    probeCount: 0,
     hasSky: false,
     directions: { length: 0, entries: [] },
     points: { length: 0, entries: [] },
     spots: { length: 0, entries: [] },
   };
-  lightResult = { shadowLightCount: 0, environmentLightCount: 0, environmentShadowSlot: 0, environmentGridLights: [] };
+  // NOTE skyLightCount: hemisphere lights and light probes. They read sky up and sky down.
+  lightResult = {
+    shadowLightCount: 0,
+    environmentLightCount: 0,
+    environmentShadowSlot: 0,
+    environmentGridLights: [],
+    skyLightCount: 0,
+  };
   environmentGridLightEntries = [];
 
   // NOTE Mipmaps are built after the conversion. Progressive textures change in each step.
@@ -1104,6 +1112,12 @@ export class FrameRenderer {
       this.transmittanceMaterial.frameShadowDensityMap.value = this.shadowDensityTarget.textures[0];
       this.transmittanceMaterial.frameShadowAbsorptionMap.value = this.shadowDensityTarget.textures.at(-1);
       this.transmittanceMaterial.frameShadowLightCount.value = lights.shadowLightCount;
+      // NOTE The 'outward' environment of the density pass also reads sky up and sky down
+      this.transmittanceMaterial.frameSkyMarch.value =
+        lights.skyLightCount > 0 ||
+        (!useEnvironmentGrid && lights.environmentLightCount === 0 && !!scene.environment)
+          ? 1.0
+          : 0.0;
       this.transmittanceMaterial.frameMultipleScattering.value = getFrameMultipleScattering(
         this.settings.multipleScattering,
         this.settings,
@@ -1246,6 +1260,7 @@ export class FrameRenderer {
       material.neural ? 1 : 0,
       material.multiScale ? material.frameMultiScaleLevels.value : 0,
       material.frameTwoSided.value,
+      material.frameSkyMarch.value,
     );
     pushVector(values, material.frameScatteringOctaves.value);
     pushVector(values, this.lightUniforms.frameSkyDirection.value);
@@ -1574,6 +1589,8 @@ export class FrameRenderer {
     } else if (light.isLightProbe) {
       const { coefficients } = light.sh;
 
+      state.probeCount++;
+
       for (let i = 0; i < coefficients.length; i++) {
         frameLightProbe.array[i].addScaledVector(coefficients[i], light.intensity);
       }
@@ -1628,6 +1645,7 @@ export class FrameRenderer {
 
     state.camera = camera;
     state.hemiCount = 0;
+    state.probeCount = 0;
     state.hasSky = false;
     directions.length = 0;
     points.length = 0;
@@ -1729,6 +1747,7 @@ export class FrameRenderer {
     result.shadowLightCount = sceneShadowCount + environmentLightCount;
     result.environmentLightCount = environmentLightCount;
     result.environmentShadowSlot = sceneShadowCount;
+    result.skyLightCount = hemiCount + state.probeCount;
 
     return result;
   }
