@@ -75,7 +75,7 @@ To avoid re-coding same things over again, parts of the library may be based / t
 
 - [gkjohnson/three-mesh-bvh](https://github.com/gkjohnson/three-mesh-bvh): BVH implementation
 - [manzt/numcodecs.js](https://github.com/manzt/numcodecs.js/): BLOSC & ZLIB compression
-  - [nodeca/pako](https://github.com/issues): ZLIB compression
+  - [nodeca/pako](https://github.com/nodeca/pako): ZLIB compression
 
 Be sure to ⭐️ those!
 
