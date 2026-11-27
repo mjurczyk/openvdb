@@ -457,9 +457,10 @@ export class FrameRenderer {
     }
 
     const volumes = withoutMRT(renderer, () => {
-      this.volumeShadows.update(renderer, scene);
-
       const collected = this.collectVolumes(renderer, scene, camera);
+
+      // NOTE The collector walk of this render also gives the shadow lights
+      this.volumeShadows.update(renderer, collected.lights);
 
       if (collected.volumes.length > 0) {
         this.renderFrame(renderer, scene, camera, collected.volumes, collected.casters);

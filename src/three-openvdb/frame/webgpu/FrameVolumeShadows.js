@@ -30,7 +30,6 @@ import {
   frameShadowDepth,
   frameMaxShadowSteps,
 } from './FrameVolumeShadowMaterial.js';
-import { withoutMRT } from './frameMRT.js';
 
 // NOTE The default filters of three.js ShadowNode, in shadow map type order. PCFSoftShadowMap has no filter.
 const shadowFilters = [BasicShadowFilter, PCFShadowFilter, null, VSMShadowFilter];
@@ -53,8 +52,22 @@ const cascadeMargin = 1.0;
 const coarseMapSize = 64;
 const coarseSteps = 8;
 
-// NOTE Values for change checks. One array, reused for each check.
-const signature = [];
+// NOTE Values for change checks: size, castVersion, steps and two camera matrices. One array, reused for each check.
+const maxSignatureLength = 3 + 16 + 16;
+const signature = new Float64Array(maxSignatureLength);
+let signatureLength = 0;
+
+// NOTE Map pieces in the work list of updateMaps
+const pieceLayout = 0;
+const pieceCascade = 1;
+const pieceMap = 2;
+
+// NOTE Far distance of each cascade (getCascadeBreaks). One array, reused.
+const cascadeBreaks = new Array(frameMaxShadowMapCascades).fill(0.0);
+
+// NOTE Corners of the view in clip x and y. Corners 0 and 2 are diagonal.
+const cornerX = [-1, 1, 1, -1];
+const cornerY = [-1, -1, 1, 1];
 
 const clearColor = new Three.Color();
 const lightDirection = new Three.Vector3();
@@ -121,46 +134,37 @@ const isShadowLight = (light) =>
   (light.isDirectionalLight || light.isSpotLight || light.isPointLight) && light.castShadow;
 
 // NOTE Cascade split distances, the practical split of three.js CSMShadowNode (lambda 0.5).
-// Returns the far distance of each cascade.
+// Returns the far distance of each cascade, in the shared cascadeBreaks array.
 const getCascadeBreaks = (count, near, far) => {
-  const breaks = [];
-
   for (let i = 1; i <= count; i++) {
     const uniformSplit = near + ((far - near) * i) / count;
     const logSplit = near * Math.pow(far / near, i / count);
 
-    breaks.push(i === count ? far : Three.MathUtils.lerp(uniformSplit, logSplit, 0.5));
+    cascadeBreaks[i - 1] = i === count ? far : Three.MathUtils.lerp(uniformSplit, logSplit, 0.5);
   }
 
-  return breaks;
+  return cascadeBreaks;
+};
+
+// NOTE A point on the corner ray, then moved to the depth (perspective) or set to it (orthographic). In world space.
+const setSliceCorner = (target, camera, x, y, depth) => {
+  target.set(x, y, 0.5).applyMatrix4(camera.projectionMatrixInverse);
+
+  if (camera.isPerspectiveCamera) {
+    target.multiplyScalar(depth / -target.z);
+  } else {
+    target.z = -depth;
+  }
+
+  target.applyMatrix4(camera.matrixWorld);
 };
 
 // NOTE Corners of the view between two depths, in world space. Corners 0 and 2 are diagonal.
 const getSliceCorners = (camera, near, far) => {
-  const corners = [
-    [-1, -1],
-    [1, -1],
-    [1, 1],
-    [-1, 1],
-  ];
-
-  corners.forEach(([x, y], index) => {
-    [
-      [nearCorners[index], near],
-      [farCorners[index], far],
-    ].forEach(([target, depth]) => {
-      // NOTE A point on the corner ray, then moved to the depth (perspective) or set to it (orthographic)
-      target.set(x, y, 0.5).applyMatrix4(camera.projectionMatrixInverse);
-
-      if (camera.isPerspectiveCamera) {
-        target.multiplyScalar(depth / -target.z);
-      } else {
-        target.z = -depth;
-      }
-
-      target.applyMatrix4(camera.matrixWorld);
-    });
-  });
+  for (let i = 0; i < 4; i++) {
+    setSliceCorner(nearCorners[i], camera, cornerX[i], cornerY[i], near);
+    setSliceCorner(farCorners[i], camera, cornerX[i], cornerY[i], far);
+  }
 };
 
 // NOTE three.js makes the shadow node of a light one time. Then a new filterNode has no effect.
@@ -402,16 +406,68 @@ const isInScene = (object) => {
   return root.isScene === true;
 };
 
+// NOTE Signature of an item: the values of its last change check. Length 0 makes the next check a change.
+const createItem = () => ({ signature: new Float64Array(maxSignatureLength), signatureLength: 0, lastDraw: -1 });
+
+const addSignatureValues = (values) => {
+  for (let i = 0; i < values.length; i++) {
+    signature[signatureLength++] = values[i];
+  }
+};
+
+// NOTE Signature of a map camera: the map size, the grid version, the steps and the camera matrices
+const setCameraSignature = (size, castVersion, steps, matrixWorld, projectionMatrix) => {
+  signature[0] = size;
+  signature[1] = castVersion;
+  signature[2] = steps;
+  signatureLength = 3;
+  addSignatureValues(matrixWorld.elements);
+  addSignatureValues(projectionMatrix.elements);
+};
+
+// NOTE Signature of the cascade split layout: the map size, the cascade count and the cascade far distances
+const setLayoutSignature = (size, count, breaks) => {
+  signature[0] = size;
+  signature[1] = count;
+  signature[2] = breaks.x;
+  signature[3] = breaks.y;
+  signature[4] = breaks.z;
+  signature[5] = breaks.w;
+  signatureLength = 6;
+};
+
 // NOTE Compares the signature with the one of the item. Stores it when it is different.
 const changed = (item) => {
-  const same = signature.length === item.signature.length && signature.every((value, i) => value === item.signature[i]);
+  let same = signatureLength === item.signatureLength;
+
+  for (let i = 0; same && i < signatureLength; i++) {
+    same = signature[i] === item.signature[i];
+  }
 
   if (!same) {
-    item.signature.length = 0;
-    item.signature.push(...signature);
+    for (let i = 0; i < signatureLength; i++) {
+      item.signature[i] = signature[i];
+    }
+
+    item.signatureLength = signatureLength;
   }
 
   return !same;
+};
+
+// NOTE Insertion sort of the first count pieces, oldest draw first. Stable, the same order as Array.sort.
+const sortWork = (work, count) => {
+  for (let i = 1; i < count; i++) {
+    const piece = work[i];
+    let j = i - 1;
+
+    while (j >= 0 && work[j].item.lastDraw > piece.item.lastDraw) {
+      work[j + 1] = work[j];
+      j--;
+    }
+
+    work[j + 1] = piece;
+  }
 };
 
 // NOTE Shadows of FrameVolume objects on meshes (frameRenderer.settings.castShadows).
@@ -432,6 +488,11 @@ export class FrameVolumeShadows {
   renderCount = 0;
   mapsRenderId = -1;
   mapsCamera = null;
+  // NOTE Changed map pieces of updateMaps. The records are reused between renders.
+  work = [];
+  workCount = 0;
+  // NOTE Values of the current update() or updateMaps() call, for the Map.forEach callbacks
+  state = { renderer: null, scene: null, camera: null, size: 0, spectral: false };
 
   constructor(frameRenderer) {
     this.frameRenderer = frameRenderer;
@@ -499,17 +560,16 @@ export class FrameVolumeShadows {
           cascadeBreaks: new Three.Vector4(),
         },
         // NOTE Spot map or cube map (all faces in one draw), or the split layout of the cascades
-        item: { signature: [], lastDraw: -1 },
+        item: createItem(),
         cascadeCount: 0,
         cascadeBreaks: new Three.Vector4(),
         cascades: light.isDirectionalLight
           ? Array.from({ length: frameMaxShadowMapCascades }, () => ({
+              ...createItem(),
               camera: new Three.OrthographicCamera(),
               viewProjection: new Three.Matrix4(),
               origin: new Three.Vector3(),
               far: 1.0,
-              signature: [],
-              lastDraw: -1,
               drawn: { viewProjection: new Three.Matrix4(), origin: new Three.Vector3(), far: 1.0 },
             }))
           : null,
@@ -540,8 +600,7 @@ export class FrameVolumeShadows {
         : texture(entry.spectralTarget.texture);
     }
 
-    entry.item.signature.length = 0;
-    entry.cascades?.forEach((cascade) => (cascade.signature.length = 0));
+    this.resetSignatures(entry);
     entry.drawn.cascadeCount = 0;
 
     if (entry.cubeCamera) {
@@ -549,6 +608,17 @@ export class FrameVolumeShadows {
     }
 
     this.retire(resetLightShadow(entry.light), oldTargets);
+  }
+
+  // NOTE The next change check of each piece of the entry is a change
+  resetSignatures(entry) {
+    entry.item.signatureLength = 0;
+
+    if (entry.cascades) {
+      for (let i = 0; i < entry.cascades.length; i++) {
+        entry.cascades[i].signatureLength = 0;
+      }
+    }
   }
 
   // NOTE Old maps are disposed in the next update(). When the reset did not work, receivers keep them.
@@ -583,37 +653,49 @@ export class FrameVolumeShadows {
   }
 
   disposeRetired() {
-    this.retired.forEach((resource) => resource.dispose());
+    for (let i = 0; i < this.retired.length; i++) {
+      this.retired[i].dispose();
+    }
+
     this.retired.length = 0;
   }
 
+  // NOTE Map.forEach callback of update(): frees or resizes the map of the entry
+  checkEntry(entry) {
+    const { state } = this;
+
+    if (!isShadowLight(entry.light) || !isInScene(entry.light)) {
+      this.freeEntry(entry);
+    } else if (entry.size !== state.size || entry.spectral !== state.spectral) {
+      this.resizeMap(state.renderer, entry, state.size, state.spectral);
+    }
+  }
+
   // NOTE Puts the volume filter on each shadow light. Each frame, then new lights and new filters are found.
+  // NOTE lights: the visible lights with castShadow, from the volume collector of this render (no extra scene walk).
   // NOTE Frees the entries of lights with no shadow or not in a scene, and all entries when castShadows is off.
-  update(renderer, scene) {
+  update(renderer, lights) {
     this.disposeRetired();
 
     if (!this.frameRenderer.settings.castShadows) {
-      this.entries.forEach((entry) => this.freeEntry(entry));
+      this.entries.forEach(this.freeEntry, this);
 
       return;
     }
 
-    const size = this.getMapSize();
-    const spectral = this.isSpectral();
+    const { state } = this;
 
-    this.entries.forEach((entry) => {
-      if (!isShadowLight(entry.light) || !isInScene(entry.light)) {
-        this.freeEntry(entry);
-      } else if (entry.size !== size || entry.spectral !== spectral) {
-        this.resizeMap(renderer, entry, size, spectral);
-      }
-    });
+    state.renderer = renderer;
+    state.size = this.getMapSize();
+    state.spectral = this.isSpectral();
+    this.entries.forEach(this.checkEntry, this);
+    state.renderer = null;
 
-    scene.traverse((light) => {
-      if (isShadowLight(light)) {
-        this.install(renderer, light);
+    for (let i = 0; i < lights.length; i++) {
+      if (isShadowLight(lights[i])) {
+        this.install(renderer, lights[i]);
       }
-    });
+    }
   }
 
   install(renderer, light) {
@@ -683,13 +765,15 @@ export class FrameVolumeShadows {
     const near = shadowCamera.near;
     const far = light.distance || shadowCamera.far;
 
-    cubeCamera.children.forEach((camera) => {
+    for (let i = 0; i < cubeCamera.children.length; i++) {
+      const camera = cubeCamera.children[i];
+
       if (camera.near !== near || camera.far !== far) {
         camera.near = near;
         camera.far = far;
         camera.updateProjectionMatrix();
       }
-    });
+    }
 
     cubeCamera.position.setFromMatrixPosition(light.matrixWorld);
     cubeCamera.updateMatrixWorld();
@@ -755,7 +839,12 @@ export class FrameVolumeShadows {
     casterBox.copy(casterWorldBox).applyMatrix4(lightViewInverse);
 
     entry.cascadeCount = count;
-    entry.cascadeBreaks.set(...[0, 1, 2, 3].map((i) => breaks[Math.min(i, count - 1)]));
+    entry.cascadeBreaks.set(
+      breaks[0],
+      breaks[Math.min(1, count - 1)],
+      breaks[Math.min(2, count - 1)],
+      breaks[Math.min(3, count - 1)],
+    );
 
     for (let i = 0; i < count; i++) {
       const cascade = cascades[i];
@@ -770,9 +859,11 @@ export class FrameVolumeShadows {
       const texel = width / size;
 
       sliceBox.makeEmpty();
-      [...nearCorners, ...farCorners].forEach((corner) =>
-        sliceBox.expandByPoint(point.copy(corner).applyMatrix4(lightViewInverse)),
-      );
+
+      for (let c = 0; c < 4; c++) {
+        sliceBox.expandByPoint(point.copy(nearCorners[c]).applyMatrix4(lightViewInverse));
+        sliceBox.expandByPoint(point.copy(farCorners[c]).applyMatrix4(lightViewInverse));
+      }
 
       const centerX = Math.floor((sliceBox.min.x + sliceBox.max.x) * 0.5 / texel) * texel;
       const centerY = Math.floor((sliceBox.min.y + sliceBox.max.y) * 0.5 / texel) * texel;
@@ -827,9 +918,11 @@ export class FrameVolumeShadows {
     this.mesh.layers.mask = camera.layers.mask;
 
     // NOTE Spectral: the second draw writes the optical depth of each channel into the second map
-    const targets = entry.spectralTarget ? [entry.target, entry.spectralTarget] : [entry.target];
+    const outputs = entry.spectralTarget ? 2 : 1;
 
-    targets.forEach((target, output) => {
+    for (let output = 0; output < outputs; output++) {
+      const target = output === 0 ? entry.target : entry.spectralTarget;
+
       this.material.frameShadowOutput.value = output;
 
       if (entry.isPoint) {
@@ -840,7 +933,7 @@ export class FrameVolumeShadows {
         renderer.setRenderTarget(target);
         renderer.render(this.scene, camera);
       }
-    });
+    }
 
     if (entry.isPoint) {
       entry.cubeCamera.renderTarget = entry.target;
@@ -852,67 +945,56 @@ export class FrameVolumeShadows {
     renderer.setRenderTarget(currentRenderTarget, currentActiveCubeFace, currentActiveMipmapLevel);
   }
 
-  // NOTE Adds the changed map pieces of one light to the work list. A piece: { item, cost, draw }.
-  collectWork(entry, camera, renderer, work) {
+  // NOTE Adds a changed map piece to the work list. The records are reused.
+  addPiece(entry, item, cost, kind, index, camera) {
+    if (this.workCount === this.work.length) {
+      this.work.push({ entry: null, item: null, cost: 0, kind: pieceMap, index: 0, camera: null });
+    }
+
+    const piece = this.work[this.workCount++];
+
+    piece.entry = entry;
+    piece.item = item;
+    piece.cost = cost;
+    piece.kind = kind;
+    piece.index = index;
+    piece.camera = camera;
+  }
+
+  // NOTE Change check of the camera of cascade i
+  cascadeChanged(entry, i, castVersion, steps) {
+    const cascade = entry.cascades[i];
+
+    setCameraSignature(entry.size, castVersion, steps, cascade.camera.matrixWorld, cascade.camera.projectionMatrix);
+
+    return changed(cascade);
+  }
+
+  // NOTE Adds the changed map pieces of one light to the work list
+  collectWork(entry, camera, renderer) {
     const { castVersion } = this.frameRenderer;
     const steps = this.getSteps();
-    const { drawn, rayUniforms } = entry;
 
     if (entry.cascades) {
       const count = this.fitCascades(entry, camera, renderer);
-      const forward = rayUniforms.frameShadowForward.value;
-
-      const drawCascade = (i) => {
-        const cascade = entry.cascades[i];
-
-        this.setPassRay(cascade.origin, forward, 0, cascade.far);
-        this.drawPass(renderer, entry, cascade.camera, tileViewport.set(i * entry.size, 0, entry.size, entry.size));
-        cascade.drawn.viewProjection.copy(cascade.viewProjection);
-        cascade.drawn.origin.copy(cascade.origin);
-        cascade.drawn.far = cascade.far;
-        cascade.lastDraw = this.renderCount;
-        drawn.forward.copy(forward);
-      };
-
-      const cascadeChanged = (i) => {
-        const cascade = entry.cascades[i];
-
-        signature.length = 0;
-        signature.push(entry.size, castVersion, steps, ...cascade.camera.matrixWorld.elements);
-        signature.push(...cascade.camera.projectionMatrix.elements);
-
-        return changed(cascade);
-      };
 
       // NOTE A new split layout: one piece draws all cascades, then the receivers switch to the layout.
       // Receivers never mix tiles of two layouts.
-      signature.length = 0;
-      signature.push(entry.size, count, ...entry.cascadeBreaks.toArray());
+      setLayoutSignature(entry.size, count, entry.cascadeBreaks);
 
       if (changed(entry.item)) {
         for (let i = 0; i < count; i++) {
-          cascadeChanged(i);
+          this.cascadeChanged(entry, i, castVersion, steps);
         }
 
-        work.push({
-          item: entry.item,
-          cost: count,
-          draw: () => {
-            for (let i = 0; i < count; i++) {
-              drawCascade(i);
-            }
-
-            drawn.cascadeCount = count;
-            drawn.cascadeBreaks.copy(entry.cascadeBreaks);
-          },
-        });
+        this.addPiece(entry, entry.item, count, pieceLayout, 0, null);
 
         return;
       }
 
       for (let i = 0; i < count; i++) {
-        if (cascadeChanged(i)) {
-          work.push({ item: entry.cascades[i], cost: 1, draw: () => drawCascade(i) });
+        if (this.cascadeChanged(entry, i, castVersion, steps)) {
+          this.addPiece(entry, entry.cascades[i], 1, pieceCascade, i, null);
         }
       }
 
@@ -920,34 +1002,83 @@ export class FrameVolumeShadows {
     }
 
     const shadowCamera = this.prepareCamera(entry);
+    const worldCamera = entry.isPoint ? entry.cubeCamera : shadowCamera;
 
-    signature.length = 0;
-    signature.push(entry.size, castVersion, steps, ...(entry.isPoint ? entry.cubeCamera : shadowCamera).matrixWorld.elements);
-    signature.push(...shadowCamera.projectionMatrix.elements);
+    setCameraSignature(entry.size, castVersion, steps, worldCamera.matrixWorld, shadowCamera.projectionMatrix);
 
-    if (!changed(entry.item)) {
-      return;
+    if (changed(entry.item)) {
+      // NOTE All six cube faces in one draw, then the faces always match
+      this.addPiece(entry, entry.item, entry.isPoint ? 6 : 1, pieceMap, 0, shadowCamera);
+    }
+  }
+
+  drawCascade(renderer, entry, i) {
+    const cascade = entry.cascades[i];
+    const forward = entry.rayUniforms.frameShadowForward.value;
+
+    this.setPassRay(cascade.origin, forward, 0, cascade.far);
+    this.drawPass(renderer, entry, cascade.camera, tileViewport.set(i * entry.size, 0, entry.size, entry.size));
+    cascade.drawn.viewProjection.copy(cascade.viewProjection);
+    cascade.drawn.origin.copy(cascade.origin);
+    cascade.drawn.far = cascade.far;
+    cascade.lastDraw = this.renderCount;
+    entry.drawn.forward.copy(forward);
+  }
+
+  // NOTE A new split layout: all cascades, then the receivers get the layout
+  drawLayout(renderer, entry) {
+    for (let i = 0; i < entry.cascadeCount; i++) {
+      this.drawCascade(renderer, entry, i);
     }
 
-    work.push({
-      item: entry.item,
-      // NOTE All six cube faces in one draw, then the faces always match
-      cost: entry.isPoint ? 6 : 1,
-      draw: () => {
-        this.setPassRay(
-          rayUniforms.frameShadowOrigin.value,
-          rayUniforms.frameShadowForward.value,
-          rayUniforms.frameShadowPerspective.value,
-          rayUniforms.frameShadowFar.value,
-        );
-        this.drawPass(renderer, entry, shadowCamera, tileViewport.set(0, 0, entry.size, entry.size));
-        drawn.origin.copy(rayUniforms.frameShadowOrigin.value);
-        drawn.forward.copy(rayUniforms.frameShadowForward.value);
-        drawn.perspective = rayUniforms.frameShadowPerspective.value;
-        drawn.far = rayUniforms.frameShadowFar.value;
-        drawn.viewProjection.multiplyMatrices(shadowCamera.projectionMatrix, shadowCamera.matrixWorldInverse);
-      },
-    });
+    entry.drawn.cascadeCount = entry.cascadeCount;
+    entry.drawn.cascadeBreaks.copy(entry.cascadeBreaks);
+  }
+
+  // NOTE Spot map or cube map
+  drawMap(renderer, entry, shadowCamera) {
+    const { drawn, rayUniforms } = entry;
+
+    this.setPassRay(
+      rayUniforms.frameShadowOrigin.value,
+      rayUniforms.frameShadowForward.value,
+      rayUniforms.frameShadowPerspective.value,
+      rayUniforms.frameShadowFar.value,
+    );
+    this.drawPass(renderer, entry, shadowCamera, tileViewport.set(0, 0, entry.size, entry.size));
+    drawn.origin.copy(rayUniforms.frameShadowOrigin.value);
+    drawn.forward.copy(rayUniforms.frameShadowForward.value);
+    drawn.perspective = rayUniforms.frameShadowPerspective.value;
+    drawn.far = rayUniforms.frameShadowFar.value;
+    drawn.viewProjection.multiplyMatrices(shadowCamera.projectionMatrix, shadowCamera.matrixWorldInverse);
+  }
+
+  drawPiece(renderer, piece) {
+    if (piece.kind === pieceLayout) {
+      this.drawLayout(renderer, piece.entry);
+    } else if (piece.kind === pieceCascade) {
+      this.drawCascade(renderer, piece.entry, piece.index);
+    } else {
+      this.drawMap(renderer, piece.entry, piece.camera);
+    }
+  }
+
+  // NOTE Map.forEach callback of updateMaps when the grid is not ready
+  disableEntry(entry) {
+    entry.enabled.value = 0;
+    this.resetSignatures(entry);
+  }
+
+  // NOTE Map.forEach callback of updateMaps: turns the entry on or off and adds its changed pieces
+  collectEntry(entry) {
+    const { state } = this;
+    const active = entry.light.castShadow && isVisible(entry.light, state.scene);
+
+    entry.enabled.value = active ? 1 : 0;
+
+    if (active) {
+      this.collectWork(entry, state.camera, state.renderer);
+    }
   }
 
   // NOTE Volume shadow maps of all lights, one time in each render, before the first receiver.
@@ -962,18 +1093,14 @@ export class FrameVolumeShadows {
     this.mapsCamera = camera;
     this.renderCount++;
 
-    const { frameRenderer } = this;
+    const { frameRenderer, state, work } = this;
     const ready =
       frameRenderer.settings.castShadows &&
       renderer.isWebGPURenderer &&
       frameRenderer.prepareShadowGrid(renderer, scene, camera, renderId);
 
     if (!ready) {
-      this.entries.forEach((entry) => {
-        entry.enabled.value = 0;
-        entry.item.signature.length = 0;
-        entry.cascades?.forEach((cascade) => (cascade.signature.length = 0));
-      });
+      this.entries.forEach(this.disableEntry, this);
 
       return;
     }
@@ -982,34 +1109,38 @@ export class FrameVolumeShadows {
     this.material.frameShadowDensityMap.value = frameRenderer.shadowDensityTarget.textures[0];
     this.material.frameShadowSteps.value = this.getSteps();
 
-    const work = [];
+    state.renderer = renderer;
+    state.scene = scene;
+    state.camera = camera;
+    this.workCount = 0;
+    this.entries.forEach(this.collectEntry, this);
+    state.renderer = null;
+    state.scene = null;
+    state.camera = null;
 
-    this.entries.forEach((entry) => {
-      const active = entry.light.castShadow && isVisible(entry.light, scene);
-
-      entry.enabled.value = active ? 1 : 0;
-
-      if (active) {
-        this.collectWork(entry, camera, renderer, work);
-      }
-    });
-
-    work.sort((a, b) => a.item.lastDraw - b.item.lastDraw);
+    sortWork(work, this.workCount);
 
     let budget = Math.max(1, Math.round(frameRenderer.settings.castShadowUpdatesPerFrame));
 
-    work.forEach((piece, index) => {
-      if (index > 0 && piece.cost > budget) {
-        // NOTE Not drawn: the next check sees the change again
-        piece.item.signature.length = 0;
+    for (let i = 0; i < this.workCount; i++) {
+      const piece = work[i];
 
-        return;
+      if (i > 0 && piece.cost > budget) {
+        // NOTE Not drawn: the next check sees the change again
+        piece.item.signatureLength = 0;
+      } else {
+        this.drawPiece(renderer, piece);
+        piece.item.lastDraw = this.renderCount;
+        budget -= piece.cost;
       }
 
-      piece.draw();
-      piece.item.lastDraw = this.renderCount;
-      budget -= piece.cost;
-    });
+      // NOTE The reused records keep no freed entries
+      piece.entry = null;
+      piece.item = null;
+      piece.camera = null;
+    }
+
+    this.workCount = 0;
   }
 
   // NOTE Called by the receivers of a light, one time in each render
@@ -1019,7 +1150,19 @@ export class FrameVolumeShadows {
     }
 
     entry.renderId = renderId;
-    withoutMRT(renderer, () => this.updateMaps(renderer, scene, camera, renderId));
+
+    // NOTE The same as withoutMRT, with no closure in each render
+    const mrt = renderer.getMRT();
+
+    if (mrt !== null) {
+      renderer.setMRT(null);
+    }
+
+    this.updateMaps(renderer, scene, camera, renderId);
+
+    if (mrt !== null) {
+      renderer.setMRT(mrt);
+    }
   }
 
   // NOTE Puts back the filter of each light. Then a new FrameVolumeShadows installs again.

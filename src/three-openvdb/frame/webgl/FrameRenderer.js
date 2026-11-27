@@ -132,6 +132,21 @@ const createAtlasTarget = (width, height, spectral) => {
 
 const isSpectralTarget = (target) => target.textures.length > 1;
 
+// NOTE No material of the object writes depth. The same result as Array.every, with no array for one material.
+const writesNoDepth = (material) => {
+  if (!Array.isArray(material)) {
+    return material.depthWrite === false;
+  }
+
+  for (let i = 0; i < material.length; i++) {
+    if (material[i].depthWrite !== false) {
+      return false;
+    }
+  }
+
+  return true;
+};
+
 const extinctionSpectrum = new Three.Vector3();
 
 
@@ -452,6 +467,8 @@ export class FrameRenderer {
   };
   environmentShadowLight = new Three.Vector4();
   environmentGridLightEntries = [];
+  // NOTE Objects that renderDepth hides. The array is reused.
+  depthHidden = [];
 
   constructor() {
     [
@@ -508,9 +525,10 @@ export class FrameRenderer {
       return;
     }
 
-    this.volumeShadows.update(renderer, scene);
+    const { volumes, casters, lights } = this.collectVolumes(scene, camera);
 
-    const { volumes, casters } = this.collectVolumes(scene, camera);
+    // NOTE The collector walk of this render also gives the shadow lights
+    this.volumeShadows.update(renderer, lights);
 
     if (volumes.length > 0) {
       this.renderFrame(renderer, scene, camera, volumes, casters);
@@ -1073,24 +1091,22 @@ export class FrameRenderer {
 
   // NOTE Objects that do not write depth (fog, FrameVolume proxies, transparent effects)
   // do not stop the march.
+  // NOTE traverseVisible callback of renderDepth
+  visitDepthObject = (object) => {
+    if (object.material && writesNoDepth(object.material)) {
+      this.depthHidden.push(object);
+    }
+  };
+
   renderDepth(renderer, scene, camera) {
-    const hidden = [];
+    const hidden = this.depthHidden;
 
-    scene.traverseVisible((object) => {
-      if (!object.material) {
-        return;
-      }
+    hidden.length = 0;
+    scene.traverseVisible(this.visitDepthObject);
 
-      const materials = Array.isArray(object.material) ? object.material : [object.material];
-
-      if (materials.every((material) => material.depthWrite === false)) {
-        hidden.push(object);
-      }
-    });
-
-    hidden.forEach((object) => {
-      object.visible = false;
-    });
+    for (let i = 0; i < hidden.length; i++) {
+      hidden[i].visible = false;
+    }
 
     const background = scene.background;
     const overrideMaterial = scene.overrideMaterial;
@@ -1105,9 +1121,11 @@ export class FrameRenderer {
     scene.overrideMaterial = overrideMaterial;
     scene.background = background;
 
-    hidden.forEach((object) => {
-      object.visible = true;
-    });
+    for (let i = 0; i < hidden.length; i++) {
+      hidden[i].visible = true;
+    }
+
+    hidden.length = 0;
   }
 
   prepareLightScene(scene, camera, mesh) {
