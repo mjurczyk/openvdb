@@ -41,16 +41,16 @@ import {
 import {
   getFramePhase,
   getFramePhaseSpectrum,
-  getFrameMieTexels,
   frameMieAsymmetry,
   frameMieRgbMode,
   frameMaxScatteringOctaves,
 } from '../core/framePhase.js';
 import { frameMieTableSize } from '../core/frameMieTable.js';
 import { frameMaxEnvironmentLights } from '../core/frameEnvironment.js';
+import { frameMaxShadowCascades } from '../core/frameLimits.js';
 import { getFrameExtinctionSpectrum } from '../core/frameSpectrum.js';
+import { frameMieTexture, frameBlackbodyTexture } from '../core/frameTables.js';
 import {
-  getFrameBlackbodyTable,
   getFrameEmissionSpectrum,
   frameBlackbodyTableSize,
   frameBlackbodyTableRows,
@@ -192,34 +192,8 @@ const frameHenyeyGreensteinColor = (cosTheta, g) => {
     .div(pow(max(vec3(1.0).add(g2).sub(g.mul(2.0).mul(cosTheta)), vec3(1e-4)), vec3(1.5)));
 };
 
-// NOTE Lorenz-Mie phase tables, see getFrameMieTexels. Float values, read with load and a linear blend.
-const frameMieTexture = new Three.DataTexture(
-  getFrameMieTexels(),
-  frameMieTableSize,
-  1,
-  Three.RGBAFormat,
-  Three.FloatType,
-);
-
-frameMieTexture.minFilter = Three.NearestFilter;
-frameMieTexture.magFilter = Three.NearestFilter;
-frameMieTexture.needsUpdate = true;
-
+// NOTE Lorenz-Mie phase tables and emission color table (core/frameTables.js), read with load
 const frameMieMap = texture(frameMieTexture);
-
-// NOTE Emission color table, see core/frameBlackbody.js. Float values, read with load and a bilinear blend.
-const frameBlackbodyTexture = new Three.DataTexture(
-  getFrameBlackbodyTable(),
-  frameBlackbodyTableSize,
-  frameBlackbodyTableRows,
-  Three.RGBAFormat,
-  Three.FloatType,
-);
-
-frameBlackbodyTexture.minFilter = Three.NearestFilter;
-frameBlackbodyTexture.magFilter = Three.NearestFilter;
-frameBlackbodyTexture.needsUpdate = true;
-
 const frameBlackbodyMap = texture(frameBlackbodyTexture);
 
 // NOTE Emission color of the table, temperature in Kelvin. Texel x is on a log temperature scale, texel y is the soot exponent.
@@ -1016,8 +990,6 @@ export const createVolumeNodes = (volume, useMipmaps = false) => {
     sampleEmission,
   };
 };
-
-export const frameMaxShadowCascades = 4;
 
 // NOTE World-space shadow grid cascades. Cascade 0 is the finest, near the camera.
 // All cascades are z slices (tiles) in one 2D atlas.

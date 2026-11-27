@@ -27,9 +27,6 @@ import { createGridNodes } from './frameShaderChunks.js';
 // NOTE Optical depth with transmittance below 1/e^8. More samples do not change the shadow.
 const maxOpticalDepth = 8.0;
 
-// NOTE Upper limit of the castShadowSteps setting
-export const frameMaxShadowSteps = 256;
-
 // NOTE Ray uniforms of one light shadow camera. The shadow pass and the receivers measure depth with them.
 // NOTE Depth is the distance from the light (perspective) or from the camera plane (orthographic).
 // NOTE Far is the far plane of the shadow camera. Depths in the map are divided by it, for half float precision.

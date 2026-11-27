@@ -1,62 +1,12 @@
 import * as Three from 'three';
-import { FrameVolumeShadowMaterial, frameMaxShadowSteps } from './FrameVolumeShadowMaterial.js';
-
-// NOTE Directional lights: cascades of the view (three.js CSMShadowNode). All cascades are tiles of one atlas.
-export const frameMaxShadowMapCascades = 4;
+import { FrameVolumeShadowMaterial } from './FrameVolumeShadowMaterial.js';
+import { frameMaxShadowMapCascades } from '../core/frameLimits.js';
+import { FrameVolumeShadowsBase, fullscreenGeometry, targetOptions, initTarget } from '../core/FrameVolumeShadows.js';
 
 // NOTE Shadow lights of each type that get a volume shadow (the first ones in the three.js shadow order)
 const maxLights = 4;
 
-// NOTE Distance in front of the cascade bounds and the volume box, along the light
-const cascadeMargin = 1.0;
-
-// NOTE castShadowCoarse: small maps and few samples. Shadows are soft blobs, the passes cost almost nothing.
-const coarseMapSize = 64;
-const coarseSteps = 8;
-
 const clearColor = new Three.Color();
-const lightDirection = new Three.Vector3();
-const lightUp = new Three.Vector3();
-const point = new Three.Vector3();
-const lightView = new Three.Matrix4();
-const lightViewInverse = new Three.Matrix4();
-const casterBox = new Three.Box3();
-const casterWorldBox = new Three.Box3();
-const sliceBox = new Three.Box3();
-const tileViewport = new Three.Vector4();
-const nearCorners = [0, 1, 2, 3].map(() => new Three.Vector3());
-const farCorners = [0, 1, 2, 3].map(() => new Three.Vector3());
-
-// NOTE Values for change checks: size, castVersion, steps and two camera matrices. One array, reused for each check.
-const maxSignatureLength = 3 + 16 + 16;
-const signature = new Float64Array(maxSignatureLength);
-let signatureLength = 0;
-
-// NOTE Map pieces in the work list of updateMaps
-const pieceLayout = 0;
-const pieceCascade = 1;
-const pieceMap = 2;
-
-// NOTE Far distance of each cascade (getCascadeBreaks). One array, reused.
-const cascadeBreaks = new Array(frameMaxShadowMapCascades).fill(0.0);
-
-// NOTE Corners of the view in clip x and y. Corners 0 and 2 are diagonal.
-const cornerX = [-1, 1, 1, -1];
-const cornerY = [-1, -1, 1, 1];
-
-const fullscreenGeometry = new Three.BufferGeometry().setAttribute(
-  'position',
-  new Three.Float32BufferAttribute([-1, -1, 0, 3, -1, 0, -1, 3, 0], 3),
-);
-
-const targetOptions = {
-  type: Three.HalfFloatType,
-  format: Three.RGBAFormat,
-  minFilter: Three.LinearFilter,
-  magFilter: Three.LinearFilter,
-  generateMipmaps: false,
-  depthBuffer: false,
-};
 
 // NOTE Directional lights: an atlas with one tile for each cascade, in a row
 // NOTE Spectral: directional and spot maps have a second row with the optical depth of each channel. One sampler for both rows.
@@ -69,155 +19,6 @@ const createTarget = (size, light, spectral = false) => {
   const tiles = light.isDirectionalLight ? frameMaxShadowMapCascades : 1;
 
   return new Three.WebGLRenderTarget(size * tiles, spectral ? size * 2 : size, targetOptions);
-};
-
-// NOTE Clears a new map one time. Empty maps cast no shadow.
-const initTarget = (renderer, target, cube) => {
-  const currentRenderTarget = renderer.getRenderTarget();
-  const currentActiveCubeFace = renderer.getActiveCubeFace();
-  const currentActiveMipmapLevel = renderer.getActiveMipmapLevel();
-  const currentClearAlpha = renderer.getClearAlpha();
-
-  renderer.getClearColor(clearColor);
-  renderer.setClearColor(0x000000, 0.0);
-
-  for (let face = 0; face < (cube ? 6 : 1); face++) {
-    renderer.setRenderTarget(target, face);
-    renderer.clear(true, false, false);
-  }
-
-  renderer.setClearColor(clearColor, currentClearAlpha);
-  renderer.setRenderTarget(currentRenderTarget, currentActiveCubeFace, currentActiveMipmapLevel);
-
-  return target;
-};
-
-const isShadowLight = (light) =>
-  (light.isDirectionalLight || light.isSpotLight || light.isPointLight) && light.castShadow;
-
-// NOTE An object and all its parents are visible, and its root is the rendered scene.
-// NOTE A removed light, or a light of another scene, takes no part of the update budget.
-const isVisible = (object, scene) => {
-  let root = object;
-
-  for (let current = object; current; current = current.parent) {
-    if (!current.visible) {
-      return false;
-    }
-
-    root = current;
-  }
-
-  return root === scene;
-};
-
-// NOTE The object is in a scene. A removed light is not.
-const isInScene = (object) => {
-  let root = object;
-
-  while (root.parent) {
-    root = root.parent;
-  }
-
-  return root.isScene === true;
-};
-
-// NOTE Signature of an item: the values of its last change check. Length 0 makes the next check a change.
-const createItem = () => ({ signature: new Float64Array(maxSignatureLength), signatureLength: 0, lastDraw: -1 });
-
-const addSignatureValues = (values) => {
-  for (let i = 0; i < values.length; i++) {
-    signature[signatureLength++] = values[i];
-  }
-};
-
-// NOTE Signature of a map camera: the map size, the grid version, the steps and the camera matrices
-const setCameraSignature = (size, castVersion, steps, matrixWorld, projectionMatrix) => {
-  signature[0] = size;
-  signature[1] = castVersion;
-  signature[2] = steps;
-  signatureLength = 3;
-  addSignatureValues(matrixWorld.elements);
-  addSignatureValues(projectionMatrix.elements);
-};
-
-// NOTE Signature of the cascade split layout: the map size, the cascade count and the cascade far distances
-const setLayoutSignature = (size, count, breaks) => {
-  signature[0] = size;
-  signature[1] = count;
-  signature[2] = breaks.x;
-  signature[3] = breaks.y;
-  signature[4] = breaks.z;
-  signature[5] = breaks.w;
-  signatureLength = 6;
-};
-
-// NOTE Compares the signature with the one of the item. Stores it when it is different.
-const changed = (item) => {
-  let same = signatureLength === item.signatureLength;
-
-  for (let i = 0; same && i < signatureLength; i++) {
-    same = signature[i] === item.signature[i];
-  }
-
-  if (!same) {
-    for (let i = 0; i < signatureLength; i++) {
-      item.signature[i] = signature[i];
-    }
-
-    item.signatureLength = signatureLength;
-  }
-
-  return !same;
-};
-
-// NOTE Insertion sort of the first count pieces, oldest draw first. Stable, the same order as Array.sort.
-const sortWork = (work, count) => {
-  for (let i = 1; i < count; i++) {
-    const piece = work[i];
-    let j = i - 1;
-
-    while (j >= 0 && work[j].item.lastDraw > piece.item.lastDraw) {
-      work[j + 1] = work[j];
-      j--;
-    }
-
-    work[j + 1] = piece;
-  }
-};
-
-// NOTE Cascade split distances, the practical split of three.js CSMShadowNode (lambda 0.5).
-// Returns the far distance of each cascade, in the shared cascadeBreaks array.
-const getCascadeBreaks = (count, near, far) => {
-  for (let i = 1; i <= count; i++) {
-    const uniformSplit = near + ((far - near) * i) / count;
-    const logSplit = near * Math.pow(far / near, i / count);
-
-    cascadeBreaks[i - 1] = i === count ? far : Three.MathUtils.lerp(uniformSplit, logSplit, 0.5);
-  }
-
-  return cascadeBreaks;
-};
-
-// NOTE A point on the corner ray, then moved to the depth (perspective) or set to it (orthographic). In world space.
-const setSliceCorner = (target, camera, x, y, depth) => {
-  target.set(x, y, 0.5).applyMatrix4(camera.projectionMatrixInverse);
-
-  if (camera.isPerspectiveCamera) {
-    target.multiplyScalar(depth / -target.z);
-  } else {
-    target.z = -depth;
-  }
-
-  target.applyMatrix4(camera.matrixWorld);
-};
-
-// NOTE Corners of the view between two depths, in world space. Corners 0 and 2 are diagonal.
-const getSliceCorners = (camera, near, far) => {
-  for (let i = 0; i < 4; i++) {
-    setSliceCorner(nearCorners[i], camera, cornerX[i], cornerY[i], near);
-    setSliceCorner(farCorners[i], camera, cornerX[i], cornerY[i], far);
-  }
 };
 
 // NOTE Receiver uniforms that point to a retired texture get the placeholder
@@ -538,12 +339,10 @@ const isLitMaterial = (material) =>
 // NOTE Its onBeforeRender patches new lit materials and makes the maps before the lit meshes.
 // NOTE A map piece (cascade tile, spot map, cube map) is made again only when its camera or the grid changes.
 // NOTE At most castShadowUpdatesPerFrame pieces in a render, the oldest first.
-export class FrameVolumeShadows {
-  entries = new Map();
-  scene = new Three.Scene();
+// NOTE Shared CPU code is in core/FrameVolumeShadows.js.
+export class FrameVolumeShadows extends FrameVolumeShadowsBase {
   // NOTE Replaced and freed maps. update() runs during a render, so they are disposed in the next update().
   retired = [];
-  renderCount = 0;
   updaterFrame = -1;
   updaterCamera = null;
   patchFrame = -1;
@@ -557,9 +356,6 @@ export class FrameVolumeShadows {
     spot: new Array(maxLights).fill(null),
     point: new Array(maxLights).fill(null),
   };
-  // NOTE Changed map pieces of updateMaps. The records are reused between renders.
-  work = [];
-  workCount = 0;
   // NOTE Values of the current call, for the Map.forEach and traverseVisible callbacks
   state = { renderer: null, scene: null, camera: null, size: 0, spectral: false, patch: false };
   receiverChunk = getReceiverLightsChunk(false);
@@ -569,7 +365,8 @@ export class FrameVolumeShadows {
   chunkWarned = false;
 
   constructor(frameRenderer) {
-    this.frameRenderer = frameRenderer;
+    super(frameRenderer);
+
     this.material = new FrameVolumeShadowMaterial(frameRenderer.gridUniforms);
     this.mesh = new Three.Mesh(fullscreenGeometry, this.material);
     this.mesh.frustumCulled = false;
@@ -626,24 +423,6 @@ export class FrameVolumeShadows {
     };
   }
 
-  getMapSize() {
-    const { settings } = this.frameRenderer;
-
-    return settings.castShadowCoarse ? coarseMapSize : Math.max(1, Math.round(settings.castShadowMapSize));
-  }
-
-  isSpectral() {
-    return this.frameRenderer.settings.spectral === true;
-  }
-
-  getSteps() {
-    const { settings } = this.frameRenderer;
-
-    return settings.castShadowCoarse
-      ? coarseSteps
-      : Three.MathUtils.clamp(Math.round(settings.castShadowSteps), 1, frameMaxShadowSteps);
-  }
-
   // NOTE The lit material patch is on when volume shadows are on and the three.js chunk is known
   isPatchActive() {
     return this.frameRenderer.settings.castShadows && this.entries.size > 0 && this.receiverChunk !== null;
@@ -657,41 +436,17 @@ export class FrameVolumeShadows {
       const size = this.getMapSize();
       const spectral = this.isSpectral();
       const target = initTarget(renderer, createTarget(size, light, spectral), isPoint);
+      // NOTE frameRenderer.settings.spectral: the optical depth of each channel in a second row, or a second cube map
+      const spectralTarget = spectral && isPoint ? initTarget(renderer, createTarget(size, light), isPoint) : null;
 
-      entry = {
-        light,
-        isPoint,
-        target,
-        size,
-        // NOTE frameRenderer.settings.spectral: the optical depth of each channel in a second row, or a second cube map
-        spectral,
-        spectralTarget: spectral && isPoint ? initTarget(renderer, createTarget(size, light), isPoint) : null,
-        enabled: false,
-        cubeCamera: isPoint ? new Three.CubeCamera(0.5, 500.0, target) : null,
-        // NOTE Current camera values. drawn: the values of the last draw, for the receivers.
-        ray: { origin: new Three.Vector3(), forward: new Three.Vector3(0.0, 0.0, -1.0), perspective: 0, far: 1.0 },
-        drawn: {
-          origin: new Three.Vector3(),
-          forward: new Three.Vector3(0.0, 0.0, -1.0),
-          far: 1.0,
-          viewProjection: new Three.Matrix4(),
-          cascadeCount: 0,
-          cascadeBreaks: new Three.Vector4(),
-        },
-        // NOTE Spot map or cube map (all faces in one draw), or the split layout of the cascades
-        item: createItem(),
-        cascadeCount: 0,
-        cascadeBreaks: new Three.Vector4(),
-        cascades: light.isDirectionalLight
-          ? Array.from({ length: frameMaxShadowMapCascades }, () => ({
-              ...createItem(),
-              camera: new Three.OrthographicCamera(),
-              viewProjection: new Three.Matrix4(),
-              origin: new Three.Vector3(),
-              far: 1.0,
-              drawn: { viewProjection: new Three.Matrix4(), origin: new Three.Vector3(), far: 1.0 },
-            }))
-          : null,
+      entry = this.createEntry(light, size, spectral, target, spectralTarget);
+      entry.enabled = { value: 0 };
+      // NOTE Current camera values of the pass, the same shape as the ray uniforms of WebGPU
+      entry.rayUniforms = {
+        frameShadowOrigin: { value: new Three.Vector3() },
+        frameShadowForward: { value: new Three.Vector3(0.0, 0.0, -1.0) },
+        frameShadowPerspective: { value: 0 },
+        frameShadowFar: { value: 1.0 },
       };
 
       // NOTE The updater makes the maps before the lit meshes of each render
@@ -729,17 +484,6 @@ export class FrameVolumeShadows {
     }
   }
 
-  // NOTE The next change check of each piece of the entry is a change
-  resetSignatures(entry) {
-    entry.item.signatureLength = 0;
-
-    if (entry.cascades) {
-      for (let i = 0; i < entry.cascades.length; i++) {
-        entry.cascades[i].signatureLength = 0;
-      }
-    }
-  }
-
   // NOTE Frees the map and the updater of a light. The maps are disposed in the next update().
   freeEntry(entry) {
     this.retired.push(entry.target);
@@ -773,47 +517,19 @@ export class FrameVolumeShadows {
     this.retired.length = 0;
   }
 
-  // NOTE Map.forEach callback of update(): frees or resizes the map of the entry
-  checkEntry(entry) {
-    const { state } = this;
-
-    if (!isShadowLight(entry.light) || !isInScene(entry.light)) {
-      this.freeEntry(entry);
-    } else if (entry.size !== state.size || entry.spectral !== state.spectral) {
-      this.resizeMap(state.renderer, entry, state.size, state.spectral);
-    }
-  }
-
-  // NOTE Called by the frame renderer one time in each frame: finds new shadow lights and new map sizes.
-  // NOTE lights: the visible lights with castShadow, from the volume collector of this render (no extra scene walk).
-  // NOTE Frees the entries of lights with no shadow or not in a scene, and all entries when castShadows is off.
+  // NOTE The placeholder cube map is cleared one time, before the first update
   update(renderer, lights) {
     if (!this.placeholderReady) {
       initTarget(renderer, this.placeholderCube, true);
       this.placeholderReady = true;
     }
 
-    this.disposeRetired();
+    super.update(renderer, lights);
+  }
 
-    if (!this.frameRenderer.settings.castShadows) {
-      this.entries.forEach(this.freeEntry, this);
-
-      return;
-    }
-
-    const { state } = this;
-
-    state.renderer = renderer;
-    state.size = this.getMapSize();
-    state.spectral = this.isSpectral();
-    this.entries.forEach(this.checkEntry, this);
-    state.renderer = null;
-
-    for (let i = 0; i < lights.length; i++) {
-      if (isShadowLight(lights[i])) {
-        this.getEntry(renderer, lights[i]);
-      }
-    }
+  // NOTE A new shadow light gets an entry and an updater
+  install(renderer, light) {
+    this.getEntry(renderer, light);
   }
 
   // NOTE Material hooks keep the shader in sync with the patch state (on or off)
@@ -980,151 +696,6 @@ export class FrameVolumeShadows {
     this.orderCount = 0;
   }
 
-  // NOTE Spot lights: the light shadow camera. Point lights: a cube camera at the light. Sets the ray values.
-  prepareCamera(entry) {
-    const { light, ray } = entry;
-    const shadowCamera = light.shadow.camera;
-
-    if (!entry.isPoint) {
-      light.shadow.updateMatrices(light);
-
-      ray.origin.setFromMatrixPosition(shadowCamera.matrixWorld);
-      shadowCamera.getWorldDirection(ray.forward);
-      ray.perspective = shadowCamera.isPerspectiveCamera ? 1 : 0;
-      ray.far = shadowCamera.far;
-
-      return shadowCamera;
-    }
-
-    const { cubeCamera } = entry;
-    const near = shadowCamera.near;
-    const far = light.distance || shadowCamera.far;
-
-    for (let i = 0; i < cubeCamera.children.length; i++) {
-      const camera = cubeCamera.children[i];
-
-      if (camera.near !== near || camera.far !== far) {
-        camera.near = near;
-        camera.far = far;
-        camera.updateProjectionMatrix();
-      }
-    }
-
-    cubeCamera.position.setFromMatrixPosition(light.matrixWorld);
-    cubeCamera.updateMatrixWorld();
-
-    ray.origin.copy(cubeCamera.position);
-    ray.perspective = 1;
-    ray.far = far;
-
-    return cubeCamera.children[0];
-  }
-
-  // NOTE Cascade cameras of a directional light, the same method as three.js CSMShadowNode.
-  // NOTE Practical split of the view depth. A light-aligned orthographic camera for each slice.
-  // NOTE Size from the slice diagonal (same when the camera turns), position snapped to texels (no swimming).
-  // NOTE The depth range of each camera covers the slice and the volume box (the last grid cascade).
-  // NOTE Cascades end at the far corner of the volume box plus one box diagonal, up to castShadowDistance.
-  // NOTE Near the volumes the cascades are small and fine.
-  // NOTE The far distance is rounded up to half octaves, so the splits change only at these steps.
-  fitCascades(entry, camera) {
-    const { light, cascades, size, ray } = entry;
-    const { settings, gridUniforms } = this.frameRenderer;
-    const count = Three.MathUtils.clamp(Math.round(settings.castShadowCascades), 1, frameMaxShadowMapCascades);
-    const last = gridUniforms.frameGridCount.value - 1;
-    const near = camera.near;
-
-    casterWorldBox.min.copy(gridUniforms.frameGridMin.value[last]);
-    casterWorldBox.max.copy(gridUniforms.frameGridMin.value[last]).add(gridUniforms.frameGridSize.value[last]);
-
-    let boxFar = 0.0;
-
-    for (let i = 0; i < 8; i++) {
-      point
-        .set(
-          i & 1 ? casterWorldBox.max.x : casterWorldBox.min.x,
-          i & 2 ? casterWorldBox.max.y : casterWorldBox.min.y,
-          i & 4 ? casterWorldBox.max.z : casterWorldBox.min.z,
-        )
-        .applyMatrix4(camera.matrixWorldInverse);
-
-      boxFar = Math.max(boxFar, -point.z);
-    }
-
-    const sceneFar = Math.max(near * 2.0, boxFar + casterWorldBox.getSize(point).length());
-    const steppedFar = Math.pow(2.0, Math.ceil(Math.log2(sceneFar) * 2.0) / 2.0);
-    const far = Math.max(near * 1.0001, Math.min(camera.far, settings.castShadowDistance, steppedFar));
-    const breaks = getCascadeBreaks(count, near, far);
-
-    lightDirection
-      .setFromMatrixPosition(light.target.matrixWorld)
-      .sub(point.setFromMatrixPosition(light.matrixWorld))
-      .normalize();
-
-    // NOTE Rotation of a camera that looks along the light (Object3D.lookAt of a camera). Up is +z for vertical light.
-    lightUp.set(0.0, 1.0, 0.0);
-
-    if (Math.abs(lightDirection.y) > 0.999) {
-      lightUp.set(0.0, 0.0, 1.0);
-    }
-
-    lightView.lookAt(point.set(0.0, 0.0, 0.0), lightDirection, lightUp);
-    lightViewInverse.copy(lightView).invert();
-    casterBox.copy(casterWorldBox).applyMatrix4(lightViewInverse);
-
-    entry.cascadeCount = count;
-    entry.cascadeBreaks.set(
-      breaks[0],
-      breaks[Math.min(1, count - 1)],
-      breaks[Math.min(2, count - 1)],
-      breaks[Math.min(3, count - 1)],
-    );
-
-    for (let i = 0; i < count; i++) {
-      const cascade = cascades[i];
-      const cascadeCamera = cascade.camera;
-
-      getSliceCorners(camera, i === 0 ? near : breaks[i - 1], breaks[i]);
-
-      const width = Math.max(farCorners[0].distanceTo(farCorners[2]), farCorners[0].distanceTo(nearCorners[2]));
-      const texel = width / size;
-
-      sliceBox.makeEmpty();
-
-      for (let c = 0; c < 4; c++) {
-        sliceBox.expandByPoint(point.copy(nearCorners[c]).applyMatrix4(lightViewInverse));
-        sliceBox.expandByPoint(point.copy(farCorners[c]).applyMatrix4(lightViewInverse));
-      }
-
-      const centerX = Math.floor(((sliceBox.min.x + sliceBox.max.x) * 0.5) / texel) * texel;
-      const centerY = Math.floor(((sliceBox.min.y + sliceBox.max.y) * 0.5) / texel) * texel;
-      const front = Math.max(sliceBox.max.z, casterBox.max.z) + cascadeMargin;
-      const back = Math.min(sliceBox.min.z, casterBox.min.z) - cascadeMargin;
-
-      cascadeCamera.left = -width * 0.5;
-      cascadeCamera.right = width * 0.5;
-      cascadeCamera.top = width * 0.5;
-      cascadeCamera.bottom = -width * 0.5;
-      cascadeCamera.near = 0.0;
-      cascadeCamera.far = front - back;
-      cascadeCamera.updateProjectionMatrix();
-
-      // NOTE Light view looks along -z, so the camera is at the front (largest z)
-      cascadeCamera.position.set(centerX, centerY, front).applyMatrix4(lightView);
-      cascadeCamera.quaternion.setFromRotationMatrix(lightView);
-      cascadeCamera.updateMatrixWorld();
-
-      cascade.viewProjection.multiplyMatrices(cascadeCamera.projectionMatrix, cascadeCamera.matrixWorldInverse);
-      cascade.origin.copy(cascadeCamera.position);
-      cascade.far = cascadeCamera.far;
-    }
-
-    cascades[0].camera.getWorldDirection(ray.forward);
-    ray.perspective = 0;
-
-    return count;
-  }
-
   // NOTE Copies ray values to the uniforms of the pass material
   setPassRay(origin, forward, perspective, far) {
     const { uniforms } = this.material;
@@ -1176,184 +747,16 @@ export class FrameVolumeShadows {
     renderer.setRenderTarget(currentRenderTarget, currentActiveCubeFace, currentActiveMipmapLevel);
   }
 
-  // NOTE Adds a changed map piece to the work list. The records are reused.
-  addPiece(entry, item, cost, kind, index, camera) {
-    if (this.workCount === this.work.length) {
-      this.work.push({ entry: null, item: null, cost: 0, kind: pieceMap, index: 0, camera: null });
-    }
-
-    const piece = this.work[this.workCount++];
-
-    piece.entry = entry;
-    piece.item = item;
-    piece.cost = cost;
-    piece.kind = kind;
-    piece.index = index;
-    piece.camera = camera;
-  }
-
-  // NOTE Change check of the camera of cascade i
-  cascadeChanged(entry, i, castVersion, steps) {
-    const cascade = entry.cascades[i];
-
-    setCameraSignature(entry.size, castVersion, steps, cascade.camera.matrixWorld, cascade.camera.projectionMatrix);
-
-    return changed(cascade);
-  }
-
-  // NOTE Adds the changed map pieces of one light to the work list
-  collectWork(entry, camera) {
-    const { castVersion } = this.frameRenderer;
-    const steps = this.getSteps();
-
-    if (entry.cascades) {
-      const count = this.fitCascades(entry, camera);
-
-      // NOTE A new split layout: one piece draws all cascades, then the receivers switch to the layout.
-      // Receivers never mix tiles of two layouts.
-      setLayoutSignature(entry.size, count, entry.cascadeBreaks);
-
-      if (changed(entry.item)) {
-        for (let i = 0; i < count; i++) {
-          this.cascadeChanged(entry, i, castVersion, steps);
-        }
-
-        this.addPiece(entry, entry.item, count, pieceLayout, 0, null);
-
-        return;
-      }
-
-      for (let i = 0; i < count; i++) {
-        if (this.cascadeChanged(entry, i, castVersion, steps)) {
-          this.addPiece(entry, entry.cascades[i], 1, pieceCascade, i, null);
-        }
-      }
-
-      return;
-    }
-
-    const shadowCamera = this.prepareCamera(entry);
-    const worldCamera = entry.isPoint ? entry.cubeCamera : shadowCamera;
-
-    setCameraSignature(entry.size, castVersion, steps, worldCamera.matrixWorld, shadowCamera.projectionMatrix);
-
-    if (changed(entry.item)) {
-      // NOTE All six cube faces in one draw, then the faces always match
-      this.addPiece(entry, entry.item, entry.isPoint ? 6 : 1, pieceMap, 0, shadowCamera);
-    }
-  }
-
-  drawCascade(renderer, entry, i) {
-    const cascade = entry.cascades[i];
-    const { forward } = entry.ray;
-
-    this.setPassRay(cascade.origin, forward, 0, cascade.far);
-    this.drawPass(renderer, entry, cascade.camera, tileViewport.set(i * entry.size, 0, entry.size, entry.size));
-    cascade.drawn.viewProjection.copy(cascade.viewProjection);
-    cascade.drawn.origin.copy(cascade.origin);
-    cascade.drawn.far = cascade.far;
-    cascade.lastDraw = this.renderCount;
-    entry.drawn.forward.copy(forward);
-  }
-
-  // NOTE A new split layout: all cascades, then the receivers get the layout
-  drawLayout(renderer, entry) {
-    for (let i = 0; i < entry.cascadeCount; i++) {
-      this.drawCascade(renderer, entry, i);
-    }
-
-    entry.drawn.cascadeCount = entry.cascadeCount;
-    entry.drawn.cascadeBreaks.copy(entry.cascadeBreaks);
-  }
-
-  // NOTE Spot map or cube map
-  drawMap(renderer, entry, shadowCamera) {
-    const { drawn, ray } = entry;
-
-    this.setPassRay(ray.origin, ray.forward, ray.perspective, ray.far);
-    this.drawPass(renderer, entry, shadowCamera, tileViewport.set(0, 0, entry.size, entry.size));
-    drawn.origin.copy(ray.origin);
-    drawn.forward.copy(ray.forward);
-    drawn.far = ray.far;
-    drawn.viewProjection.multiplyMatrices(shadowCamera.projectionMatrix, shadowCamera.matrixWorldInverse);
-  }
-
-  drawPiece(renderer, piece) {
-    if (piece.kind === pieceLayout) {
-      this.drawLayout(renderer, piece.entry);
-    } else if (piece.kind === pieceCascade) {
-      this.drawCascade(renderer, piece.entry, piece.index);
-    } else {
-      this.drawMap(renderer, piece.entry, piece.camera);
-    }
-  }
-
-  // NOTE Map.forEach callback of updateMaps when the grid is not ready
-  disableEntry(entry) {
-    entry.enabled = false;
-    this.resetSignatures(entry);
-  }
-
-  // NOTE Map.forEach callback of updateMaps: turns the entry on or off and adds its changed pieces
-  collectEntry(entry) {
-    const { state } = this;
-
-    entry.enabled = entry.light.castShadow && isVisible(entry.light, state.scene);
-
-    if (entry.enabled) {
-      this.collectWork(entry, state.camera);
-    }
-  }
-
-  // NOTE Volume shadow maps of all lights, before the lit meshes.
-  // NOTE Changed pieces are drawn oldest first, up to castShadowUpdatesPerFrame (a tile or spot map costs 1, a cube map 6).
-  // NOTE The oldest piece is always drawn. Then a large piece does not wait forever.
+  // NOTE Volume shadow maps of all lights, before the lit meshes. core/FrameVolumeShadows.js drawMaps draws them.
   updateMaps(renderer, scene, camera) {
-    this.renderCount++;
+    const { frameRenderer } = this;
 
-    const { frameRenderer, state, work } = this;
-    const ready = frameRenderer.settings.castShadows && frameRenderer.prepareShadowGrid(renderer, scene, camera);
-
-    if (!ready) {
-      this.entries.forEach(this.disableEntry, this);
-
-      return;
-    }
-
-    this.material.setSpectral(this.isSpectral());
-    this.material.uniforms.frameShadowDensityMap.value = frameRenderer.shadowDensityTarget.textures[0];
-    this.material.uniforms.frameShadowSteps.value = this.getSteps();
-
-    state.scene = scene;
-    state.camera = camera;
-    this.workCount = 0;
-    this.entries.forEach(this.collectEntry, this);
-    state.scene = null;
-    state.camera = null;
-
-    sortWork(work, this.workCount);
-
-    let budget = Math.max(1, Math.round(frameRenderer.settings.castShadowUpdatesPerFrame));
-
-    for (let i = 0; i < this.workCount; i++) {
-      const piece = work[i];
-
-      if (i > 0 && piece.cost > budget) {
-        // NOTE Not drawn: the next check sees the change again
-        piece.item.signatureLength = 0;
-      } else {
-        this.drawPiece(renderer, piece);
-        piece.item.lastDraw = this.renderCount;
-        budget -= piece.cost;
-      }
-
-      // NOTE The reused records keep no freed entries
-      piece.entry = null;
-      piece.item = null;
-      piece.camera = null;
-    }
-
-    this.workCount = 0;
+    this.drawMaps(
+      renderer,
+      scene,
+      camera,
+      frameRenderer.settings.castShadows && frameRenderer.prepareShadowGrid(renderer, scene, camera),
+    );
   }
 
   // NOTE Receiver uniforms for the shadow order of this render (the shadow index of each light in the shaders)
@@ -1367,11 +770,15 @@ export class FrameVolumeShadows {
       const spot = this.entries.get(order.spot[i]);
       const pointEntry = this.entries.get(order.point[i]);
 
-      uniforms.frameVolumeDirEnabled.value[i] = directional?.enabled ? 1 : 0;
-      uniforms.frameVolumeSpotEnabled.value[i] = spot?.enabled ? 1 : 0;
-      uniforms.frameVolumePointEnabled.value[i] = pointEntry?.enabled ? 1 : 0;
+      const directionalEnabled = directional?.enabled.value === 1;
+      const spotEnabled = spot?.enabled.value === 1;
+      const pointEnabled = pointEntry?.enabled.value === 1;
 
-      if (directional?.enabled) {
+      uniforms.frameVolumeDirEnabled.value[i] = directionalEnabled ? 1 : 0;
+      uniforms.frameVolumeSpotEnabled.value[i] = spotEnabled ? 1 : 0;
+      uniforms.frameVolumePointEnabled.value[i] = pointEnabled ? 1 : 0;
+
+      if (directionalEnabled) {
         const { drawn } = directional;
 
         uniforms.frameVolumeDirCount.value[i] = drawn.cascadeCount;
@@ -1394,7 +801,7 @@ export class FrameVolumeShadows {
         uniforms.frameVolumeDirMap.value[i] = this.placeholder2D;
       }
 
-      if (spot?.enabled) {
+      if (spotEnabled) {
         uniforms.frameVolumeSpotViewProjection.value[i].copy(spot.drawn.viewProjection);
         uniforms.frameVolumeSpotOrigin.value[i].copy(spot.drawn.origin);
         uniforms.frameVolumeSpotFar.value[i] = spot.drawn.far;
@@ -1403,7 +810,7 @@ export class FrameVolumeShadows {
         uniforms.frameVolumeSpotMap.value[i] = this.placeholder2D;
       }
 
-      if (pointEntry?.enabled) {
+      if (pointEnabled) {
         uniforms.frameVolumePointOrigin.value[i].copy(pointEntry.drawn.origin);
         uniforms.frameVolumePointFar.value[i] = pointEntry.drawn.far;
         uniforms.frameVolumePointMap.value[i] = pointEntry.target.texture;

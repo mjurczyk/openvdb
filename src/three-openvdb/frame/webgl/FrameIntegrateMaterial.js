@@ -1,4 +1,5 @@
 import * as Three from 'three';
+import { frameMaxSlices } from '../core/frameLimits.js';
 
 // NOTE A quad over the screen rectangle of the froxel area (clip x0, y0, x1, y1). Other froxels are empty.
 const vertexShader = `
@@ -18,7 +19,7 @@ const vertexShader = `
 const fragmentShader = `
   precision highp float;
 
-  #define FRAME_MAX_SLICES 1024
+  #define FRAME_MAX_SLICES ${frameMaxSlices}
 
   uniform sampler2D froxelAtlas;
   uniform vec2 froxelAtlasSize;

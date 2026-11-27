@@ -1,5 +1,5 @@
 import * as Three from 'three';
-import { requestGaussianLevels } from '../core/frameMipFilter.js';
+import { requestGaussianLevels, getTextureChannels } from '../core/frameMipFilter.js';
 
 // NOTE CPU mipmaps of FrameVolume grids. three.js WebGPU does not generate mipmaps for 3D textures.
 // NOTE Levels 1 and up are side by side on x in one atlas texture for each grid.
@@ -105,8 +105,6 @@ const buildAtlas = (data, width, height, depth, channels) => {
   return packAtlas(levels, width, height, depth, channels);
 };
 
-const getChannels = (texture) => (texture.format === Three.RGBAFormat ? 4 : 1);
-
 const getAtlas = (texture) => {
   const { data, width, height, depth } = texture.image;
   const cached = atlasCache.get(data);
@@ -115,7 +113,7 @@ const getAtlas = (texture) => {
     return cached.atlas;
   }
 
-  const atlas = buildAtlas(data, width, height, depth, getChannels(texture));
+  const atlas = buildAtlas(data, width, height, depth, getTextureChannels(texture));
 
   atlasCache.set(data, { width, height, depth, atlas });
 
@@ -137,13 +135,13 @@ const getGaussianAtlas = (texture) => {
     return null;
   }
 
-  const levels = requestGaussianLevels(data, width, height, depth, getChannels(texture), count, 'ceil');
+  const levels = requestGaussianLevels(data, width, height, depth, getTextureChannels(texture), count, 'ceil');
 
   if (!levels) {
     return null;
   }
 
-  const atlas = packAtlas(levels, width, height, depth, getChannels(texture));
+  const atlas = packAtlas(levels, width, height, depth, getTextureChannels(texture));
 
   gaussianAtlasCache.set(data, { width, height, depth, atlas });
 

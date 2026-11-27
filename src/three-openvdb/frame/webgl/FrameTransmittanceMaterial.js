@@ -3,13 +3,11 @@ import { gridPars, shadowPars, spectralPars } from './frameShaderChunks.js';
 import { neuralMipPars, neuralPars } from './frameNeuralChunks.js';
 import { multiScalePars } from './frameMultiScaleChunks.js';
 import { frameNeuralLevels } from '../core/frameNeuralIndirect.js';
+import { frameShadowLightSlots, frameMaxTransmittanceSteps } from '../core/frameLimits.js';
 
-// NOTE Light slots: sky up, sky down, then 6 lights. Targets 0 and 1: total transmittance of all slots.
+// NOTE Light slots (core/frameLimits.js). Targets 0 and 1: total transmittance of all slots.
 // NOTE Targets 2 and 3: direct transmittance of the 6 lights. Then the lighting gives the phase only to the direct light.
 // NOTE Scattering octaves: targets 0 and 1 have 1 / (1 + optical depth), see frameShadowTransmittance. 1.0 is no shadow.
-// NOTE Scene lights take the first slots. The dominant directional environment light takes the next free slot.
-export const frameShadowLightSlots = 6;
-
 const vertexShader = `
   void main() {
     gl_Position = vec4(position.xy, 0.0, 1.0);
@@ -21,7 +19,7 @@ const createFragmentShader = (neural, multiScale) => `
   precision highp float;
 
   #define FRAME_SHADOW_SLOTS ${frameShadowLightSlots}
-  #define FRAME_MAX_SHADOW_STEPS 1024
+  #define FRAME_MAX_SHADOW_STEPS ${frameMaxTransmittanceSteps}
 
   layout(location = 0) out highp vec4 frameTransmittance0;
   layout(location = 1) out highp vec4 frameTransmittance1;

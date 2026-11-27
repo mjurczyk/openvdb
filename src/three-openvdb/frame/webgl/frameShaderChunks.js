@@ -2,14 +2,12 @@ import * as Three from 'three';
 import {
   getFramePhase,
   getFramePhaseSpectrum,
-  getFrameMieTexels,
   frameMieAsymmetry,
   frameMieRgbMode,
   frameMaxScatteringOctaves,
 } from '../core/framePhase.js';
 import { frameMieTableSize } from '../core/frameMieTable.js';
 import {
-  getFrameBlackbodyTable,
   getFrameEmissionSpectrum,
   frameBlackbodyTableSize,
   frameBlackbodyTableRows,
@@ -18,7 +16,9 @@ import {
   frameMaxSootExponent,
 } from '../core/frameBlackbody.js';
 import { frameMaxEnvironmentLights } from '../core/frameEnvironment.js';
+import { frameMaxShadowCascades } from '../core/frameLimits.js';
 import { getFrameExtinctionSpectrum } from '../core/frameSpectrum.js';
+import { frameMieTexture, frameBlackbodyTexture } from '../core/frameTables.js';
 
 // NOTE Froxel grid layout and view reconstruction. Shared by all froxel passes.
 export const froxelPars = `
@@ -60,33 +60,6 @@ export const froxelPars = `
     return (exp(-frameFadeExponent * x * x) - end) / (1.0 - end);
   }
 `;
-
-
-// NOTE Lorenz-Mie phase tables, see getFrameMieTexels. Float values, read with texelFetch and a linear blend.
-export const frameMieTexture = new Three.DataTexture(
-  getFrameMieTexels(),
-  frameMieTableSize,
-  1,
-  Three.RGBAFormat,
-  Three.FloatType,
-);
-
-frameMieTexture.minFilter = Three.NearestFilter;
-frameMieTexture.magFilter = Three.NearestFilter;
-frameMieTexture.needsUpdate = true;
-
-// NOTE Emission color table, see core/frameBlackbody.js. Float values, read with texelFetch and a bilinear blend.
-const frameBlackbodyTexture = new Three.DataTexture(
-  getFrameBlackbodyTable(),
-  frameBlackbodyTableSize,
-  frameBlackbodyTableRows,
-  Three.RGBAFormat,
-  Three.FloatType,
-);
-
-frameBlackbodyTexture.minFilter = Three.NearestFilter;
-frameBlackbodyTexture.magFilter = Three.NearestFilter;
-frameBlackbodyTexture.needsUpdate = true;
 
 const blackbodyTemperatureScale = Math.log(
   frameBlackbodyMaxTemperature / frameBlackbodyMinTemperature,
@@ -744,8 +717,6 @@ export const volumePars = `
     return color * power * frameEmissiveIntensity;
   }
 `;
-
-export const frameMaxShadowCascades = 4;
 
 // NOTE World-space shadow grid cascades. Cascade 0 is the finest, near the camera.
 // All cascades are z slices (tiles) in one 2D atlas.

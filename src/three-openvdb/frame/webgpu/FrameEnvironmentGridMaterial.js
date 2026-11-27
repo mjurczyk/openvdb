@@ -31,8 +31,7 @@ import {
   frameIsotropicDiffusion,
 } from './frameShaderChunks.js';
 import { frameMaxEnvironmentLights } from '../core/frameEnvironment.js';
-
-const maxSteps = 1024;
+import { frameMaxEnvironmentGridSteps } from '../core/frameLimits.js';
 
 // NOTE Environment light of each voxel of the last shadow grid cascade, from the environment lights with no shadow slot.
 // NOTE Sum of color * transmittance. The march stays in the last cascade, with one voxel steps.
@@ -140,7 +139,7 @@ export class FrameEnvironmentGridMaterial extends Three.NodeMaterial {
             const probe = worldPosition.add(direction.mul(stepLength).mul(0.5)).toVar();
             const depths = { x: vec3(0.0).toVar(), y: vec3(0.0).toVar(), z: vec3(0.0).toVar() };
 
-            Loop(maxSteps, () => {
+            Loop(frameMaxEnvironmentGridSteps, () => {
               const uvw = probe.sub(gridMin).div(gridSize);
 
               If(
@@ -220,7 +219,7 @@ export class FrameEnvironmentGridMaterial extends Three.NodeMaterial {
             const probe = worldPosition.add(step.mul(0.5)).toVar();
             const depths = vec3(0.0).toVar();
 
-            Loop(maxSteps, () => {
+            Loop(frameMaxEnvironmentGridSteps, () => {
               const uvw = probe.sub(gridMin).div(gridSize);
 
               If(

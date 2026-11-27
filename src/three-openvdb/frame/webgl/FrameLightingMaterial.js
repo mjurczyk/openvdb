@@ -9,9 +9,9 @@ import {
   spectralScatteringPars,
   gridPars,
   environmentPars,
-  frameMieTexture,
 } from './frameShaderChunks.js';
 import { frameSpectralGroupCount } from '../core/frameSpectrum.js';
+import { frameMieTexture } from '../core/frameTables.js';
 
 const fragmentShader = `
   precision highp float;

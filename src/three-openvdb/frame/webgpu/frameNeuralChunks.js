@@ -1,28 +1,16 @@
 import { Fn, float, vec2, vec4, max, min, clamp, floor, exp, log, sqrt, dot, select } from 'three/tsl';
 import { minComponent, maxComponent } from './frameShaderChunks.js';
-import {
-  frameNeuralLevels,
-  frameNeuralInputs,
-  frameNeuralHidden,
-  frameNeuralWeights,
-} from '../core/frameNeuralIndirect.js';
+import { frameNeuralLevels, frameNeuralWeights } from '../core/frameNeuralIndirect.js';
+import { frameNeuralLayout } from '../core/frameNeuralLayout.js';
 
 // NOTE multipleScattering 'neural': scattered light of a shadow slot from a small network
 // (core/frameNeuralIndirect.js, made by scripts/neural-indirect). The inputs are the same as getFeatures of
 // scripts/neural-indirect/features.mjs. Level 0 is the last cascade of the grid atlas, levels 1 and up are the
 // atlases of FrameGridMipMaterial. Values outside the last cascade are 0.0. The same as webgl/frameNeuralChunks.js.
 
-const inputVectors = frameNeuralInputs / 4;
-const hiddenVectors = frameNeuralHidden / 4;
+const { inputVectors, hiddenVectors, w1Offset, b1Offset, w2Offset, b2Offset, w3Offset, b3Offset } =
+  frameNeuralLayout;
 const weight = (index) => vec4(...frameNeuralWeights.subarray(index * 4, index * 4 + 4));
-
-// NOTE vec4 offsets of the weight layout (see core/frameNeuralIndirect.js)
-const w1Offset = 0;
-const b1Offset = frameNeuralHidden * inputVectors;
-const w2Offset = b1Offset + hiddenVectors;
-const b2Offset = w2Offset + frameNeuralHidden * hiddenVectors;
-const w3Offset = b2Offset + hiddenVectors;
-const b3Offset = w3Offset + hiddenVectors;
 
 // NOTE Dense layer with ReLU. inputs: vec4 nodes. Weights are constants in the shader.
 const dense = (inputs, weightOffset, biasOffset) => {
