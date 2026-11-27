@@ -1,4 +1,5 @@
 import * as Three from 'three';
+import { pushElements, sameValues } from './frameGrid.js';
 
 // NOTE Directions of the emitted light of each volume, and rays on each side of the square that covers the volume
 export const frameEmissionDirections = 16;
@@ -24,13 +25,16 @@ const boxSize = new Three.Vector3();
 const cameraPosition = new Three.Vector3();
 const corner = new Three.Vector3();
 
-const textureKey = (map) => (map ? `${map.id}.${map.version}` : '-');
+const pushTexture = (values, map) => {
+  values.push(map ? map.id : -1, map ? map.version : -1);
+};
 
 // NOTE The same fields as a volume of FrameVolume, then setVolumeUniforms reads it. View matrices are not used.
 const createEmitter = () => ({
   frameVolume: null,
   volume: null,
-  key: '',
+  // NOTE Number signature of all values that change the emitted light, compared with sameValues
+  signature: [],
   matrixWorld: new Three.Matrix4(),
   worldToLocal: new Three.Matrix4(),
   localToView: new Three.Matrix4(),
@@ -63,9 +67,15 @@ export class FrameEmissionLightBase extends Three.Light {
 
   emitters = [];
   emitterCount = 0;
-  slotKeys = [];
+  // NOTE Emitter signature of the last draw of each slot
+  slotSignatures = [];
   slotCount = 0;
-  probeKey = '';
+  // NOTE Probe signatures of the last draw and of this render. The two arrays swap.
+  probeSignature = [];
+  nextProbeSignature = [];
+  // NOTE prepareProbes returns this array. It and its entries are used again in the next call.
+  changed = [];
+  changedEntries = [];
 
   constructor(props = {}) {
     const {
@@ -149,13 +159,19 @@ export class FrameEmissionLightBase extends Three.Light {
           emitter.radius = Math.max(emitter.radius, corner.distanceTo(emitter.center));
         }
 
-        emitter.key = [
-          textureKey(volume.densityMap3D),
-          textureKey(volume.emissiveMap3D),
-          textureKey(volume.maskMap3D),
-          Object.values(volume.mipMaps ?? {})
-            .map((mip) => mip.texture.id)
-            .join(':'),
+        const { signature } = emitter;
+        const { mipMaps } = volume;
+
+        signature.length = 0;
+        pushTexture(signature, volume.densityMap3D);
+        pushTexture(signature, volume.emissiveMap3D);
+        pushTexture(signature, volume.maskMap3D);
+
+        for (const level in mipMaps) {
+          signature.push(mipMaps[level].texture.id);
+        }
+
+        signature.push(
           object.extinction,
           object.getDensityScale(),
           object.densityCutoff,
@@ -171,8 +187,8 @@ export class FrameEmissionLightBase extends Three.Light {
           object.wrap3D,
           object.mipmaps,
           this.getSteps(),
-          ...emitter.matrixWorld.elements,
-        ].join(',');
+        );
+        pushElements(signature, emitter.matrixWorld.elements);
       });
     });
 
@@ -182,8 +198,8 @@ export class FrameEmissionLightBase extends Three.Light {
   // NOTE The last cascade is the box of all emitters, with a margin of (range - 1) / 2 of its longest side on each side.
   // NOTE Finer cascades are cubes around the camera, each one half the size of the next.
   // NOTE Power-of-two voxels and snapped bounds keep them stable when the camera moves.
-  // NOTE Returns a key that changes with the cascades.
-  updateProbeGrid(camera) {
+  // NOTE Adds the values that change with the cascades to signature.
+  updateProbeGrid(camera, signature) {
     const resolution = Three.MathUtils.clamp(Math.round(this.resolution), 2, frameEmissionMaxResolution);
     const cascades = Three.MathUtils.clamp(Math.round(this.cascades), 1, frameEmissionMaxCascades);
 
@@ -231,13 +247,14 @@ export class FrameEmissionLightBase extends Three.Light {
     this.cascadeSize[count].copy(boxSize);
     this.cascadeCount = count + 1;
 
-    const key = [resolution];
+    signature.push(resolution);
 
     for (let i = 0; i < this.cascadeCount; i++) {
-      key.push(...this.cascadeMin[i].toArray(), ...this.cascadeSize[i].toArray());
-    }
+      const min = this.cascadeMin[i];
+      const size = this.cascadeSize[i];
 
-    return key.join(',');
+      signature.push(min.x, min.y, min.z, size.x, size.y, size.z);
+    }
   }
 
   // NOTE Returns the changed volumes as { emitter, slot }, or null when the probes stay the same.
@@ -247,41 +264,64 @@ export class FrameEmissionLightBase extends Three.Light {
 
     if (this.emitterCount > this.slotCount) {
       this.slotCount = Math.pow(2, Math.ceil(Math.log2(this.emitterCount)));
-      this.slotKeys = [];
+      this.slotSignatures.length = 0;
       this.resizeSlots();
     }
 
-    const changed = [];
+    const { changed, changedEntries, slotSignatures } = this;
+
+    changed.length = 0;
 
     for (let i = 0; i < this.emitterCount; i++) {
       const emitter = this.emitters[i];
 
-      if (this.slotKeys[i] !== emitter.key) {
-        this.slotKeys[i] = emitter.key;
-        changed.push({ emitter, slot: i });
+      if (slotSignatures[i] && sameValues(slotSignatures[i], emitter.signature)) {
+        continue;
       }
+
+      if (!slotSignatures[i]) {
+        slotSignatures[i] = [];
+      }
+
+      slotSignatures[i].length = 0;
+      pushElements(slotSignatures[i], emitter.signature);
+
+      if (!changedEntries[changed.length]) {
+        changedEntries[changed.length] = { emitter: null, slot: 0 };
+      }
+
+      const entry = changedEntries[changed.length];
+
+      entry.emitter = emitter;
+      entry.slot = i;
+      changed.push(entry);
     }
 
     if (this.emitterCount === 0) {
-      this.probeKey = '';
+      this.probeSignature.length = 0;
 
       return null;
     }
 
-    const probeKey = `${this.emitterCount},${this.updateProbeGrid(camera)}`;
+    const signature = this.nextProbeSignature;
 
-    if (changed.length === 0 && probeKey === this.probeKey) {
+    signature.length = 0;
+    signature.push(this.emitterCount);
+    this.updateProbeGrid(camera, signature);
+
+    if (changed.length === 0 && sameValues(signature, this.probeSignature)) {
       return null;
     }
 
-    this.probeKey = probeKey;
+    this.nextProbeSignature = this.probeSignature;
+    this.probeSignature = signature;
 
     return changed;
   }
 
   dispose() {
-    this.slotKeys = [];
+    this.slotSignatures.length = 0;
     this.slotCount = 0;
-    this.probeKey = '';
+    this.probeSignature.length = 0;
   }
 }
