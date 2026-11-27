@@ -6,8 +6,8 @@ import { basename, dirname, extname, join } from 'node:path';
 import { Worker, isMainThread, parentPort } from 'node:worker_threads';
 import { constants, deflateSync } from 'node:zlib';
 import { OpenVDBReader } from 'openvdb';
-import { bakeDefaults, bakeWVDB, getWVDBBox, mergeWVDBBoxes } from './bake';
-import { openZip } from './zip';
+import { bakeDefaults, bakeWVDB, getWVDBBox, mergeWVDBBoxes } from './bake.js';
+import { openZip } from './zip.js';
 
 const usage = `Usage: wvdb <input>... [options]
 
