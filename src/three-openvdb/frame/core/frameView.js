@@ -119,10 +119,12 @@ const getClippedDepths = (clipFrustum, viewToLocal) => {
 };
 
 // NOTE Finds the ready volumes of the visible FrameVolumes. volumes: in the view. casters: all, when useGrid is true.
+// NOTE lights: visible lights with castShadow, from the same scene walk. Volume shadows find new lights in it.
 // NOTE The entries ({ frameVolume, volume }) and the arrays are used again in the next collect().
 export class FrameVolumeCollector {
   volumes = [];
   casters = [];
+  lights = [];
   // NOTE View depth range of the volumes in the view
   near = 0.0;
   far = 0.0;
@@ -135,6 +137,14 @@ export class FrameVolumeCollector {
 
   constructor() {
     this.visitObject = (object) => {
+      if (object.isLight) {
+        if (object.castShadow) {
+          this.lights.push(object);
+        }
+
+        return;
+      }
+
       if (!object.isFrameVolume || !object.proxy.layers.test(this.camera.layers)) {
         return;
       }
@@ -206,6 +216,7 @@ export class FrameVolumeCollector {
   collect(scene, camera, settings, useGrid, prepareVolume = null) {
     this.volumes.length = 0;
     this.casters.length = 0;
+    this.lights.length = 0;
     this.usedEntries = 0;
     this.near = Infinity;
     this.far = 0.0;
