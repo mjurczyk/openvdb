@@ -57,6 +57,7 @@ Level set and points children are in `frameVolume.surfaces`.
 - `lights: number` - (default: all) bitmask of `frameLights`: `useAmbientLights`, `useDirectionalLights`, `usePointLights`, `useSpotLights`, `useHemisphereLights`, `useEnvironment`. With `'frame'` lighting only `useEnvironment` is used.
 - `shadowSteps: number` - (default: `32`) shadow march steps toward each light. `'volume'` lighting only.
 - `mipmaps: boolean` - (default: `true`) mip levels of the 3D textures, made on the CPU. Far volumes and coarse shadow cascades read a lower level, so they are not noisy. Cost: +25% memory for each grid.
+  - An instance can have its own value. A volume and its instances share their mip levels: the first one with `mipmaps` makes them, and they stay. Volumes without `mipmaps` read level 0.
 - `mipmapFilter: 'box' | 'gaussian'` - (default: `'box'`) filter of the mip levels.
   - `'box'` - mean of 2 × 2 × 2 texels.
   - `'gaussian'` - Gaussian with sigma = 2^i voxels at level i. Less shimmer on far volumes and in motion. Built on the CPU in 12 ms steps after the conversion, box levels show until then (about 80 ms for 128³, 530 ms for 256³).

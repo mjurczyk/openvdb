@@ -567,22 +567,29 @@ export class FrameRenderer {
 
   disposeVolume() {}
 
-  // NOTE FrameVolume mipmaps can change after creation. The textures are uploaded again.
+  // NOTE A volume and its instances share the textures. The first one with mipmaps adds the levels, and they stay.
+  // Volumes without mipmaps read level 0 (frameMipmaps uniform), so the shared textures do not upload again.
   // NOTE mipmapFilter 'gaussian': Gaussian levels replace the GPU levels after the conversion (frameMipmaps.js)
   updateMipmaps = (frameVolume, volume) => {
+    if (!frameVolume.mipmaps) {
+      return;
+    }
+
     const gaussian = frameVolume.mipmapFilter === 'gaussian' && !(frameVolume.source ?? frameVolume).process;
 
     for (let i = 0; i < textureKeys.length; i++) {
       const texture = volume[textureKeys[i]];
 
-      if (texture && texture.generateMipmaps !== frameVolume.mipmaps) {
-        this.configureTexture(texture, frameVolume.mipmaps);
+      if (!texture) {
+        continue;
+      }
+
+      if (!texture.generateMipmaps) {
+        this.configureTexture(texture, true);
         texture.needsUpdate = true;
       }
 
-      if (texture) {
-        updateGaussianMipmaps(texture, gaussian);
-      }
+      updateGaussianMipmaps(texture, gaussian);
     }
   };
 
