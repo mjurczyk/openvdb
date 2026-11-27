@@ -209,8 +209,6 @@ writeFileSync(
 // Texel u (0 to 1) is at the scattering angle PI * u^2. Asymmetry g = ${mie.asymmetry.toFixed(4)}.
 export const frameMieTableSize = ${tableSize};
 
-export const frameMiePeak = ${formatValue(mie.peak)};
-
 export const frameMieTable = new Float32Array([${mie.table.map(formatValue).join(',')}]);
 `,
 );

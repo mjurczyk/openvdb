@@ -1,8 +1,5 @@
 import * as OpenVDB from 'three-openvdb';
-import { gui } from './gui';
-
-const getController = (id) =>
-  gui.controllersRecursive().find((controller) => controller.property === id);
+import { getController } from './gui';
 
 // NOTE Measured media of OpenVDB.frameMediumPresets. Custom keeps the current values.
 const mediumOptions = {

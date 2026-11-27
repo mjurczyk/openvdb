@@ -4,7 +4,7 @@ import * as Three from 'three';
 // A volume with albedo 1 must then have radiance L everywhere: it is not visible. The readout gives volume / L.
 // L is 0.5, so values up to 2 L are not clipped by the 8-bit sRGB output.
 export const furnaceEnvironment = 'furnace';
-export const furnaceRadiance = 0.5;
+const furnaceRadiance = 0.5;
 
 let furnaceActive = false;
 

@@ -1,14 +1,11 @@
 import * as Three from 'three';
 import * as OpenVDB from 'three-openvdb';
-import { gui, setGuiFields, setDemoCleanup } from '../utils/gui';
+import { getController, setGuiFields, setDemoCleanup } from '../utils/gui';
 import { setLoading } from '../utils/loading';
 import { createTransformFolder } from '../utils/transform';
 
 // NOTE Longest side of the points in scene units
 const displaySize = 100.0;
-
-const getController = (id) =>
-  gui.controllersRecursive().find((controller) => controller.property === id);
 
 export const examplePoints = ({ scene }) => {
   const params = {

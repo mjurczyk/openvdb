@@ -1,9 +1,10 @@
 import * as Three from 'three';
 import * as OpenVDB from 'three-openvdb';
-import { gui, setGuiFields, setDemoCleanup } from '../utils/gui';
-import { loaders, setEnvironmentLights } from '../utils/resources';
+import { getController, setGuiFields, setDemoCleanup } from '../utils/gui';
+import { loaders } from '../utils/resources';
 import { setLoading } from '../utils/loading';
 import { createTransformFolder } from '../utils/transform';
+import { createSunHemiLights } from '../utils/lights';
 
 // NOTE Longest side of the mesh and of the volume in scene units
 const displaySize = 100.0;
@@ -68,9 +69,6 @@ class SoftMeshVolume extends OpenVDB.MeshVolume {
   }
 }
 
-const getController = (id) =>
-  gui.controllersRecursive().find((controller) => controller.property === id);
-
 export const exampleMesh = ({ scene }) => {
   const params = {
     model: 'damaged_helmet',
@@ -86,11 +84,8 @@ export const exampleMesh = ({ scene }) => {
   // NOTE The GUI calls onChange with default values. Build one time after that.
   let ready = false;
 
-  const sun = new Three.DirectionalLight(0xffffff, 1.0);
-  sun.position.set(100.0, 200.0, 100.0);
-  scene.add(sun);
-  const hemiLight = new Three.HemisphereLight(0x88aaff, 0x443322, 0.5);
-  scene.add(hemiLight);
+  // NOTE Sun and hemisphere light, and the "Lights" field (utils/lights.js)
+  const lights = createSunHemiLights(scene);
 
   const setStatus = (text) => {
     getController('status')?.setValue(text);
@@ -309,21 +304,7 @@ export const exampleMesh = ({ scene }) => {
             applyUpAxis();
           },
         }),
-        {
-          id: 'lightSetup',
-          name: 'Lights',
-          defaultValue: 'environment',
-          // NOTE environment: the lights of the environment map (utils/resources.js)
-          options: {
-            Environment: 'environment',
-            'Sun + Hemisphere': 'sunHemi',
-          },
-          onChange: (value) => {
-            setEnvironmentLights(scene, value === 'environment');
-            sun.visible = value === 'sunHemi';
-            hemiLight.visible = value === 'sunHemi';
-          },
-        },
+        lights.lightSetupField,
       ],
     },
   ]);

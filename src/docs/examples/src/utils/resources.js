@@ -8,7 +8,7 @@ import { isPhone, isIPhone } from './device';
 import { furnaceEnvironment, setFurnaceActive, createFurnaceMap } from './furnace';
 import { camera, controls } from '../main';
 
-export const vdbList = {};
+const vdbList = {};
 
 export const loadAndCacheVDB = async (name, file) => {
   if (!vdbList[file]) {
