@@ -158,6 +158,7 @@ export class FrameRendererBase {
   // NOTE multipleScattering 'neural' and 'multi-scale': mips of the last grid cascade, levels 1 and up (FrameGridMipMaterial)
   gridMipTargets = [];
   gridMipSignature = [];
+  nextGridMipSignature = [];
 
   historyTargets = [null, null];
   historyIndex = 0;
