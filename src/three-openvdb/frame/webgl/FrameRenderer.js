@@ -149,6 +149,12 @@ const writesNoDepth = (material) => {
 
 const extinctionSpectrum = new Three.Vector3();
 
+// NOTE Value of a map that a pass does not read. three.js binds its empty texture for null, the start value.
+const emptyMap = null;
+
+// NOTE Lighting renders in a row that need fewer spectral groups before the extra group targets are freed
+const spectralReleaseRenders = 120;
+
 
 // NOTE Instanced tile quads: one instance for each slice
 const createTileGeometry = () => {
@@ -414,6 +420,9 @@ export class FrameRenderer {
   // NOTE frameRenderer.settings.spectral: 3 transmittance targets for each slot group in use (core/frameSpectrum.js).
   // Made when a group is first used. transmittanceTarget is null.
   spectralTransmittanceTargets = [];
+  // NOTE trimSpectralTransmittanceTargets: lighting renders in a row that needed fewer groups, and the most they needed
+  spectralLowRenders = 0;
+  spectralLowGroups = 0;
   depthTarget = null;
 
   // NOTE World shadow grid for volume shadows, made before the first lit mesh. 'frame' lighting uses it again.
@@ -863,6 +872,8 @@ export class FrameRenderer {
           this.historyValid = false;
         }
       });
+    } else {
+      this.releaseHistoryTargets();
     }
     this.integrateMaterial.uniforms.froxelAtlasSize.value.set(
       froxelAtlas.width,
@@ -891,6 +902,12 @@ export class FrameRenderer {
       }
 
       this.updateGridTargets();
+
+      if (!this.isNeural() && !this.isMultiScale()) {
+        this.releaseGridMipTargets();
+      }
+    } else {
+      this.releaseFrameLightingTargets();
     }
 
     renderer.getCurrentViewport(viewport);
@@ -924,51 +941,55 @@ export class FrameRenderer {
     ) {
       if (this.shadowDensityTarget) {
         this.shadowDensityTarget.dispose();
-        this.transmittanceTarget?.dispose();
       }
 
-      this.spectralTransmittanceTargets.forEach((target) => target.dispose());
-      this.spectralTransmittanceTargets = [];
+      this.transmittanceTarget?.dispose();
+      this.transmittanceTarget = null;
+      this.releaseSpectralTransmittanceTargets();
 
       // NOTE Extinction and absorption. Spectral: (extinction rgb, 0) and (absorption rgb, 0).
       this.shadowDensityTarget = spectral
         ? createRenderTarget(gridAtlas.width, gridAtlas.height, { count: 2 })
         : createRenderTarget(gridAtlas.width, gridAtlas.height, { format: Three.RGFormat });
-      // NOTE Total transmittance (2 targets), then direct transmittance of the light slots (2 targets).
-      // Spectral: the slot group targets (getSpectralTransmittanceTarget).
-      this.transmittanceTarget = spectral
-        ? null
-        : createRenderTarget(gridAtlas.width, gridAtlas.height, { count: 4 });
 
       this.castSignature = [];
       // NOTE A new target is empty, so the environment grid is drawn again
       this.environmentGridSignature = [];
     }
 
-    this.transmittanceMaterial.setSpectral(spectral);
-    this.environmentGridMaterial.setSpectral(spectral);
-
-    // NOTE The environment grid is one cascade. A new target is empty, so the signature is reset.
-    const environmentAtlas = getAtlasLayout(resolution, resolution, resolution);
-
-    if (
-      !this.environmentGridTarget ||
-      this.environmentGridTarget.width !== environmentAtlas.width ||
-      this.environmentGridTarget.height !== environmentAtlas.height
-    ) {
-      if (this.environmentGridTarget) {
-        this.environmentGridTarget.dispose();
+    // NOTE 'volume' lighting with volume shadows on meshes uses only the shadow grid
+    if (this.isFrameLighting()) {
+      // NOTE Total transmittance (2 targets), then direct transmittance of the light slots (2 targets), the size of
+      // the shadow grid. Spectral: the slot group targets (getSpectralTransmittanceTarget).
+      if (!spectral && !this.transmittanceTarget) {
+        this.transmittanceTarget = createRenderTarget(gridAtlas.width, gridAtlas.height, { count: 4 });
       }
 
-      this.environmentGridTarget = createRenderTarget(environmentAtlas.width, environmentAtlas.height);
-      this.environmentGridSignature = [];
-    }
+      this.transmittanceMaterial.setSpectral(spectral);
+      this.environmentGridMaterial.setSpectral(spectral);
 
-    this.environmentGridUniforms.frameEnvironmentGridColumns.value = environmentAtlas.columns;
-    this.environmentGridUniforms.frameEnvironmentGridAtlasSize.value.set(
-      environmentAtlas.width,
-      environmentAtlas.height,
-    );
+      // NOTE The environment grid is one cascade. A new target is empty, so the signature is reset.
+      const environmentAtlas = getAtlasLayout(resolution, resolution, resolution);
+
+      if (
+        !this.environmentGridTarget ||
+        this.environmentGridTarget.width !== environmentAtlas.width ||
+        this.environmentGridTarget.height !== environmentAtlas.height
+      ) {
+        if (this.environmentGridTarget) {
+          this.environmentGridTarget.dispose();
+        }
+
+        this.environmentGridTarget = createRenderTarget(environmentAtlas.width, environmentAtlas.height);
+        this.environmentGridSignature = [];
+      }
+
+      this.environmentGridUniforms.frameEnvironmentGridColumns.value = environmentAtlas.columns;
+      this.environmentGridUniforms.frameEnvironmentGridAtlasSize.value.set(
+        environmentAtlas.width,
+        environmentAtlas.height,
+      );
+    }
 
     this.gridUniforms.frameGridResolution.value = resolution;
     this.gridUniforms.frameGridColumns.value = gridAtlas.columns;
@@ -1197,6 +1218,10 @@ export class FrameRenderer {
     const spectral = this.isSpectral();
     const spectralGroups = getFrameSpectralGroups(lights.shadowLights.length);
 
+    if (spectral) {
+      this.trimSpectralTransmittanceTargets(useShadows ? spectralGroups : 0);
+    }
+
     if (useShadows) {
       const transmittanceUniforms = this.transmittanceMaterial.uniforms;
 
@@ -1268,10 +1293,13 @@ export class FrameRenderer {
     densityShadowUniforms.frameSkyDirection.value.copy(lights.skyDirection);
     densityShadowUniforms.frameEnvironmentGridMap.value = this.environmentGridTarget.texture;
 
-    // NOTE Spectral: sky up and sky down are in the first two targets of group 0
-    if (spectral && useShadows) {
-      densityShadowUniforms.frameSkyTransmittanceMap0.value = this.getSpectralTransmittanceTarget(0).textures[0];
-      densityShadowUniforms.frameSkyTransmittanceMap1.value = this.getSpectralTransmittanceTarget(0).textures[1];
+    // NOTE Spectral: sky up and sky down are in the first two targets of group 0. Without shadows the pass does
+    // not read them, and no freed target stays bound.
+    if (spectral) {
+      const sky = useShadows ? this.getSpectralTransmittanceTarget(0).textures : null;
+
+      densityShadowUniforms.frameSkyTransmittanceMap0.value = sky ? sky[0] : emptyMap;
+      densityShadowUniforms.frameSkyTransmittanceMap1.value = sky ? sky[1] : emptyMap;
     }
     densityShadowUniforms.frameEnvironmentMode.value = useEnvironmentGrid
       ? frameDensityEnvironment.grid
@@ -1309,15 +1337,14 @@ export class FrameRenderer {
       lightingUniforms.frameCameraMatrixWorld.value.copy(camera.matrixWorld);
       lightingUniforms.frameSpectralGroups.value = useShadows ? spectralGroups : 0;
 
-      // NOTE Groups not in use get the targets of group 0. The lighting pass does not read them.
-      if (useShadows) {
-        lightingUniforms.frameSpectralTransmittanceMaps.value.forEach((_, index) => {
-          const group = Math.floor(index / 3);
-          const target = this.getSpectralTransmittanceTarget(group < spectralGroups ? group : 0);
+      // NOTE Groups not in use get the targets of group 0, all groups get emptyMap without shadows. The lighting
+      // pass does not read them.
+      lightingUniforms.frameSpectralTransmittanceMaps.value.forEach((_, index) => {
+        const group = Math.floor(index / 3);
+        const target = useShadows ? this.getSpectralTransmittanceTarget(group < spectralGroups ? group : 0) : null;
 
-          lightingUniforms.frameSpectralTransmittanceMaps.value[index] = target.textures[index % 3];
-        });
-      }
+        lightingUniforms.frameSpectralTransmittanceMaps.value[index] = target ? target.textures[index % 3] : emptyMap;
+      });
     } else {
       lightingUniforms.frameDensityShadowMap0.value = this.densityTarget.textures[2];
       lightingUniforms.frameDensityShadowMap1.value = this.densityTarget.textures[3];
@@ -1807,11 +1834,88 @@ export class FrameRenderer {
     return proxies[index];
   }
 
+  // NOTE temporal false. updateTargets makes the targets again, empty, with historyValid false.
+  releaseHistoryTargets() {
+    const targets = this.historyTargets;
+
+    for (let i = 0; i < targets.length; i++) {
+      targets[i]?.dispose();
+      targets[i] = null;
+    }
+
+    this.historyValid = false;
+  }
+
+  // NOTE No 'neural' or 'multi-scale'. renderGridMips draws all levels again, the signature is empty.
+  releaseGridMipTargets() {
+    const targets = this.gridMipTargets;
+
+    for (let i = 0; i < targets.length; i++) {
+      targets[i].dispose();
+    }
+
+    targets.length = 0;
+    this.gridMipSignature.length = 0;
+  }
+
+  // NOTE Frees the slot group targets from index count up. A new group target has a new texture id, so the pass
+  // draws again.
+  releaseSpectralTransmittanceTargets(count = 0) {
+    const targets = this.spectralTransmittanceTargets;
+
+    for (let group = count; group < targets.length; group++) {
+      targets[group].dispose();
+    }
+
+    targets.length = Math.min(targets.length, count);
+    this.spectralLowRenders = 0;
+    this.spectralLowGroups = 0;
+  }
+
+  // NOTE Frees spectral group targets when spectralReleaseRenders lighting renders in a row need fewer groups.
+  // Cameras with different needs in one frame then do not free and make targets in each frame.
+  trimSpectralTransmittanceTargets(groups) {
+    if (groups >= this.spectralTransmittanceTargets.length) {
+      this.spectralLowRenders = 0;
+      this.spectralLowGroups = 0;
+
+      return;
+    }
+
+    this.spectralLowGroups = Math.max(this.spectralLowGroups, groups);
+    this.spectralLowRenders++;
+
+    if (this.spectralLowRenders >= spectralReleaseRenders) {
+      this.releaseSpectralTransmittanceTargets(this.spectralLowGroups);
+    }
+  }
+
+  // NOTE 'volume' lighting. Volume shadows on meshes keep the shadow grid. New targets are empty, so the
+  // signatures are reset and each pass draws again.
+  releaseFrameLightingTargets() {
+    this.densityTarget?.dispose();
+    this.transmittanceTarget?.dispose();
+    this.environmentGridTarget?.dispose();
+    this.densityTarget = null;
+    this.transmittanceTarget = null;
+    this.environmentGridTarget = null;
+
+    this.releaseSpectralTransmittanceTargets();
+    this.releaseGridMipTargets();
+    this.environmentGridSignature.length = 0;
+    this.transmittanceSignature.length = 0;
+
+    // NOTE updateGridTargets makes the grid again and resets castSignature. shadowDrawnTarget then differs.
+    if (!this.settings.castShadows && this.shadowDensityTarget) {
+      this.shadowDensityTarget.dispose();
+      this.shadowDensityTarget = null;
+      this.shadowDrawnTarget = null;
+    }
+  }
+
   dispose() {
     this.volumeShadows.dispose();
-    this.historyTargets.forEach((target) => target && target.dispose());
-    this.historyTargets = [null, null];
-    this.historyValid = false;
+    this.releaseHistoryTargets();
 
     [
       'atlasTarget',
@@ -1827,11 +1931,8 @@ export class FrameRenderer {
       }
     });
 
-    this.spectralTransmittanceTargets.forEach((target) => target.dispose());
-    this.spectralTransmittanceTargets = [];
-    this.gridMipTargets.forEach((target) => target.dispose());
-    this.gridMipTargets = [];
-    this.gridMipSignature = [];
+    this.releaseSpectralTransmittanceTargets();
+    this.releaseGridMipTargets();
 
     this.environmentLights = new FrameEnvironmentLights((renderer, scene) =>
       this.renderEnvironmentMap(renderer, scene),
