@@ -1,6 +1,6 @@
 // NOTE Three.js-style loader for VDB sequences. Each VDB is one FrameVolume frame.
 import * as Three from 'three';
-import { loadVDB, GridDescriptor } from 'openvdb';
+import { OpenVDBReader, GridDescriptor } from 'openvdb';
 import { FrameVolume } from './FrameVolume.js';
 import { FrameVolumeAnimation } from './FrameVolumeAnimation.js';
 
@@ -8,6 +8,29 @@ import { FrameVolumeAnimation } from './FrameVolumeAnimation.js';
 const gridOptions = ['emissiveGrid', 'baseColorGrid', 'maskGrid'];
 
 const findGrid = (vdb, name) => Object.values(vdb.grids).find((grid) => grid.gridName === name);
+
+const fetchVDB = async (url, signal) => {
+  const response = await fetch(url, { signal });
+
+  if (!response.ok) {
+    throw new Error(`Could not load ${url} (${response.status}).`);
+  }
+
+  return new Uint8Array(await response.arrayBuffer());
+};
+
+const readVDB = async (source, readOptions) => {
+  const vdb = new OpenVDBReader();
+
+  try {
+    await vdb.read(source, readOptions);
+  } catch (error) {
+    console.error({ error });
+    throw new Error('VDB could not be parsed.', { cause: error });
+  }
+
+  return vdb;
+};
 
 // NOTE Empty grids store an inverted box. The world transform makes it very large. Do not use it.
 const isEmptyGrid = (grid) => {
@@ -64,52 +87,55 @@ class VDBAnimationLoader extends Three.Loader {
     return animation;
   }
 
+  // NOTE All files download at the same time. Until the box is known, only the file bytes stay.
   async loadFrames(animation, urls, onProgress) {
-    const vdbs = [];
+    const sources = new Array(urls.length);
+    const abortController = new AbortController();
 
-    for (const url of urls) {
-      vdbs.push(await loadVDB(url));
+    try {
+      await Promise.all(
+        urls.map(async (url, index) => {
+          const source = await fetchVDB(url, abortController.signal);
+
+          // NOTE Stops the other downloads
+          if (animation.disposed) {
+            abortController.abort();
+            return;
+          }
+
+          // NOTE The box needs only the tree topology. The full parse is just before the conversion.
+          const topology = await readVDB(source, { topologyOnly: true });
+
+          this.addToBox(animation, topology);
+
+          sources[index] = source;
+        }),
+      );
+    } catch (error) {
+      // NOTE One failed file stops all downloads
+      abortController.abort();
 
       if (animation.disposed) {
         return;
       }
+
+      throw error;
     }
 
-    const frameProps = vdbs.map((vdb) => {
-      const props = { ...this.options };
+    if (animation.disposed) {
+      return;
+    }
 
-      gridOptions.forEach((key) => {
-        if (typeof props[key] === 'string') {
-          props[key] = findGrid(vdb, props[key]);
-        }
-      });
+    for (let index = 0; index < sources.length; index++) {
+      const vdb = await readVDB(sources[index]);
 
-      return props;
-    });
+      sources[index] = null;
 
-    // NOTE All frames use the union of the non-empty density grid boxes
-    vdbs.forEach((vdb, index) => {
-      const auxGrids = gridOptions.map((key) => frameProps[index][key]);
-
-      Object.values(vdb.grids)
-        .filter(
-          (grid) =>
-            grid instanceof GridDescriptor && !auxGrids.includes(grid) && !isEmptyGrid(grid),
-        )
-        .forEach((grid) => {
-          animation.bbox.union(new Three.Box3().set(...grid.getPreciseWorldBbox()));
-        });
-    });
-
-    for (let index = 0; index < vdbs.length; index++) {
       await new Promise((resolve) => {
         animation.addFrame(
-          new FrameVolume(vdbs[index], { ...frameProps[index], bbox: animation.bbox }, resolve),
+          new FrameVolume(vdb, { ...this.getFrameProps(vdb), bbox: animation.bbox }, resolve),
         );
       });
-
-      // NOTE The textures keep the converted data. Release the parsed VDB.
-      vdbs[index] = null;
 
       if (animation.disposed) {
         return;
@@ -121,6 +147,32 @@ class VDBAnimationLoader extends Three.Loader {
         onProgress({ loadedFrames: animation.loadedFrames, totalFrames: animation.totalFrames });
       }
     }
+  }
+
+  getFrameProps(vdb) {
+    const props = { ...this.options };
+
+    gridOptions.forEach((key) => {
+      if (typeof props[key] === 'string') {
+        props[key] = findGrid(vdb, props[key]);
+      }
+    });
+
+    return props;
+  }
+
+  // NOTE All frames use the union of the non-empty density grid boxes
+  addToBox(animation, vdb) {
+    const props = this.getFrameProps(vdb);
+    const auxGrids = gridOptions.map((key) => props[key]);
+
+    Object.values(vdb.grids)
+      .filter(
+        (grid) => grid instanceof GridDescriptor && !auxGrids.includes(grid) && !isEmptyGrid(grid),
+      )
+      .forEach((grid) => {
+        animation.bbox.union(new Three.Box3().set(...grid.getPreciseWorldBbox()));
+      });
   }
 }
 
