@@ -74,6 +74,9 @@ const icosahedron = [
   [-goldenRatio, 0, -1],
 ].map(([x, y, z]) => normalize(x, y, z));
 
+// NOTE Key field compare. NaN is equal to NaN, and -0 is equal to 0, as in the old key strings.
+const isSame = (a, b) => a === b || (a !== a && b !== b);
+
 const luminance = (r, g, b) => 0.2126 * r + 0.7152 * g + 0.0722 * b;
 
 export const getEnvironmentMode = (settings) => {
@@ -89,7 +92,8 @@ export const getEnvironmentMode = (settings) => {
 // NOTE extract( renderer, scene ) is the backend part. It draws the map and returns a Promise of RGBA floats.
 // NOTE RGB is radiance, A is the v coordinate of the texel. Then the row order of the readback does not matter.
 export class FrameEnvironmentLights {
-  key = null;
+  // NOTE Environment of the current map. Fields are compared one by one, so update() makes no key string.
+  mapKey = { uuid: null, version: 0, x: 0.0, y: 0.0, z: 0.0, order: '' };
   pending = false;
   retryAt = 0;
   updates = 0;
@@ -97,7 +101,8 @@ export class FrameEnvironmentLights {
   texelsVersion = 0;
   warned = false;
 
-  lightsKey = null;
+  // NOTE Settings and map of the current lights
+  lightsKey = { mode: null, samples: 0, shOrder: 0, texelsVersion: 0, pairs: false };
   lights = [];
 
   // NOTE Output of update(). Colors include scene.environmentIntensity.
@@ -112,10 +117,30 @@ export class FrameEnvironmentLights {
     this.extract = extract;
   }
 
-  getKey(scene) {
+  isMapOf(scene) {
     const { environment, environmentRotation: rotation } = scene;
+    const key = this.mapKey;
 
-    return `${environment.uuid}:${environment.version}:${rotation.x}:${rotation.y}:${rotation.z}:${rotation.order}`;
+    return (
+      isSame(key.uuid, environment.uuid) &&
+      isSame(key.version, environment.version) &&
+      isSame(key.x, rotation.x) &&
+      isSame(key.y, rotation.y) &&
+      isSame(key.z, rotation.z) &&
+      isSame(key.order, rotation.order)
+    );
+  }
+
+  isLightsOf(mode, settings, pairs) {
+    const key = this.lightsKey;
+
+    return (
+      isSame(key.mode, mode) &&
+      isSame(key.samples, settings.environmentSamples) &&
+      isSame(key.shOrder, settings.environmentShOrder) &&
+      isSame(key.texelsVersion, this.texelsVersion) &&
+      isSame(key.pairs, pairs)
+    );
   }
 
   // NOTE Returns null when the current 'outward' path must be used: other mode, no environment, or no map yet.
@@ -128,10 +153,8 @@ export class FrameEnvironmentLights {
       return null;
     }
 
-    const key = this.getKey(scene);
-
-    if (key !== this.key && !this.pending && this.updates >= this.retryAt) {
-      this.requestMap(renderer, scene, key);
+    if (!this.pending && this.updates >= this.retryAt && !this.isMapOf(scene)) {
+      this.requestMap(renderer, scene);
     }
 
     if (!this.texels) {
@@ -140,31 +163,47 @@ export class FrameEnvironmentLights {
 
     // NOTE Diffusion multiple scattering needs the directions in opposite pairs (getDirectionalLights)
     const pairs = isFrameDiffusion(settings.multipleScattering);
-    const lightsKey = `${mode}:${settings.environmentSamples}:${settings.environmentShOrder}:${this.texelsVersion}:${pairs}`;
 
-    if (lightsKey !== this.lightsKey) {
+    if (!this.isLightsOf(mode, settings, pairs)) {
+      const { lightsKey } = this;
+
       this.lights =
         mode === frameEnvironmentModes.directional
           ? this.getDirectionalLights(settings.environmentSamples, pairs)
           : this.getShLights(settings.environmentShOrder);
-      this.lightsKey = lightsKey;
+
+      lightsKey.mode = mode;
+      lightsKey.samples = settings.environmentSamples;
+      lightsKey.shOrder = settings.environmentShOrder;
+      lightsKey.texelsVersion = this.texelsVersion;
+      lightsKey.pairs = pairs;
     }
 
-    const { result } = this;
+    const { result, lights } = this;
     const intensity = scene.environmentIntensity;
 
     result.mode = mode;
-    result.count = this.lights.length;
+    result.count = lights.length;
 
-    this.lights.forEach(({ direction, color }, index) => {
+    // NOTE The color arrays of the result are used again. The renderers copy the values.
+    for (let index = 0; index < lights.length; index++) {
+      const { direction, color } = lights[index];
+      const target = result.colors[index];
+
       result.directions[index] = direction;
-      result.colors[index] = color.map((value) => value * intensity);
-    });
+      target[0] = color[0] * intensity;
+      target[1] = color[1] * intensity;
+      target[2] = color[2] * intensity;
+    }
 
     return result;
   }
 
-  requestMap(renderer, scene, key) {
+  requestMap(renderer, scene) {
+    // NOTE Keep the environment of this request. The scene can change before the map arrives.
+    const { uuid, version } = scene.environment;
+    const { x, y, z, order } = scene.environmentRotation;
+
     this.pending = true;
 
     this.extract(renderer, scene)
@@ -172,7 +211,14 @@ export class FrameEnvironmentLights {
         this.pending = false;
 
         if (this.setTexels(pixels)) {
-          this.key = key;
+          const { mapKey } = this;
+
+          mapKey.uuid = uuid;
+          mapKey.version = version;
+          mapKey.x = x;
+          mapKey.y = y;
+          mapKey.z = z;
+          mapKey.order = order;
         } else {
           this.retryAt = this.updates + retryInterval;
         }
