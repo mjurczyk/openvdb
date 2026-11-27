@@ -19,5 +19,6 @@
   "frame": 6,
   "emissionLight": true,
   "sceneMeshes": true,
-  "copies": 10
+  "copies": 10,
+  "advanceFrames": 30
 }

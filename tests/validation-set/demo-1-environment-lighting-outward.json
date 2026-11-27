@@ -1,4 +1,5 @@
 {
   "demo": "frame",
-  "environmentLighting": "outward"
+  "environmentLighting": "outward",
+  "advanceFrames": 30
 }

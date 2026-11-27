@@ -1,5 +1,6 @@
 {
   "demo": "frame",
+  "source": "bunnyGrid",
   "shadowResolution": 16,
   "shadowCascades": 1
 }

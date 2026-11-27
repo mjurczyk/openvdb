@@ -18,5 +18,6 @@
   "playing": false,
   "frame": 6,
   "emissionLight": true,
-  "sceneMeshes": true
+  "sceneMeshes": true,
+  "advanceFrames": 30
 }

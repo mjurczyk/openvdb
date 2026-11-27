@@ -1,5 +1,7 @@
 {
   "demo": "frame",
   "environment": "sky-midday",
-  "environmentLighting": "outward"
+  "environmentLighting": "outward",
+  "lightSetup": "none",
+  "advanceFrames": 30
 }

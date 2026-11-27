@@ -15,5 +15,6 @@
     "./assets/ground_explosion/ground_explosion_0031.wvdb"
   ],
   "upAxis": "z",
-  "loop": false
+  "loop": false,
+  "advanceFrames": 42
 }

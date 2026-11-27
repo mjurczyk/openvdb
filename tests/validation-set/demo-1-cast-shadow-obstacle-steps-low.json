@@ -2,5 +2,6 @@
   "demo": "frame",
   "castShadow": true,
   "showObstacle": true,
-  "castShadowSteps": 4
+  "castShadowSteps": 4,
+  "advanceFrames": 30
 }

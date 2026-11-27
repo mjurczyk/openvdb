@@ -1,4 +1,6 @@
 {
   "demo": "frame",
-  "temporalBlend": 0.05
+  "source": "explosion",
+  "temporalBlend": 0.05,
+  "advanceFrames": 30
 }

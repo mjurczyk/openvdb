@@ -2,5 +2,6 @@
   "demo": "frame",
   "castShadow": true,
   "showObstacle": true,
-  "shadowMapSize": 1024
+  "shadowMapSize": 1024,
+  "advanceFrames": 30
 }
