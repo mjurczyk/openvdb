@@ -93,7 +93,7 @@ export const VDBComponent = () => {
 - `setOptions( props ): VDBAnimationLoader` - `FrameVolume` props of all frames. `emissiveGrid`, `baseColorGrid` and `maskGrid` are grid names.
 - `load( urls, onLoad, onProgress, onError ): FrameVolumeAnimation`
 
-Loads a `.vdb` sequence (one file per frame). `onProgress({ loadedFrames, totalFrames })` is called when a frame is converted. `onLoad( animation )` is called when all frames are converted.
+Loads a `.vdb` sequence (one file per frame). All files download at the same time. The box of all frames comes from the tree topology of each file. Each file is parsed in full just before its conversion. One failed file stops all downloads. `onProgress({ loadedFrames, totalFrames })` is called when a frame is converted. `onLoad( animation )` is called when all frames are converted.
 
 ## Docs
 
