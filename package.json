@@ -17,8 +17,7 @@
     "dev": "npm run dev -w openvdb-examples",
     "dev:webgl": "npm run dev:webgl -w openvdb-examples",
     "test": "playwright test --config tests/playwright.config.js",
-    "test:update": "UPDATE_VALIDATION_SET=1 playwright test --config tests/playwright.config.js",
-    "release": "npm run build && npm publish ./build/openvdb && npm publish ./build/three-openvdb && npm publish ./build/webvdb"
+    "test:update": "UPDATE_VALIDATION_SET=1 playwright test --config tests/playwright.config.js"
   },
   "author": {
     "name": "mjurczyk",
@@ -42,7 +41,6 @@
     "jpeg-js": "^0.4.4",
     "rollup": "^2.79.1",
     "rollup-plugin-copy": "^3.4.0",
-    "rollup-plugin-delete": "^2.0.0",
-    "stats.js": "^0.17.0"
+    "rollup-plugin-delete": "^2.0.0"
   }
 }

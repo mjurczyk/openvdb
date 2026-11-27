@@ -7,17 +7,12 @@
     "dev": "vite --config ./dev.config.js",
     "dev:webgl": "VITE_FRAME_RENDERER=webgl vite --config ./dev.config.js",
     "build": "vite build --config ./prod.config.js",
-    "preview": "vite preview"
+    "preview": "vite preview --config ./prod.config.js"
   },
   "devDependencies": {
-    "@types/react": "^18.0.17",
-    "@types/react-dom": "^18.0.6",
-    "@vitejs/plugin-react": "^4.7.0",
     "lil-gui": "^0.18.1",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
     "simple-dropzone": "^0.8.1",
-    "styled-components": "^5.3.6",
+    "stats.js": "^0.17.0",
     "three": "^0.187.0",
     "three-environment-shadows": "^1.0.0",
     "vite": "^6.4.5",
