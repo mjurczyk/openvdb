@@ -1,7 +1,7 @@
 // NOTE Cloud placement of the Sky demo. Plain numbers, no three.js, so it runs in Node too.
 
 // NOTE Seeded random numbers (mulberry32). The same seed gives the same sky.
-export const createRandom = (seed) => {
+const createRandom = (seed) => {
   let state = seed >>> 0;
 
   return () => {
@@ -46,7 +46,7 @@ const valueNoise = (x, z, seed, cellsX) => {
 };
 
 // NOTE Two octaves of value noise, from 0 to 1. The noise repeats on X after period cells, so the field loops without a seam.
-export const fieldNoise = (x, z, seed, period) =>
+const fieldNoise = (x, z, seed, period) =>
   (valueNoise(x, z, seed, period) * 2.0 + valueNoise(x * 2.0, z * 2.0, seed + 1, period * 2)) / 3.0;
 
 const overlap = (a, b, offsetX) => {
@@ -62,7 +62,7 @@ const boxVolume = (box) =>
 
 // NOTE Overlap of two boxes: shared volume divided by the volume of the smaller box. The field loops on X,
 // so a box also overlaps the copies of the other box one field size to the left and right.
-export const getOverlap = (a, b, fieldSize) => {
+const getOverlap = (a, b, fieldSize) => {
   let shared = 0.0;
 
   for (let offset = -1; offset <= 1; offset++) {

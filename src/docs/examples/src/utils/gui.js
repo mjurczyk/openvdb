@@ -15,6 +15,10 @@ import { setPostProcessing } from "./postProcessing";
 export let gui = new GUI();
 export const dropTarget = document.querySelector('#dropzone');
 
+// NOTE A demo change makes a new GUI. Each call finds the field in the current GUI.
+export const getController = (id) =>
+  gui.controllersRecursive().find((controller) => controller.property === id);
+
 export let activeDemo = 'vdb';
 
 // NOTE The examples import this module, so the functions are read only when a demo starts

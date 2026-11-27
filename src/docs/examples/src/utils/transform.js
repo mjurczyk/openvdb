@@ -1,7 +1,7 @@
 import * as Three from 'three';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
 import { camera, controls, renderer, scene } from '../main';
-import { gui } from './gui';
+import { getController } from './gui';
 
 // NOTE In transform mode the camera goes to this position and looks at the scene origin
 const transformViewPosition = new Three.Vector3(-250.0, 200.0, 250.0);
@@ -22,9 +22,6 @@ let active = false;
 // NOTE The camera position and rotation before transform mode. The camera goes back to it.
 let savedView = null;
 let viewMove = null;
-
-const getController = (id) =>
-  gui.controllersRecursive().find((controller) => controller.property === id);
 
 const getButtonName = () => (active ? 'Transform Mode: On' : 'Transform Mode: Off');
 

@@ -35,9 +35,6 @@ const maxOverlap = 0.5;
 const windSpeed = 20.0;
 const fadeLength = fieldSize * 0.15;
 
-// NOTE Flat ground of the grassland skybox (radius 2500, height 250, utils/resources.js)
-const groundRadius = 2400.0;
-
 // NOTE The environment light shadow camera holds the clouds above the ground. Volumes out of it cast no shadow.
 const shadowRadius = 4000.0;
 
@@ -86,14 +83,6 @@ export const exampleSky = ({ scene }) => {
 
   const cloudGroup = new Three.Group();
   scene.add(cloudGroup);
-
-  // NOTE The ground shows only shadows. Elsewhere it is transparent, so the environment ground shows.
-  const ground = new Three.Mesh(new Three.CircleGeometry(groundRadius, 96), new Three.ShadowMaterial({ opacity: 0.5 }));
-  ground.rotation.x = -Math.PI / 2.0;
-  ground.position.y = groundLevel;
-  ground.receiveShadow = true;
-  ground.visible = frameSettings.castShadows;
-  scene.add(ground);
 
   // NOTE One slot for each cloud. The slot moves with the wind. Its up group turns the Z-up volume.
   const slots = clouds.map((cloud) => {

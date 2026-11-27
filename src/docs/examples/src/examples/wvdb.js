@@ -1,11 +1,12 @@
 import * as Three from 'three';
 import * as OpenVDB from 'three-openvdb';
-import { gui, setGuiFields, setDemoCleanup } from '../utils/gui';
+import { getController, setGuiFields, setDemoCleanup } from '../utils/gui';
 import { setLoading } from '../utils/loading';
 import { renderer } from '../main';
 import { isPhone } from '../utils/device';
-import { firstEnvironment, setEnvironmentLights } from '../utils/resources';
+import { firstEnvironment } from '../utils/resources';
 import { createTransformFolder } from '../utils/transform';
+import { createSunHemiLights } from '../utils/lights';
 
 // NOTE Longest side of each volume in scene units
 const displaySize = 100.0;
@@ -41,9 +42,6 @@ const getExtinction = (asset) => sequences[asset]?.extinction ?? defaultExtincti
 const formatBytes = (bytes) =>
   bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1024 / 1024).toFixed(2)} MB`;
 
-const getController = (id) =>
-  gui.controllersRecursive().find((controller) => controller.property === id);
-
 export const exampleWVDB = ({ scene }) => {
   const params = {
     asset: 'bunny_cloud',
@@ -56,11 +54,8 @@ export const exampleWVDB = ({ scene }) => {
   // NOTE The GUI calls onChange with default values. Load one time after that.
   let ready = false;
 
-  const sun = new Three.DirectionalLight(0xffffff, 1.0);
-  sun.position.set(100.0, 200.0, 100.0);
-  scene.add(sun);
-  const hemiLight = new Three.HemisphereLight(0x88aaff, 0x443322, 0.5);
-  scene.add(hemiLight);
+  // NOTE Sun and hemisphere light, and the "Lights" field (utils/lights.js)
+  const lights = createSunHemiLights(scene);
 
   let lastTime = performance.now();
 
@@ -357,21 +352,7 @@ export const exampleWVDB = ({ scene }) => {
             applyUpAxis();
           },
         }),
-        {
-          id: 'lightSetup',
-          name: 'Lights',
-          defaultValue: 'environment',
-          // NOTE environment: the lights of the environment map (utils/resources.js)
-          options: {
-            Environment: 'environment',
-            'Sun + Hemisphere': 'sunHemi',
-          },
-          onChange: (value) => {
-            setEnvironmentLights(scene, value === 'environment');
-            sun.visible = value === 'sunHemi';
-            hemiLight.visible = value === 'sunHemi';
-          },
-        },
+        lights.lightSetupField,
       ],
     },
   ]);
