@@ -464,6 +464,8 @@ export class FrameRenderer {
     environmentLightCount: 0,
     environmentShadowSlot: 0,
     environmentGridLights: [],
+    // NOTE Hemisphere lights and light probes. They read sky up and sky down.
+    skyLightCount: 0,
   };
   environmentShadowLight = new Three.Vector4();
   environmentGridLightEntries = [];
@@ -1201,6 +1203,12 @@ export class FrameRenderer {
       transmittanceUniforms.frameShadowDensityMap.value = this.shadowDensityTarget.textures[0];
       transmittanceUniforms.frameShadowAbsorptionMap.value = this.shadowDensityTarget.textures.at(-1);
       transmittanceUniforms.frameSkyDirection.value.copy(lights.skyDirection);
+      // NOTE The 'outward' environment of the density pass also reads sky up and sky down
+      transmittanceUniforms.frameSkyMarch.value =
+        lights.skyLightCount > 0 ||
+        (!useEnvironmentGrid && lights.environmentLightCount === 0 && !!scene.environment)
+          ? 1.0
+          : 0.0;
       transmittanceUniforms.frameShadowLightCount.value = lights.shadowLights.length;
       transmittanceUniforms.frameMultipleScattering.value = getFrameMultipleScattering(
         this.settings.multipleScattering,
@@ -1351,6 +1359,7 @@ export class FrameRenderer {
       this.transmittanceMaterial.neural ? 1 : 0,
       this.transmittanceMaterial.multiScale ? uniforms.frameMultiScaleLevels.value : 0,
       uniforms.frameTwoSided.value,
+      uniforms.frameSkyMarch.value,
     );
     pushVector(values, uniforms.frameScatteringOctaves.value);
     pushVector(values, uniforms.frameSkyDirection.value);
@@ -1771,6 +1780,7 @@ export class FrameRenderer {
     result.spotOffset = directions.length + points.length;
     result.environmentLightCount = environmentLightCount;
     result.environmentShadowSlot = sceneShadowCount;
+    result.skyLightCount = (used.HemisphereLight || 0) + (used.LightProbe || 0);
 
     return result;
   }

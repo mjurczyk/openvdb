@@ -65,6 +65,8 @@ export class FrameTransmittanceMaterial extends Three.NodeMaterial {
     this.frameScatteringOctaves = uniform(new Three.Vector4());
     // NOTE multipleScattering 'two-sided' (core/framePhase.js): light slots also march away from the light
     this.frameTwoSided = uniform(0.0);
+    // NOTE 1.0 marches sky up and sky down. Only hemisphere lights, light probes and the 'outward' environment read them.
+    this.frameSkyMarch = uniform(1.0);
     // NOTE frameRenderer.settings.spectral: the absorption target of the grid, and the slot group of this pass
     // (core/frameSpectrum.js). The renderer draws this pass one time for each group in use, into its own targets.
     this.frameShadowAbsorptionMap = texture(new Three.Texture());
@@ -295,10 +297,16 @@ export class FrameTransmittanceMaterial extends Three.NodeMaterial {
             lightTransmittance(slot, worldPosition, local).toVar(),
           );
 
-          const skyUp = march(worldPosition, skyDirection, float(1e20)).toVar();
-          const skyDown = march(worldPosition, skyDirection.negate(), float(1e20)).toVar();
+          const sky = vec2(1.0).toVar();
 
-          transmittance0.assign(vec4(skyTotal(skyUp, skyDown), skyTotal(skyDown, skyUp), lights[0].y, lights[1].y));
+          If(this.frameSkyMarch.greaterThan(0.5), () => {
+            const skyUp = march(worldPosition, skyDirection, float(1e20)).toVar();
+            const skyDown = march(worldPosition, skyDirection.negate(), float(1e20)).toVar();
+
+            sky.assign(vec2(skyTotal(skyUp, skyDown), skyTotal(skyDown, skyUp)));
+          });
+
+          transmittance0.assign(vec4(sky.x, sky.y, lights[0].y, lights[1].y));
           transmittance1.assign(vec4(lights[2].y, lights[3].y, lights[4].y, lights[5].y));
           transmittance2.assign(vec4(lights[0].x, lights[1].x, lights[2].x, lights[3].x));
           transmittance3.assign(vec4(lights[4].x, lights[5].x, 1.0, 1.0));
@@ -456,16 +464,18 @@ export class FrameTransmittanceMaterial extends Three.NodeMaterial {
           const skyDirection = normalize(frameSkyDirection).toVar();
           const isSkyGroup = group.equal(0).toVar();
           const slotA = group.mul(2).sub(1).toVar();
+          // NOTE No sky march: the depths stay 0.0, then the sky totals are 1.0
+          const skyMarch = isSkyGroup.and(this.frameSkyMarch.greaterThan(0.5)).toVar();
 
           // NOTE Group 0: sky up, sky down, slot 0. Other groups: slots 2g - 1 and 2g, and no third march.
           const first = march(
-            isSkyGroup,
+            skyMarch,
             worldPosition,
             skyDirection,
             float(1e20),
           );
           const second = march(
-            isSkyGroup,
+            skyMarch,
             worldPosition,
             skyDirection.negate(),
             float(1e20),

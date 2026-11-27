@@ -38,6 +38,8 @@ const createFragmentShader = (neural, multiScale) => `
 
   uniform sampler2D frameShadowDensityMap;
   uniform vec3 frameSkyDirection;
+  // NOTE 1.0 marches sky up and sky down. Only hemisphere lights, light probes and the 'outward' environment read them.
+  uniform float frameSkyMarch;
   uniform vec4 frameShadowLights[FRAME_SHADOW_SLOTS];
   uniform int frameShadowLightCount;
 
@@ -273,7 +275,7 @@ const createFragmentShader = (neural, multiScale) => `
       vec3 skyUpTotal = vec3(1.0);
       vec3 skyDownTotal = vec3(1.0);
 
-      if (isSkyGroup) {
+      if (isSkyGroup && frameSkyMarch > 0.5) {
         FrameSpectralDepths skyUp = frameSpectralMarchDepths(worldPosition, frameSkyDirection, 1e20);
         FrameSpectralDepths skyDown = frameSpectralMarchDepths(worldPosition, -frameSkyDirection, 1e20);
 
@@ -339,10 +341,16 @@ const createFragmentShader = (neural, multiScale) => `
       vec2 light4 = frameLightTransmittance(4, worldPosition);
       vec2 light5 = frameLightTransmittance(5, worldPosition);
 
-      vec4 skyUp = frameMarch(worldPosition, frameSkyDirection, 1e20);
-      vec4 skyDown = frameMarch(worldPosition, -frameSkyDirection, 1e20);
+      vec2 sky = vec2(1.0);
 
-      frameTransmittance0 = vec4(frameSkyTotal(skyUp, skyDown), frameSkyTotal(skyDown, skyUp), light0.y, light1.y);
+      if (frameSkyMarch > 0.5) {
+        vec4 skyUp = frameMarch(worldPosition, frameSkyDirection, 1e20);
+        vec4 skyDown = frameMarch(worldPosition, -frameSkyDirection, 1e20);
+
+        sky = vec2(frameSkyTotal(skyUp, skyDown), frameSkyTotal(skyDown, skyUp));
+      }
+
+      frameTransmittance0 = vec4(sky, light0.y, light1.y);
       frameTransmittance1 = vec4(light2.y, light3.y, light4.y, light5.y);
       frameTransmittance2 = vec4(light0.x, light1.x, light2.x, light3.x);
       frameTransmittance3 = vec4(light4.x, light5.x, 1.0, 1.0);
@@ -363,6 +371,8 @@ export class FrameTransmittanceMaterial extends Three.ShaderMaterial {
         frameShadowAbsorptionMap: { value: null },
         frameSpectralGroup: { value: 0 },
         frameSkyDirection: { value: new Three.Vector3(0.0, 1.0, 0.0) },
+        // NOTE 1.0 marches sky up and sky down. The renderer sets 0.0 when nothing reads them.
+        frameSkyMarch: { value: 1.0 },
         frameShadowLights: {
           value: Array.from({ length: frameShadowLightSlots }, () => new Three.Vector4()),
         },
