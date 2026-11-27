@@ -2,7 +2,6 @@ import { unsupported } from '../debug.js';
 import {
   boolSize,
   boolType,
-  charSize,
   doubleSize,
   doubleType,
   floatSize,
@@ -32,6 +31,23 @@ const vectorComponentTypeMap = {
   [vec3sType]: floatType,
   [vec3iType]: int32Type,
   [vec3dType]: doubleType,
+};
+
+// NOTE VDB text is UTF-8. Bytes that are not valid UTF-8 are read as one character for each byte.
+const utf8Decoder = new TextDecoder('utf-8', { fatal: true });
+
+const decodeText = (bytes) => {
+  try {
+    return utf8Decoder.decode(bytes);
+  } catch {
+    let text = '';
+
+    for (let index = 0; index < bytes.length; index++) {
+      text += String.fromCharCode(bytes[index]);
+    }
+
+    return text;
+  }
 };
 
 export class BufferIterator {
@@ -179,7 +195,8 @@ export class BufferIterator {
   //      ^    ^
   //      | string length
   //           | string value
-  // TODO Rename to readString
+  // NOTE Metadata values have the same format: the byte count, then the value of type castTo.
+  // NOTE Types with no branch here (for example vec2i and mat4s) give the bytes as text.
   readString(castTo = stringType) {
     const nameSize = this.readBytes(uint32Size);
     let name = '';
@@ -206,10 +223,10 @@ export class BufferIterator {
         this.readFloat(doubleType),
         this.readFloat(doubleType)
       );
+    } else if (castTo === floatType || castTo === doubleType || castTo === int32Type) {
+      name = this.readFloat(castTo);
     } else {
-      Array(nameSize)
-        .fill(0)
-        .map((_) => (name += String.fromCharCode(this.readBytes(charSize))));
+      name = decodeText(this.readRawView(nameSize));
     }
 
     return name;
