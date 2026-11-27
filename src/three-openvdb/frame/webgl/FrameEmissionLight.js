@@ -6,33 +6,12 @@ import {
   frameEmissionMaxCascades,
   frameEmissionAtlasColumns,
   frameEmissionAtlasSize,
+  frameGoldenAngle,
+  createGeometry,
+  createPassScene,
 } from '../core/FrameEmissionLight.js';
 import { frameRenderer } from './FrameRenderer.js';
 import { volumePars, gridPars, createVolumeUniforms, setVolumeUniforms } from './frameShaderChunks.js';
-
-// NOTE Golden angle in radians. Fibonacci directions turn by this angle.
-const goldenAngle = Math.PI * (3.0 - Math.sqrt(5.0));
-
-const fullscreenPositions = [-1, -1, 0, 3, -1, 0, -1, 3, 0];
-const quadPositions = [-1, -1, 0, 1, -1, 0, 1, 1, 0, -1, -1, 0, 1, 1, 0, -1, 1, 0];
-
-const createGeometry = (positions) => {
-  const geometry = new Three.BufferGeometry();
-  geometry.setAttribute('position', new Three.Float32BufferAttribute(positions, 3));
-
-  return geometry;
-};
-
-const createTarget = (count, type, filter, width = 1, height = 1) =>
-  new Three.WebGLRenderTarget(width, height, {
-    count,
-    type,
-    format: Three.RGBAFormat,
-    minFilter: filter,
-    magFilter: filter,
-    generateMipmaps: false,
-    depthBuffer: false,
-  });
 
 const createPassMaterial = (uniforms, vertexShader, fragmentShader) =>
   new Three.ShaderMaterial({
@@ -72,7 +51,7 @@ const directionFragmentShader = `
 
   #define FRAME_DIRECTIONS ${frameEmissionDirections}
   #define FRAME_RAYS ${frameEmissionRays}
-  #define FRAME_GOLDEN_ANGLE ${goldenAngle}
+  #define FRAME_GOLDEN_ANGLE ${frameGoldenAngle}
 
   ${volumePars}
 
@@ -258,17 +237,6 @@ let passes = null;
 
 const getPasses = () => {
   if (!passes) {
-    const createPassScene = (material) => {
-      const scene = new Three.Scene();
-      const mesh = new Three.Mesh(createGeometry(fullscreenPositions), material);
-
-      mesh.frustumCulled = false;
-      scene.matrixWorldAutoUpdate = false;
-      scene.add(mesh);
-
-      return scene;
-    };
-
     const reduceMaterial = createPassMaterial(
       {
         frameDirectionIntensity: { value: null },
@@ -590,22 +558,6 @@ export class FrameEmissionLight extends FrameEmissionLightBase {
   constructor(props) {
     super(props);
 
-    // NOTE Float targets for the volumes: intensities in world units do not overflow
-    this.directionTarget = createTarget(2, Three.FloatType, Three.NearestFilter);
-    this.emitterTarget = createTarget(2, Three.FloatType, Three.NearestFilter);
-    this.probeTarget = createTarget(
-      3,
-      Three.HalfFloatType,
-      Three.LinearFilter,
-      frameEmissionAtlasSize,
-      frameEmissionAtlasSize,
-    );
-
-    // NOTE One draw for each changed volume, in one render
-    this.directionScene = new Three.Scene();
-    this.directionScene.matrixWorldAutoUpdate = false;
-    this.directionPool = [];
-
     // NOTE Shared by the patched materials. Values change in place.
     this.materialUniforms = {
       Red: { value: this.probeTarget.textures[0] },
@@ -632,51 +584,41 @@ export class FrameEmissionLight extends FrameEmissionLightBase {
     this.add(this.updater);
   }
 
+  // NOTE Backend hooks of FrameEmissionLightBase (core/FrameEmissionLight.js)
+  createTarget(count, type, filter, width = 1, height = 1) {
+    return new Three.WebGLRenderTarget(width, height, {
+      count,
+      type,
+      format: Three.RGBAFormat,
+      minFilter: filter,
+      magFilter: filter,
+      generateMipmaps: false,
+      depthBuffer: false,
+    });
+  }
+
+  getDirectionMaterial() {
+    return getPasses().directionMaterial;
+  }
+
+  setDirectionUniforms(emitter, slot) {
+    const { directionMaterial } = getPasses();
+    const { uniforms } = directionMaterial;
+
+    setVolumeUniforms(uniforms, emitter.frameVolume, emitter);
+    uniforms.frameSlot.value = slot;
+    uniforms.frameTargetSize.value.set(frameEmissionDirections, this.slotCount);
+    uniforms.frameEmitterCenter.value.copy(emitter.center);
+    uniforms.frameEmitterRadius.value = emitter.radius;
+    uniforms.frameSteps.value = this.getSteps();
+
+    // NOTE The draws share one material. WebGLRenderer uploads changed uniforms only with this flag.
+    directionMaterial.uniformsNeedUpdate = true;
+  }
+
   // NOTE WebGL makes GPU mipmaps. FrameVolume mipmaps can change after creation.
   updateMipmaps(frameVolume, volume) {
     frameRenderer.updateMipmaps(frameVolume, volume);
-  }
-
-  resizeSlots() {
-    this.directionTarget.dispose();
-    this.emitterTarget.dispose();
-    this.directionTarget = createTarget(
-      2,
-      Three.FloatType,
-      Three.NearestFilter,
-      frameEmissionDirections,
-      this.slotCount,
-    );
-    this.emitterTarget = createTarget(2, Three.FloatType, Three.NearestFilter, 1, this.slotCount);
-  }
-
-  getDirectionMesh(index) {
-    if (!this.directionPool[index]) {
-      const { directionMaterial } = getPasses();
-      const mesh = new Three.Mesh(createGeometry(quadPositions), directionMaterial);
-
-      mesh.frustumCulled = false;
-      mesh.matrixAutoUpdate = false;
-      mesh.onBeforeRender = () => {
-        const { emitter, slot } = mesh.userData;
-        const { uniforms } = directionMaterial;
-
-        setVolumeUniforms(uniforms, emitter.frameVolume, emitter);
-        uniforms.frameSlot.value = slot;
-        uniforms.frameTargetSize.value.set(frameEmissionDirections, this.slotCount);
-        uniforms.frameEmitterCenter.value.copy(emitter.center);
-        uniforms.frameEmitterRadius.value = emitter.radius;
-        uniforms.frameSteps.value = this.getSteps();
-
-        // NOTE The draws share one material. WebGLRenderer uploads changed uniforms only with this flag.
-        directionMaterial.uniformsNeedUpdate = true;
-      };
-
-      this.directionScene.add(mesh);
-      this.directionPool[index] = mesh;
-    }
-
-    return this.directionPool[index];
   }
 
   update(renderer, scene, camera) {
@@ -701,21 +643,8 @@ export class FrameEmissionLight extends FrameEmissionLightBase {
     materialUniforms.Grid.value.x = this.probeResolution;
   }
 
-  // NOTE Runs the passes of changed volumes, before the lit meshes of each render
-  updateProbes(renderer, scene, viewCamera) {
-    const changed = this.prepareProbes(scene, viewCamera);
-
-    if (!changed) {
-      return;
-    }
-
-    changed.forEach(({ emitter, slot }, index) => {
-      const mesh = this.getDirectionMesh(index);
-
-      mesh.userData.emitter = emitter;
-      mesh.userData.slot = slot;
-    });
-
+  // NOTE Direction, reduce and probe passes of the changed volumes (updateProbes)
+  renderProbes(renderer, changed) {
     const { reduceMaterial, probeMaterial, reduceScene, probeScene, camera, clearColor } = getPasses();
     const currentRenderTarget = renderer.getRenderTarget();
     const currentActiveCubeFace = renderer.getActiveCubeFace();
@@ -764,11 +693,6 @@ export class FrameEmissionLight extends FrameEmissionLightBase {
   dispose() {
     super.dispose();
 
-    this.directionTarget.dispose();
-    this.emitterTarget.dispose();
-    this.probeTarget.dispose();
     this.updater.geometry.dispose();
-    this.directionPool.forEach((mesh) => mesh.geometry.dispose());
-    this.directionPool = [];
   }
 }

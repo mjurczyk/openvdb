@@ -30,8 +30,7 @@ import {
   output,
 } from 'three/tsl';
 import { frameSample, frameSliceDepth, maxComponent } from './frameShaderChunks.js';
-
-const maxSlices = 1024;
+import { frameMaxSlices } from '../core/frameLimits.js';
 
 // NOTE Marches the froxel slices of each screen pixel and stops at the scene depth.
 // NOTE Scene depth comes from the depth buffer of the current render (viewportDepthTexture).
@@ -171,7 +170,7 @@ export class FrameIntegrateMaterial extends Three.NodeMaterial {
       const transmittance = vec3(1.0).toVar();
       const sliceStart = frameSliceDepth(froxelUniforms, this.frameSliceRange.x.div(sliceCount)).toVar();
 
-      Loop(maxSlices, ({ i }) => {
+      Loop(frameMaxSlices, ({ i }) => {
         const slice = this.frameSliceRange.x.add(float(i));
 
         If(
@@ -249,7 +248,7 @@ export class FrameIntegrateMaterial extends Three.NodeMaterial {
       const transmittance = float(1.0).toVar();
       const sliceStart = frameSliceDepth(froxelUniforms, this.frameSliceRange.x.div(sliceCount)).toVar();
 
-      Loop(maxSlices, ({ i }) => {
+      Loop(frameMaxSlices, ({ i }) => {
         const slice = this.frameSliceRange.x.add(float(i));
 
         If(

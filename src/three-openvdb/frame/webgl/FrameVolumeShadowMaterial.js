@@ -1,8 +1,6 @@
 import * as Three from 'three';
 import { gridPars } from './frameShaderChunks.js';
-
-// NOTE Upper limit of the castShadowSteps setting
-export const frameMaxShadowSteps = 256;
+import { frameMaxShadowSteps } from '../core/frameLimits.js';
 
 // NOTE Beer shadow map of all volumes for one light, from the world shadow grid (the extinction of all volumes).
 // NOTE A fullscreen pass. Each texel marches its light ray through the last grid cascade, with frameShadowSteps samples.

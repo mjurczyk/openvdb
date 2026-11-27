@@ -39,13 +39,10 @@ import {
 import { createNeuralNodes, createNeuralMipNodes } from './frameNeuralChunks.js';
 import { createMultiScaleNodes } from './frameMultiScaleChunks.js';
 import { frameNeuralLevels } from '../core/frameNeuralIndirect.js';
+import { frameShadowLightSlots, frameMaxTransmittanceSteps } from '../core/frameLimits.js';
 
-// NOTE Light slots: sky up, sky down, then 6 lights. Targets 0 and 1: total transmittance of all slots.
+// NOTE Light slots (core/frameLimits.js). Targets 0 and 1: total transmittance of all slots.
 // NOTE Targets 2 and 3: direct transmittance of the 6 lights. Then the lighting gives the phase only to the direct light.
-// NOTE Scene lights take the first slots. The dominant directional environment light takes the next free slot.
-export const frameShadowLightSlots = 6;
-
-const maxShadowSteps = 1024;
 
 // NOTE Transmittance from each grid voxel to each light, through the combined extinction of all volumes
 export class FrameTransmittanceMaterial extends Three.NodeMaterial {
@@ -173,7 +170,7 @@ export class FrameTransmittanceMaterial extends Three.NodeMaterial {
       const traveled = float(0.0).toVar();
       const probe = vec3(origin).toVar();
 
-      Loop(maxShadowSteps, () => {
+      Loop(frameMaxTransmittanceSteps, () => {
         const cascade = grid.findCascade(probe, int(0)).toVar();
 
         If(
@@ -357,7 +354,7 @@ export class FrameTransmittanceMaterial extends Three.NodeMaterial {
         const traveled = float(0.0).toVar();
         const probe = vec3(origin).toVar();
 
-        Loop(maxShadowSteps, () => {
+        Loop(frameMaxTransmittanceSteps, () => {
           const cascade = grid.findCascade(probe, int(0)).toVar();
 
           If(

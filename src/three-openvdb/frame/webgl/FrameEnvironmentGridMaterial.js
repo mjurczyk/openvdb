@@ -7,6 +7,7 @@ import {
   spectralPars,
 } from './frameShaderChunks.js';
 import { frameMaxEnvironmentLights } from '../core/frameEnvironment.js';
+import { frameMaxEnvironmentGridSteps } from '../core/frameLimits.js';
 
 const vertexShader = `
   void main() {
@@ -17,7 +18,7 @@ const vertexShader = `
 const fragmentShader = `
   precision highp float;
 
-  #define FRAME_MAX_STEPS 1024
+  #define FRAME_MAX_STEPS ${frameMaxEnvironmentGridSteps}
 
   ${gridPars}
   ${environmentPars}

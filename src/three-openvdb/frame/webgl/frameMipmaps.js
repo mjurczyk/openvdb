@@ -1,5 +1,4 @@
-import * as Three from 'three';
-import { requestGaussianLevels } from '../core/frameMipFilter.js';
+import { requestGaussianLevels, getTextureChannels } from '../core/frameMipFilter.js';
 
 // NOTE Gaussian mipmaps on WebGL (FrameVolume mipmapFilter 'gaussian').
 // NOTE three.js uploads level 0 of a 3D texture, then the GPU makes box levels. texture.onUpdate writes Gaussian levels over them.
@@ -15,8 +14,6 @@ export const setMipmapContext = (gl) => {
 // NOTE Levels of a 3D texture with generateMipmaps in three.js (texStorage3D): width and height only
 const getLevelCount = ({ width, height }) => Math.floor(Math.log2(Math.max(width, height))) + 1;
 
-const getChannels = (texture) => (texture.format === Three.RGBAFormat ? 4 : 1);
-
 // NOTE texture.onUpdate: three.js calls it after the upload and the GPU mipmaps, with the texture bound
 const uploadGaussianLevels = (texture) => {
   const state = texture.userData.frameGaussianMips;
@@ -29,7 +26,7 @@ const uploadGaussianLevels = (texture) => {
     return;
   }
 
-  const format = getChannels(texture) === 4 ? context.RGBA : context.RED;
+  const format = getTextureChannels(texture) === 4 ? context.RGBA : context.RED;
 
   state.levels.forEach(({ data, width, height, depth }, index) => {
     context.texSubImage3D(context.TEXTURE_3D, index + 1, 0, 0, 0, width, height, depth, format, context.UNSIGNED_BYTE, data);
@@ -79,7 +76,7 @@ export const updateGaussianMipmaps = (texture, gaussian) => {
       return;
     }
 
-    state.levels = requestGaussianLevels(image.data, image.width, image.height, image.depth, getChannels(texture), count, 'floor');
+    state.levels = requestGaussianLevels(image.data, image.width, image.height, image.depth, getTextureChannels(texture), count, 'floor');
   }
 
   if (state.levels && state.uploaded !== image.data && !state.pending) {

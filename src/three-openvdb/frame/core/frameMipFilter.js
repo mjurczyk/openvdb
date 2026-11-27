@@ -1,8 +1,13 @@
+import * as Three from 'three';
+
 // NOTE Gaussian mip levels of 3D grid data (FrameVolume mipmapFilter 'gaussian').
 // REF Disney "Deep Scattering" (Kallweit et al. 2017), §6: Gaussian-filtered density mipmap, sigma = 2^i at level i.
 // NOTE Level i: separable Gaussian of level i - 1, then 2x decimation. Level 0 (sigma 1) is the grid.
 // NOTE Sigma adds in squares: each step adds sqrt(4^i - 4^(i-1)) voxels = sqrt(3) texels of level i - 1.
 // NOTE Builds run in 12 ms steps, the same as the FrameVolume conversion. Results are cached for each data array.
+
+// NOTE Channels of a volume texture: 4 for RGBA (albedo), 1 for the other grids
+export const getTextureChannels = (texture) => (texture.format === Three.RGBAFormat ? 4 : 1);
 
 // NOTE 'ceil': WebGPU atlas level sizes. 'floor': WebGL mip level sizes.
 const getLevelSize = (size, level, sizeMode) =>

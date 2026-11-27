@@ -44,6 +44,8 @@ import {
   frameEmissionMaxCascades as maxCascades,
   frameEmissionAtlasColumns as atlasColumns,
   frameEmissionAtlasSize as atlasSize,
+  frameGoldenAngle as goldenAngle,
+  createPassScene,
 } from '../core/FrameEmissionLight.js';
 import { updateVolumeMipmaps } from './frameMipmaps.js';
 import { withoutMRT } from './frameMRT.js';
@@ -56,9 +58,6 @@ import {
   setVolumeUniforms,
   createGridNodes,
 } from './frameShaderChunks.js';
-
-// NOTE Golden angle in radians. Fibonacci directions turn by this angle.
-const goldenAngle = Math.PI * (3.0 - Math.sqrt(5.0));
 
 // NOTE Probe cascades in the uniform names of createGridNodes. Cascade 0 is the finest.
 const createProbeGridUniforms = (group) => {
@@ -93,27 +92,6 @@ const setProbeGridUniforms = (uniforms, light) => {
   uniforms.frameGridCount.value = light.cascadeCount;
   uniforms.frameGridResolution.value = light.probeResolution;
 };
-
-const fullscreenPositions = [-1, -1, 0, 3, -1, 0, -1, 3, 0];
-const quadPositions = [-1, -1, 0, 1, -1, 0, 1, 1, 0, -1, -1, 0, 1, 1, 0, -1, 1, 0];
-
-const createGeometry = (positions) => {
-  const geometry = new Three.BufferGeometry();
-  geometry.setAttribute('position', new Three.Float32BufferAttribute(positions, 3));
-
-  return geometry;
-};
-
-const createTarget = (count, type, filter, width = 1, height = 1) =>
-  new Three.RenderTarget(width, height, {
-    count,
-    type,
-    format: Three.RGBAFormat,
-    minFilter: filter,
-    magFilter: filter,
-    generateMipmaps: false,
-    depthBuffer: false,
-  });
 
 const setPassMaterial = (material) => {
   material.side = Three.DoubleSide;
@@ -375,17 +353,6 @@ let passes = null;
 
 const getPasses = () => {
   if (!passes) {
-    const createPassScene = (material) => {
-      const scene = new Three.Scene();
-      const mesh = new Three.Mesh(createGeometry(fullscreenPositions), material);
-
-      mesh.frustumCulled = false;
-      scene.matrixWorldAutoUpdate = false;
-      scene.add(mesh);
-
-      return scene;
-    };
-
     const reduceMaterial = new FrameEmissionReduceMaterial();
     const probeMaterial = new FrameEmissionProbeMaterial();
 
@@ -529,21 +496,40 @@ export class FrameEmissionLight extends FrameEmissionLightBase {
   constructor(props) {
     super(props);
 
-    // NOTE Float targets for the volumes: intensities in world units do not overflow
-    this.directionTarget = createTarget(2, Three.FloatType, Three.NearestFilter);
-    this.emitterTarget = createTarget(2, Three.FloatType, Three.NearestFilter);
-    this.probeTarget = createTarget(3, Three.HalfFloatType, Three.LinearFilter, atlasSize, atlasSize);
-
-    // NOTE One draw for each changed volume, in one render
-    this.directionScene = new Three.Scene();
-    this.directionScene.matrixWorldAutoUpdate = false;
-    this.directionPool = [];
     // NOTE RendererUtils fills this object. It must not be null.
     this.rendererState = {};
 
     if (typeof Three.Light.registerNode !== 'function') {
       console.warn('FrameEmissionLight: needs three.js r187 or newer (Light.registerNode).');
     }
+  }
+
+  // NOTE Backend hooks of FrameEmissionLightBase (core/FrameEmissionLight.js)
+  createTarget(count, type, filter, width = 1, height = 1) {
+    return new Three.RenderTarget(width, height, {
+      count,
+      type,
+      format: Three.RGBAFormat,
+      minFilter: filter,
+      magFilter: filter,
+      generateMipmaps: false,
+      depthBuffer: false,
+    });
+  }
+
+  getDirectionMaterial() {
+    return getPasses().directionMaterial;
+  }
+
+  setDirectionUniforms(emitter, slot) {
+    const { directionMaterial } = getPasses();
+
+    setVolumeUniforms(directionMaterial.volumeUniforms, emitter.frameVolume, emitter);
+    directionMaterial.frameSlot.value = slot;
+    directionMaterial.frameTargetSize.value.set(directionCount, this.slotCount);
+    directionMaterial.frameEmitterCenter.value.copy(emitter.center);
+    directionMaterial.frameEmitterRadius.value = emitter.radius;
+    directionMaterial.frameSteps.value = this.getSteps();
   }
 
   // NOTE CPU mipmaps are built after the conversion, the same as in the frame renderer
@@ -553,54 +539,9 @@ export class FrameEmissionLight extends FrameEmissionLightBase {
     }
   }
 
-  // NOTE New targets, because setSize() destroys the GPU textures that materials still bind
-  resizeSlots() {
-    this.directionTarget.dispose();
-    this.emitterTarget.dispose();
-    this.directionTarget = createTarget(2, Three.FloatType, Three.NearestFilter, directionCount, this.slotCount);
-    this.emitterTarget = createTarget(2, Three.FloatType, Three.NearestFilter, 1, this.slotCount);
-  }
-
-  getDirectionMesh(index) {
-    if (!this.directionPool[index]) {
-      const { directionMaterial } = getPasses();
-      const mesh = new Three.Mesh(createGeometry(quadPositions), directionMaterial);
-
-      mesh.frustumCulled = false;
-      mesh.matrixAutoUpdate = false;
-      mesh.onBeforeRender = () => {
-        const { emitter, slot } = mesh.userData;
-
-        setVolumeUniforms(directionMaterial.volumeUniforms, emitter.frameVolume, emitter);
-        directionMaterial.frameSlot.value = slot;
-        directionMaterial.frameTargetSize.value.set(directionCount, this.slotCount);
-        directionMaterial.frameEmitterCenter.value.copy(emitter.center);
-        directionMaterial.frameEmitterRadius.value = emitter.radius;
-        directionMaterial.frameSteps.value = this.getSteps();
-      };
-
-      this.directionScene.add(mesh);
-      this.directionPool[index] = mesh;
-    }
-
-    return this.directionPool[index];
-  }
-
-  // NOTE Runs the passes of changed volumes. Called by the light node before the lit meshes of each render.
-  updateProbes(renderer, scene, viewCamera) {
-    const changed = this.prepareProbes(scene, viewCamera);
-
-    if (!changed) {
-      return;
-    }
-
-    changed.forEach(({ emitter, slot }, index) => {
-      const mesh = this.getDirectionMesh(index);
-
-      mesh.userData.emitter = emitter;
-      mesh.userData.slot = slot;
-    });
-
+  // NOTE Direction, reduce and probe passes of the changed volumes.
+  // NOTE The light node calls updateProbes before the lit meshes.
+  renderProbes(renderer, changed) {
     const { directionMaterial, reduceMaterial, probeMaterial, reduceScene, probeScene, camera } = getPasses();
 
     this.rendererState = Three.RendererUtils.resetRendererState(renderer, this.rendererState);
@@ -641,16 +582,6 @@ export class FrameEmissionLight extends FrameEmissionLightBase {
     } finally {
       Three.RendererUtils.restoreRendererState(renderer, this.rendererState);
     }
-  }
-
-  dispose() {
-    super.dispose();
-
-    this.directionTarget.dispose();
-    this.emitterTarget.dispose();
-    this.probeTarget.dispose();
-    this.directionPool.forEach((mesh) => mesh.geometry.dispose());
-    this.directionPool = [];
   }
 }
 

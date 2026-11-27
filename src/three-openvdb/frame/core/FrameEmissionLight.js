@@ -15,6 +15,31 @@ export const frameEmissionAtlasColumns = Math.ceil(
 );
 export const frameEmissionAtlasSize = frameEmissionMaxResolution * frameEmissionAtlasColumns;
 
+// NOTE Golden angle in radians. Fibonacci directions turn by this angle.
+export const frameGoldenAngle = Math.PI * (3.0 - Math.sqrt(5.0));
+
+const fullscreenPositions = [-1, -1, 0, 3, -1, 0, -1, 3, 0];
+const quadPositions = [-1, -1, 0, 1, -1, 0, 1, 1, 0, -1, -1, 0, 1, 1, 0, -1, 1, 0];
+
+export const createGeometry = (positions) => {
+  const geometry = new Three.BufferGeometry();
+  geometry.setAttribute('position', new Three.Float32BufferAttribute(positions, 3));
+
+  return geometry;
+};
+
+// NOTE A scene with one fullscreen triangle of the pass material
+export const createPassScene = (material) => {
+  const scene = new Three.Scene();
+  const mesh = new Three.Mesh(createGeometry(fullscreenPositions), material);
+
+  mesh.frustumCulled = false;
+  scene.matrixWorldAutoUpdate = false;
+  scene.add(mesh);
+
+  return scene;
+};
+
 const unitBox = new Three.Box3(
   new Three.Vector3(-0.5, -0.5, -0.5),
   new Three.Vector3(0.5, 0.5, 0.5),
@@ -61,7 +86,10 @@ const createEmitter = () => ({
 
 // NOTE Light from the emissive grids of all visible FrameVolume objects in the scene, also instances and animations.
 // NOTE 1. Each changed volume gets its emitted light and emission center. 2. Probe cascades add the light of all volumes.
-// NOTE This class has the CPU side. The FrameEmissionLight of each backend runs the GPU passes and lights the materials.
+// NOTE This class has the CPU side and the pass targets. The FrameEmissionLight of each backend runs the GPU passes
+// and lights the materials.
+// NOTE Backend hooks: createTarget(count, type, filter, width, height), getDirectionMaterial(),
+// setDirectionUniforms(emitter, slot), renderProbes(renderer, changed).
 export class FrameEmissionLightBase extends Three.Light {
   isFrameEmissionLight = true;
 
@@ -110,6 +138,22 @@ export class FrameEmissionLightBase extends Three.Light {
     this.cascadeCount = 0;
     this.probeResolution = 2;
     this.probeCenter = new Three.Vector3();
+
+    // NOTE Float targets for the volumes: intensities in world units do not overflow
+    this.directionTarget = this.createTarget(2, Three.FloatType, Three.NearestFilter);
+    this.emitterTarget = this.createTarget(2, Three.FloatType, Three.NearestFilter);
+    this.probeTarget = this.createTarget(
+      3,
+      Three.HalfFloatType,
+      Three.LinearFilter,
+      frameEmissionAtlasSize,
+      frameEmissionAtlasSize,
+    );
+
+    // NOTE One draw for each changed volume, in one render
+    this.directionScene = new Three.Scene();
+    this.directionScene.matrixWorldAutoUpdate = false;
+    this.directionPool = [];
   }
 
   getSteps() {
@@ -119,8 +163,57 @@ export class FrameEmissionLightBase extends Three.Light {
   // NOTE Backends build the mipmaps of the volume textures here
   updateMipmaps(/* frameVolume, volume */) {}
 
-  // NOTE Backends make new emitter targets with slotCount rows here
-  resizeSlots() {}
+  // NOTE New targets with slotCount rows, because setSize() destroys the GPU textures that materials still bind
+  resizeSlots() {
+    this.directionTarget.dispose();
+    this.emitterTarget.dispose();
+    this.directionTarget = this.createTarget(
+      2,
+      Three.FloatType,
+      Three.NearestFilter,
+      frameEmissionDirections,
+      this.slotCount,
+    );
+    this.emitterTarget = this.createTarget(2, Three.FloatType, Three.NearestFilter, 1, this.slotCount);
+  }
+
+  // NOTE A quad of the direction pass for changed volume index. The meshes share the direction material.
+  getDirectionMesh(index) {
+    if (!this.directionPool[index]) {
+      const mesh = new Three.Mesh(createGeometry(quadPositions), this.getDirectionMaterial());
+
+      mesh.frustumCulled = false;
+      mesh.matrixAutoUpdate = false;
+      mesh.onBeforeRender = () => {
+        const { emitter, slot } = mesh.userData;
+
+        this.setDirectionUniforms(emitter, slot);
+      };
+
+      this.directionScene.add(mesh);
+      this.directionPool[index] = mesh;
+    }
+
+    return this.directionPool[index];
+  }
+
+  // NOTE Runs the passes of changed volumes, before the lit meshes of each render
+  updateProbes(renderer, scene, viewCamera) {
+    const changed = this.prepareProbes(scene, viewCamera);
+
+    if (!changed) {
+      return;
+    }
+
+    changed.forEach(({ emitter, slot }, index) => {
+      const mesh = this.getDirectionMesh(index);
+
+      mesh.userData.emitter = emitter;
+      mesh.userData.slot = slot;
+    });
+
+    this.renderProbes(renderer, changed);
+  }
 
   collectEmitters(scene) {
     let count = 0;
@@ -323,5 +416,11 @@ export class FrameEmissionLightBase extends Three.Light {
     this.slotSignatures.length = 0;
     this.slotCount = 0;
     this.probeSignature.length = 0;
+
+    this.directionTarget.dispose();
+    this.emitterTarget.dispose();
+    this.probeTarget.dispose();
+    this.directionPool.forEach((mesh) => mesh.geometry.dispose());
+    this.directionPool = [];
   }
 }
