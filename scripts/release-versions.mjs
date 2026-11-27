@@ -121,7 +121,6 @@ const versions = Object.fromEntries(packages.map((pkg) => [pkg.json.name, pkg.js
 
 packages.forEach((pkg) => {
   const lockEntry = lockJson.packages[pkg.dir];
-  const legacyLockEntry = lockJson.dependencies?.[pkg.json.name];
 
   lockEntry.version = pkg.json.version;
 
@@ -137,10 +136,6 @@ packages.forEach((pkg) => {
 
       if (lockEntry[field]?.[name]) {
         lockEntry[field][name] = range;
-      }
-
-      if (legacyLockEntry?.requires?.[name]) {
-        legacyLockEntry.requires[name] = range;
       }
     });
   });

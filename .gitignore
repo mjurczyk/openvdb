@@ -5,7 +5,6 @@ build
 src/docs/examples/dist
 
 # Test files
-test/compiled.index.js
 notes/
 session-notes/
 
