@@ -3,5 +3,6 @@
   "drop": [
     "./assets/smoke.vdb"
   ],
-  "lightIntensity": 4
+  "lightIntensity": 4,
+  "lightSetup": "point"
 }

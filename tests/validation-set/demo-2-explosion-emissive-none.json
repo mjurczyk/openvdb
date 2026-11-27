@@ -17,5 +17,7 @@
   "upAxis": "z",
   "playing": false,
   "frame": 6,
-  "emissiveGrid": "none"
+  "emissiveGrid": "none",
+  "extinction": 10,
+  "emissiveIntensity": 10
 }

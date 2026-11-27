@@ -1,5 +1,6 @@
 {
   "demo": "frame",
   "lightSetup": "point",
-  "animateLights": false
+  "animateLights": false,
+  "advanceFrames": 120
 }

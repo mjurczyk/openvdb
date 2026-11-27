@@ -17,5 +17,6 @@
   "upAxis": "z",
   "playing": false,
   "frame": 6,
-  "sceneMeshes": true
+  "sceneMeshes": true,
+  "advanceFrames": 30
 }

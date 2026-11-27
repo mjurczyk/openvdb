@@ -2,5 +2,6 @@
   "demo": "frame",
   "source": "explosion",
   "emissionLight": false,
+  "showObstacle": true,
   "advanceFrames": 30
 }

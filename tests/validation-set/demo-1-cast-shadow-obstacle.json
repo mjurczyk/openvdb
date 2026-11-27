@@ -1,5 +1,6 @@
 {
   "demo": "frame",
   "castShadow": true,
-  "showObstacle": true
+  "showObstacle": true,
+  "advanceFrames": 30
 }

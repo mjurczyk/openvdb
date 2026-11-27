@@ -1,4 +1,6 @@
 {
   "demo": "frame",
-  "frame-phase": "dual-lobe"
+  "frame-phase": "dual-lobe",
+  "lightSetup": "pointInside",
+  "multipleScattering": false
 }

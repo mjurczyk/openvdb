@@ -15,5 +15,6 @@
     "./assets/ground_explosion/ground_explosion_0031.wvdb"
   ],
   "upAxis": "z",
-  "fps": 5
+  "fps": 5,
+  "advanceFrames": 42
 }

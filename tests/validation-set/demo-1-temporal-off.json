@@ -1,4 +1,6 @@
 {
   "demo": "frame",
-  "temporal": false
+  "source": "explosion",
+  "temporal": false,
+  "advanceFrames": 30
 }

@@ -3,5 +3,6 @@
   "drop": [
     "./assets/smoke.vdb"
   ],
-  "hemiIntensity": 3
+  "hemiIntensity": 3,
+  "lightSetup": "hemi"
 }

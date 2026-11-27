@@ -1,4 +1,5 @@
 {
   "demo": "frame",
-  "shadowSteps": 128
+  "shadowSteps": 128,
+  "lighting": "volume"
 }

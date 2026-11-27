@@ -1,4 +1,5 @@
 {
   "demo": "frame",
-  "lightIntensity": 4
+  "lightIntensity": 4,
+  "lightSetup": "point"
 }

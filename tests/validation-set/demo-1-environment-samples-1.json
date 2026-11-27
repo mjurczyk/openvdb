@@ -1,4 +1,5 @@
 {
   "demo": "frame",
-  "environmentSamples": 1
+  "environmentSamples": 1,
+  "advanceFrames": 30
 }
