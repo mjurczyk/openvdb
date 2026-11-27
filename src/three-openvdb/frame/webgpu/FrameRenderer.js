@@ -368,20 +368,25 @@ export class FrameRenderer extends FrameRendererBase {
     const resolution = frameGridResolution.value;
     const source = this.shadowDensityTarget;
     const binomial = this.isMultiScale();
-    const signature = [
+    const lastSignature = this.gridMipSignature;
+    const signature = this.nextGridMipSignature;
+
+    signature.length = 0;
+    signature.push(
       this.gridVersion,
       source.texture.id,
       resolution,
       frameGridCount.value,
       frameGridColumns.value,
       binomial ? 1 : 0,
-    ];
+    );
 
-    if (sameValues(signature, this.gridMipSignature)) {
+    if (sameValues(signature, lastSignature)) {
       return;
     }
 
     this.gridMipSignature = signature;
+    this.nextGridMipSignature = lastSignature;
     this.gridMipMaterial.setBinomial(binomial);
 
     const material = this.gridMipMaterial;
