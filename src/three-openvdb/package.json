@@ -1,6 +1,6 @@
 {
   "name": "three-openvdb",
-  "version": "0.31.0",
+  "version": "0.32.0",
   "description": "three.js rendering of OpenVDB volumes: .vdb and .wvdb loaders, FrameVolume and animations, level set surfaces, points.",
   "type": "module",
   "main": "./index.js",
@@ -13,7 +13,7 @@
     "build": "rollup --config ./rollup.config.js"
   },
   "dependencies": {
-    "openvdb": "^0.31.0"
+    "openvdb": "^0.32.0"
   },
   "peerDependencies": {
     "three": ">=0.162.0"

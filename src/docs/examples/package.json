@@ -19,7 +19,7 @@
     "zip-js-esm": "^1.1.1"
   },
   "dependencies": {
-    "openvdb": "^0.31.0",
-    "three-openvdb": "^0.31.0"
+    "openvdb": "^0.32.0",
+    "three-openvdb": "^0.32.0"
   }
 }
